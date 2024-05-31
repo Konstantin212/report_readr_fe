@@ -1,6 +1,7 @@
 import { ChangeEvent, useState } from 'react';
 import './App.css';
 import Table from './shared/Table';
+import config from '@/config.ts';
 
 export type ShareData = {
   current_price: number;
@@ -21,7 +22,7 @@ function App() {
     if (file) {
       formData.append('file', file);
 
-      const resp = await fetch('http://127.0.0.1:8000/api/', {
+      const resp = await fetch(`${config.API_BASE_URL}${config.ENDPOINTS.API}`, {
         method: 'POST',
         body: formData,
       });
