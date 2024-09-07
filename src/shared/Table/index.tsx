@@ -1,22 +1,36 @@
 import { Table as TableContainer, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
-import { ShareData } from '../../App.tsx';
+import { FFReport } from '@/hooks/useUploadFFReport.ts';
 
 type Props = {
-  data: ShareData[];
+  data: FFReport[];
 };
+
+const tableColumns = {
+  shares: 'shares',
+  name: 'name',
+  price: 'price',
+  current_price: 'current price',
+  difference: 'difference',
+  target_price: 'target price',
+};
+
+const headers = [
+  tableColumns.name,
+  tableColumns.shares,
+  tableColumns.price,
+  tableColumns.current_price,
+  tableColumns.difference,
+  tableColumns.target_price,
+];
 
 const Table = ({ data }: Props) => {
   return (
     <TableContainer>
       <TableHeader>
         <TableRow>
-          <TableHead className="capitalize">name</TableHead>
-          <TableHead className="capitalize">shares</TableHead>
-          <TableHead className="capitalize">price</TableHead>
-          <TableHead className="capitalize">current price</TableHead>
-          <TableHead className="capitalize">difference</TableHead>
-          <TableHead className="capitalize">target price</TableHead>
+          {headers.map((header) => (
+            <TableHead className="capitalize">{header}</TableHead>
+          ))}
         </TableRow>
       </TableHeader>
       <TableBody>

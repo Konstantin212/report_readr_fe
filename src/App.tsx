@@ -1,19 +1,19 @@
 import { ChangeEvent, useState } from 'react';
 import './App.css';
 import Table from './shared/Table';
-import config from '@/config.ts';
-
-export type ShareData = {
-  current_price: number;
-  difference: string;
-  name: string;
-  price: number;
-  shares: number;
-  target_price: string;
-};
+import useUploadFfReport, { FFReport } from '@/hooks/useUploadFFReport.ts';
+import FileInput from '@/shared/Form/FileInput.tsx';
+import Spinner from '@/shared/Spiner';
 
 function App() {
-  const [data, setData] = useState<ShareData[] | null>(null);
+  const [data, setData] = useState<FFReport[] | null>(null);
+
+  const { mutate: upload, isPending } = useUploadFfReport({
+    onSuccess: (report) => {
+      setData(report);
+    },
+  });
+
   const handleChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const formData = new FormData();
 
@@ -22,13 +22,7 @@ function App() {
     if (file) {
       formData.append('file', file);
 
-      const resp = await fetch(`${config.API_BASE_URL}${config.ENDPOINTS.API}`, {
-        method: 'POST',
-        body: formData,
-      });
-      const jsonData = await resp.json();
-
-      setData(jsonData.data);
+      upload(formData);
     }
   };
 
@@ -55,7 +49,7 @@ function App() {
 
   return (
     <>
-      <input type="file" onChange={handleChange} />
+      {isPending ? <Spinner /> : <FileInput onChange={handleChange} />}
 
       {data ? (
         <div className="flex flex-col justify-center items-center my-5">
