@@ -1,7 +1,7 @@
 const FileInput = (props: Omit<React.HTMLAttributes<HTMLInputElement>, 'className' | 'type'>) => {
   return (
     <div>
-      <label className="block mb-2 text-sm font-medium text-gray-900 dark:text-white" htmlFor="file_input">
+      <label className="block mb-2 text-sm font-medium text-white" htmlFor="file_input">
         Upload file
       </label>
       <input
