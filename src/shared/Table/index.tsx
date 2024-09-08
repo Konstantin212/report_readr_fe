@@ -29,7 +29,9 @@ const Table = ({ data }: Props) => {
       <TableHeader>
         <TableRow>
           {headers.map((header) => (
-            <TableHead className="capitalize">{header}</TableHead>
+            <TableHead className="capitalize" key={header}>
+              {header}
+            </TableHead>
           ))}
         </TableRow>
       </TableHeader>
