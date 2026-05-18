@@ -29,11 +29,16 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          broker: parsed.account.broker,
-          fileName: file.name,
+          broker: parsed.broker,
+          fileName: parsed.fileName ?? file.name,
           fileHash,
-          taxYear: parsed.account.taxYear,
-          account: parsed.account,
+          taxYear: parsed.taxYear,
+          account: {
+            accountNumber: parsed.account.accountNumber,
+            baseCurrency: parsed.account.baseCurrency,
+            statementStartDate: parsed.statementStartDate,
+            statementEndDate: parsed.statementEndDate,
+          },
           events: parsed.events,
         }),
       });
