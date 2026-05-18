@@ -1,5 +1,4 @@
-import type { ButtonHTMLAttributes, AnchorHTMLAttributes, ReactNode } from "react";
-import Link from "next/link";
+import type { ButtonHTMLAttributes } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -24,27 +23,5 @@ export function Button({ className, variant = "primary", ...props }: ButtonProps
       )}
       {...props}
     />
-  );
-}
-
-type ButtonLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
-  href: string;
-  variant?: keyof typeof variants;
-  children: ReactNode;
-};
-
-export function ButtonLink({ href, className, variant = "primary", children, ...props }: ButtonLinkProps) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        variants[variant],
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </Link>
   );
 }
