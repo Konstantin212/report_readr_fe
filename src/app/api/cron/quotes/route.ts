@@ -36,7 +36,8 @@ export async function GET(req: Request) {
 
   let historyInserted = 0;
   const historyErrors: string[] = [];
-  for (const symbol of universe) {
+  for (let idx = 0; idx < universe.length; idx++) {
+    const symbol = universe[idx];
     try {
       const latest = await db
         .select({ d: quoteHistory.date })
@@ -51,7 +52,6 @@ export async function GET(req: Request) {
       const rows = await fetchYahooHistory(symbol, "2y");
       const fresh = rows.filter(r => r.date > have);
       if (fresh.length === 0) continue;
-      // Batch insert in 200-row chunks
       for (let i = 0; i < fresh.length; i += 200) {
         const chunk = fresh.slice(i, i + 200);
         await db.insert(quoteHistory).values(chunk).onConflictDoNothing();
@@ -59,6 +59,10 @@ export async function GET(req: Request) {
       historyInserted += fresh.length;
     } catch (err) {
       historyErrors.push(`${symbol}: ${(err as Error).message}`);
+    }
+    // throttle: 700 ms between symbols to avoid Yahoo 429
+    if (idx < universe.length - 1) {
+      await new Promise((r) => setTimeout(r, 700));
     }
   }
 

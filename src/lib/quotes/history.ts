@@ -22,7 +22,11 @@ type YahooChart = {
 export async function fetchYahooHistory(symbol: string, range = "2y"): Promise<HistoryRow[]> {
   const mapped = toYahooSymbol(symbol);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(mapped)}?range=${range}&interval=1d`;
-  const res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+  let res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+  }
   if (!res.ok) throw new Error(`YAHOO_HISTORY_${res.status}_${symbol}`);
   const json = (await res.json()) as YahooChart;
   if (json.chart.error || !json.chart.result?.length) {
