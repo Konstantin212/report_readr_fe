@@ -1,4 +1,5 @@
 import { toYahooSymbol } from "./symbol-map";
+import { YAHOO_HEADERS } from "./yahoo";
 
 export type HistoryRow = {
   symbol: string;
@@ -21,7 +22,7 @@ type YahooChart = {
 export async function fetchYahooHistory(symbol: string, range = "2y"): Promise<HistoryRow[]> {
   const mapped = toYahooSymbol(symbol);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(mapped)}?range=${range}&interval=1d`;
-  const res = await fetch(url, { headers: { "User-Agent": "portfolio-tax/1.0" }, cache: "no-store" });
+  const res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
   if (!res.ok) throw new Error(`YAHOO_HISTORY_${res.status}_${symbol}`);
   const json = (await res.json()) as YahooChart;
   if (json.chart.error || !json.chart.result?.length) {
