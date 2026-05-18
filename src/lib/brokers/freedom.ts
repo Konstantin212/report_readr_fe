@@ -41,6 +41,7 @@ type FreedomStatement = {
 type FreedomTrade = Record<string, unknown> & {
   id?: unknown;
   date?: unknown;
+  short_date?: unknown;
   instr_nm?: unknown;
   isin?: unknown;
   operation?: unknown;
@@ -56,6 +57,7 @@ type FreedomTrade = Record<string, unknown> & {
 type FreedomCashFlow = Record<string, unknown> & {
   id?: unknown;
   date?: unknown;
+  short_date?: unknown;
   instr_nm?: unknown;
   operation?: unknown;
   curr_c?: unknown;
@@ -66,6 +68,7 @@ type FreedomCashFlow = Record<string, unknown> & {
 type FreedomCommission = Record<string, unknown> & {
   id?: unknown;
   date?: unknown;
+  short_date?: unknown;
   curr_c?: unknown;
   summ?: unknown;
 };
@@ -73,6 +76,7 @@ type FreedomCommission = Record<string, unknown> & {
 type FreedomCorporateAction = Record<string, unknown> & {
   id?: unknown;
   date?: unknown;
+  short_date?: unknown;
   instr_nm?: unknown;
   isin?: unknown;
   operation?: unknown;
@@ -114,7 +118,7 @@ export function parseFreedomFinanceStatement(
 function parseTrades(rows: FreedomTrade[], accountNumber: string): NormalizedEvent[] {
   return rows
     .map((row, index) => {
-      const date = dateOnly(row.date);
+      const date = dateOnly(cleanString(row.short_date) ?? cleanString(row.date));
       const operation = cleanString(row.operation);
       const quantity = signedQuantity(row.q, operation);
       const fee = absoluteNumber(row.commission);
@@ -156,7 +160,7 @@ function parseCashFlows(rows: FreedomCashFlow[], accountNumber: string): Normali
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: eventType,
-        date: dateOnly(row.date),
+        date: dateOnly(cleanString(row.short_date) ?? cleanString(row.date)),
         currency: cleanString(row.curr_c) ?? "UNKNOWN",
         symbol: cleanString(row.instr_nm),
         description: cleanString(row.operation) ?? cleanString(row.instr_nm),
@@ -177,7 +181,7 @@ function parseCommissions(rows: FreedomCommission[], accountNumber: string): Nor
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: "FEE",
-        date: dateOnly(row.date),
+        date: dateOnly(cleanString(row.short_date) ?? cleanString(row.date)),
         currency: cleanString(row.curr_c) ?? "UNKNOWN",
         amount: cleanNumber(row.summ),
         fee: absoluteNumber(row.summ),
@@ -196,7 +200,7 @@ function parseCorporateActions(rows: FreedomCorporateAction[], accountNumber: st
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: "CORPORATE_ACTION",
-        date: dateOnly(row.date),
+        date: dateOnly(cleanString(row.short_date) ?? cleanString(row.date)),
         currency: cleanString(row.curr_c) ?? "UNKNOWN",
         symbol: cleanString(row.instr_nm),
         isin: cleanString(row.isin),
