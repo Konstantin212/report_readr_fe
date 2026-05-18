@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrokerFilter } from "@/components/pulse/broker-filter";
 
 const NAV = [
   { href: "/", label: "Dashboard" },
@@ -32,6 +33,7 @@ export function Topbar({ active, user }: { active: string; user: { name?: string
         })}
       </nav>
       <div className="ml-auto flex items-center gap-2">
+        <BrokerFilter />
         <div className="w-9 h-9 rounded-[10px] bg-amber text-bg font-bold flex items-center justify-center">
           {(user?.name ?? "U").slice(0, 2).toUpperCase()}
         </div>
