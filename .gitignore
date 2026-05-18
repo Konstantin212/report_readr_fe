@@ -22,3 +22,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Build & runtime
+.next/
+out/
+.turbo/
+
+# pnpm
+.pnpm-store/
+
+# IDE / OS
+.DS_Store
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Test results
+test-results/
+playwright-report/
