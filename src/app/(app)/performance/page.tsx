@@ -1,25 +1,102 @@
 import { requireCurrentUser } from "@/lib/auth/server";
-import { getPerformanceSummary } from "@/lib/data/performance";
+import { getPerformanceData, type Range } from "@/lib/data/performance";
 import { Card } from "@/components/pulse/card";
 import { MetricTile } from "@/components/pulse/metric-tile";
+import { PerfChart } from "@/components/pulse/perf-chart";
+import { RangePicker } from "@/components/pulse/range-picker";
+import { Heatmap } from "@/components/pulse/heatmap";
+import { SectorContributionBars } from "@/components/pulse/sector-contribution-bars";
 
-export default async function PerformancePage() {
+const RANGES = new Set(["1M","3M","6M","YTD","1Y","2Y","ALL"]);
+
+type SP = Promise<{ broker?: string; range?: string }>;
+
+export default async function PerformancePage({ searchParams }: { searchParams: SP }) {
   const user = await requireCurrentUser();
-  const s = await getPerformanceSummary(user.id);
+  const params = await searchParams;
+  const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
+  const range = (RANGES.has(params.range ?? "") ? params.range : "2Y") as Range;
+
+  const d = await getPerformanceData(user.id, broker, range);
+
+  const fmtPct = (v: number | null, dec = 1) => {
+    if (v === null) return "—";
+    return `${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
+  };
+  const fmtVal = (v: number | null, dec = 2) => v === null ? "—" : v.toFixed(dec);
+
   return (
     <main className="space-y-4">
-      <h1 className="text-2xl font-bold tracking-tight">Performance</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold tracking-tight">
+          Performance{" "}
+          <span className="font-mono text-sm text-muted ml-2 tracking-wider">
+            vs S&amp;P 500 (USD-hedged)
+          </span>
+        </h1>
+        <RangePicker active={range} />
+      </div>
+
+      {/* Hero chart card */}
       <Card>
-        <div className="font-mono uppercase tracking-widest text-xs text-muted">Realized P/L · all time</div>
-        <div className={`font-bold text-5xl mt-2 num ${s.totalGain >= 0 ? "text-mint" : "text-bad"}`}>
-          {s.totalGain >= 0 ? "+" : "−"}€{Math.abs(s.totalGain).toFixed(2)}
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <div className="font-mono text-[11px] text-muted uppercase tracking-widest">Equity curve · indexed to 100</div>
+            <div className="flex gap-6 mt-3 items-baseline">
+              <div>
+                <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Portfolio</div>
+                <div className="font-bold text-[36px] num leading-tight text-mint tracking-tight">{fmtPct(d.hero.portfolioReturnPct)}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] text-dim uppercase tracking-widest">S&amp;P 500</div>
+                <div className="font-bold text-[28px] num leading-tight text-muted tracking-tight mt-1">{fmtPct(d.hero.benchmarkReturnPct)}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Alpha</div>
+                <div className="font-bold text-[28px] num leading-tight text-amber tracking-tight mt-1">{fmtPct(d.hero.alphaPct)}</div>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {d.hero.alphaPct !== null && (
+              <div className={`px-3 py-1 rounded-full font-mono text-[11px] tracking-wider ${
+                d.hero.outperforming ? "bg-mint/15 text-mint" : "bg-bad/15 text-bad"
+              }`}>
+                ● {d.hero.outperforming ? "OUTPERFORMING" : "UNDERPERFORMING"}
+              </div>
+            )}
+            <div className="font-mono text-[11px] text-dim">{d.hero.label}</div>
+          </div>
         </div>
-        <div className="font-mono text-xs text-muted mt-2">{s.matchCount} realized lots</div>
+        {d.equityCurve.portfolio.length > 0 ? (
+          <div className="h-[320px] mt-2">
+            <PerfChart
+              values={d.equityCurve.portfolio}
+              benchmark={d.equityCurve.benchmark.length > 0 ? d.equityCurve.benchmark : undefined}
+              style="area"
+            />
+          </div>
+        ) : (
+          <div className="h-[320px] flex items-center justify-center text-muted text-sm">
+            Not enough history yet. Cron will backfill within 24 hours.
+          </div>
+        )}
       </Card>
-      <div className="grid grid-cols-3 gap-4">
-        <MetricTile label="Winners" value={String(s.wins)} accent="mint" />
-        <MetricTile label="Losers" value={String(s.losses)} accent="bad" />
-        <MetricTile label="Long-term (≥365d)" value={String(s.longTerm)} accent="amber" />
+
+      {/* 6 metric tiles */}
+      <div className="grid grid-cols-6 gap-3">
+        <MetricTile label="TWR" value={fmtPct(d.metrics.twrPct)} sublabel="annualized" accent={d.metrics.twrPct !== null && d.metrics.twrPct >= 0 ? "mint" : "bad"} />
+        <MetricTile label="MWR / IRR" value={fmtPct(d.metrics.mwrPct)} sublabel="money-weighted" />
+        <MetricTile label="Volatility" value={fmtPct(d.metrics.volatilityPct, 1)} sublabel="annualized" />
+        <MetricTile label="Max drawdown" value={fmtPct(d.metrics.drawdownPct)} sublabel="peak to trough" accent="bad" />
+        <MetricTile label="Sharpe" value={fmtVal(d.metrics.sharpe)} sublabel="risk-adjusted" accent="amber" />
+        <MetricTile label="Beta" value={fmtVal(d.metrics.beta)} sublabel="vs S&P 500" />
+      </div>
+
+      {/* Heatmap + sector contribution */}
+      <div className="grid grid-cols-[1.6fr_1fr] gap-4">
+        <Heatmap rows={d.heatmap} />
+        <SectorContributionBars bars={d.sectorContribution} />
       </div>
     </main>
   );
