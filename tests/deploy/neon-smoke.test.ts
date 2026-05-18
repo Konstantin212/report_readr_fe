@@ -37,7 +37,7 @@ describe("deployment smoke against configured Postgres", () => {
       bytes,
       taxYear: 2024,
     });
-    const fileHash = await sha256Hex(bytes);
+    const fileHash = await sha256Hex(new Uint8Array(bytes).buffer);
 
     const result = await persistParsedImport({
       ownerUserId: smokeUserId,
