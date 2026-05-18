@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db/client";
 import { brokerAccounts, imports, taxReportLines, taxReports, transactions } from "@/lib/db/schema";
 import type { Broker, EventType, NormalizedEvent } from "@/lib/domain/types";
 import { buildLedgerSummary, type LedgerSummary } from "@/lib/ledger/summary";
-import { buildGermanTaxDraft, type GermanTaxDraft } from "@/lib/tax/german-tax";
+import type { GermanTaxDraft } from "@/lib/tax/german-tax";
 
 export type StorageMode = "DATABASE" | "LOCAL";
 
@@ -58,6 +58,7 @@ export type ImportHistory = {
 
 export type TaxDraftSummary = {
   storageMode: StorageMode;
+  // draft retained for legacy route compatibility; use loadTaxInputs + buildAnlageKap for new pages
   draft: GermanTaxDraft;
 };
 
@@ -152,14 +153,17 @@ export async function getImportHistory(ownerUserId: string): Promise<ImportHisto
 }
 
 export async function getTaxDraft(ownerUserId: string, taxYear: number): Promise<TaxDraftSummary> {
+  // Legacy shim: new pages should use loadTaxInputs + buildAnlageKap directly.
+  const { buildAnlageKap } = await import("@/lib/tax/german-tax");
+  const { loadTaxInputs } = await import("@/lib/data/tax");
   if (!hasDatabase()) {
     return {
       storageMode: "LOCAL",
-      draft: buildGermanTaxDraft({ taxYear, events: [] }),
+      draft: buildAnlageKap({ taxYear, settings: { filingStatus: "SINGLE", saverAllowance: "1000" }, dividends: [], interest: [], matches: [] }),
     };
   }
-
-  const draft = buildGermanTaxDraft({ taxYear, events: await getOwnerTransactions(ownerUserId) });
+  const inputs = await loadTaxInputs(ownerUserId, taxYear);
+  const draft = buildAnlageKap(inputs);
   await persistTaxDraft(ownerUserId, draft);
   return { storageMode: "DATABASE", draft };
 }
@@ -211,13 +215,13 @@ async function persistTaxDraft(ownerUserId: string, draft: GermanTaxDraft): Prom
         lineKey,
         amount,
         currency: "EUR",
-        evidence: draft.evidence.filter((item) => item.line === lineKey),
+        evidence: draft.evidence,
       })
       .onConflictDoUpdate({
         target: [taxReportLines.taxReportId, taxReportLines.lineKey],
         set: {
           amount,
-          evidence: draft.evidence.filter((item) => item.line === lineKey),
+          evidence: draft.evidence,
         },
       });
   }

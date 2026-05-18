@@ -1,19 +1,18 @@
-import type { GermanTaxDraft } from "@/lib/tax/german-tax";
+import type { GermanTaxDraft, KapEvidenceItem } from "@/lib/tax/german-tax";
 
-const csvColumns = ["line", "date", "broker", "accountNumber", "type", "symbol", "isin", "currency", "amount"] as const;
+const csvColumns = ["date","ticker","symbol","country","grossEur","whtEur","ecbRate","fingerprint"] as const;
 
 export function buildTaxEvidenceCsv(draft: GermanTaxDraft): string {
-  const rows = draft.evidence.map((item) =>
+  const rows = draft.evidence.map((item: KapEvidenceItem) =>
     [
-      item.line,
       item.date,
-      item.broker,
-      item.accountNumber,
-      item.type,
+      item.ticker ?? "",
       item.symbol ?? "",
-      item.isin ?? "",
-      item.currency,
-      item.amount,
+      item.country ?? "",
+      item.grossEur,
+      item.whtEur ?? "",
+      item.ecbRate ?? "",
+      item.fingerprint,
     ]
       .map(escapeCsvCell)
       .join(","),
@@ -25,9 +24,7 @@ export function buildTaxEvidenceCsv(draft: GermanTaxDraft): string {
 export function buildTaxEvidenceJson(draft: GermanTaxDraft) {
   return {
     taxYear: draft.taxYear,
-    filingReady: draft.filingReady,
     lines: draft.lines,
-    reviewItems: draft.reviewItems,
     evidence: draft.evidence,
   };
 }
