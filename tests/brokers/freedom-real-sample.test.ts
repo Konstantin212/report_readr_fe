@@ -11,25 +11,20 @@ describe("Freedom Finance parser — real sample", () => {
     expect(result.account.accountNumber).toBe("FF-TEST");
   });
 
-  it("parses statement structure", () => {
-    // This real sample has aggregated/grouped data that results in limited parsing
-    // The parser should at least accept the file without error
-    expect(result.events).toBeDefined();
-    expect(Array.isArray(result.events)).toBe(true);
+  it("extracts at least one trade with a real ISO date", () => {
+    const trades = result.events.filter(e => e.type === "TRADE");
+    expect(trades.length).toBeGreaterThan(0);
+    expect(trades.every(t => /^\d{4}-\d{2}-\d{2}$/.test(t.date))).toBe(true);
   });
 
-  it("events have proper type and date structure", () => {
-    if (result.events.length > 0) {
-      result.events.forEach(e => {
-        expect(e.type).toBeDefined();
-        expect(typeof e.date).toBe("string");
-        expect(e.broker).toBe("FREEDOM_FINANCE");
-      });
-    }
+  it("buy and sell trades have signed quantities", () => {
+    const trades = result.events.filter(e => e.type === "TRADE");
+    expect(trades.some(t => Number(t.quantity) > 0)).toBe(true);
+    const sells = trades.filter(t => /sell|sale/i.test(t.description ?? ""));
+    if (sells.length > 0) expect(sells.every(t => Number(t.quantity) < 0)).toBe(true);
   });
 
   it("properly redacted account number in output", () => {
-    // Verify no sensitive data is leaked
     expect(result.account.accountNumber).toBe("FF-TEST");
     expect(result.account.accountNumber).not.toContain("201743");
   });
