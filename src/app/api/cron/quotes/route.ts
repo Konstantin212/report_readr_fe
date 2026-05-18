@@ -5,6 +5,8 @@ import { positions, quoteCache, quoteHistory, userSettings } from "@/lib/db/sche
 import { fetchYahooQuotes } from "@/lib/quotes/yahoo";
 import { fetchYahooHistory } from "@/lib/quotes/history";
 
+export const maxDuration = 300;
+
 const BENCHMARK_DEFAULT = "^GSPC";
 
 export async function GET(req: Request) {
