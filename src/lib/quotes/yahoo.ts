@@ -13,7 +13,11 @@ export async function fetchYahooQuotes(symbols: string[]): Promise<Quote[]> {
   if (!symbols.length) return [];
   const mapped = symbols.map(toYahooSymbol).join(",");
   const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(mapped)}`;
-  const res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+  let res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, 5_000));
+    res = await fetch(url, { headers: YAHOO_HEADERS, cache: "no-store" });
+  }
   if (!res.ok) throw new Error(`YAHOO_${res.status}`);
   const json = await res.json() as { quoteResponse: { result: Array<{ symbol: string; regularMarketPrice: number; currency: string; regularMarketTime: number }> } };
   return json.quoteResponse.result.map((r, i) => ({

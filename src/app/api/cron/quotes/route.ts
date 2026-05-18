@@ -23,15 +23,20 @@ export async function GET(req: Request) {
   const universe = Array.from(new Set([...heldSymbols, ...benchmarkSymbols]));
 
   let spotInserted = 0;
+  let spotError: string | null = null;
   if (heldSymbols.length) {
-    const quotes = await fetchYahooQuotes(heldSymbols);
-    for (const q of quotes) {
-      await db.insert(quoteCache).values(q).onConflictDoUpdate({
-        target: [quoteCache.symbol, quoteCache.date],
-        set: { close: q.close, updatedAt: new Date() },
-      });
+    try {
+      const quotes = await fetchYahooQuotes(heldSymbols);
+      for (const q of quotes) {
+        await db.insert(quoteCache).values(q).onConflictDoUpdate({
+          target: [quoteCache.symbol, quoteCache.date],
+          set: { close: q.close, updatedAt: new Date() },
+        });
+      }
+      spotInserted = quotes.length;
+    } catch (err) {
+      spotError = (err as Error).message;
     }
-    spotInserted = quotes.length;
   }
 
   let historyInserted = 0;
@@ -68,6 +73,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     spotInserted,
+    spotError,
     historyInserted,
     historyErrors,
     universe: universe.length,
