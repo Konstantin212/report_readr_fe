@@ -1,135 +1,108 @@
 import Decimal from "decimal.js";
+import { TREATY_CAP, DEFAULT_TREATY_CAP } from "./treaties";
 
-import { decimal, moneyString } from "@/lib/domain/decimal";
-import type { NormalizedEvent } from "@/lib/domain/types";
-
-export type GermanTaxDraftLines = {
-  capitalIncome: string;
-  stockLosses: string;
-  foreignWithholdingTax: string;
+export type KapDividend = {
+  ticker: string;
+  country?: string;
+  grossEur: string;
+  whtEur: string;
 };
 
-export type GermanTaxEvidenceItem = {
-  eventId: string;
+export type KapInterest = { grossEur: string };
+
+export type KapMatch = {
+  symbol: string;
+  gainEur: string;
+  closedAt: string;
+};
+
+export type KapSettings = {
+  filingStatus: "SINGLE" | "JOINT";
+  saverAllowance: string; // "1000" or "2000"
+};
+
+export type KapEvidenceItem = {
   date: string;
-  broker: NormalizedEvent["broker"];
-  accountNumber: string;
-  type: NormalizedEvent["type"];
-  currency: string;
-  amount: string;
-  line: keyof GermanTaxDraftLines;
   symbol?: string;
-  isin?: string;
+  ticker?: string;
+  country?: string;
+  grossEur: string;
+  whtEur?: string;
+  ecbRate?: string;
+  fingerprint: string;
 };
 
 export type GermanTaxDraft = {
   taxYear: number;
-  lines: GermanTaxDraftLines;
-  evidence: GermanTaxEvidenceItem[];
-  reviewItems: GermanTaxReviewItem[];
-  filingReady: boolean;
-};
-
-export type GermanTaxReviewItem = {
-  eventId: string;
-  message: string;
-};
-
-export function buildGermanTaxDraft({
-  taxYear,
-  events,
-}: {
-  taxYear: number;
-  events: NormalizedEvent[];
-}): GermanTaxDraft {
-  let capitalIncome = new Decimal(0);
-  let stockLosses = new Decimal(0);
-  let foreignWithholdingTax = new Decimal(0);
-  const evidence: GermanTaxEvidenceItem[] = [];
-  const reviewItems: GermanTaxReviewItem[] = [];
-
-  for (const event of events) {
-    if (!event.date.startsWith(`${taxYear}-`)) {
-      continue;
-    }
-
-    if (event.requiresReview) {
-      reviewItems.push({
-        eventId: event.id,
-        message: `Missing reviewed EUR tax value for ${event.type} on ${event.date}.`,
-      });
-      continue;
-    }
-
-    if (event.type === "DIVIDEND" || event.type === "INTEREST") {
-      const amount = decimal(event.amountEur ?? event.amount);
-      if (!amount.isZero()) {
-        capitalIncome = capitalIncome.plus(amount);
-        evidence.push(toEvidence(event, "capitalIncome", amount));
-      }
-
-      const withholding = decimal(event.withholdingTaxEur ?? event.withholdingTax);
-      if (!withholding.isZero()) {
-        foreignWithholdingTax = foreignWithholdingTax.plus(withholding.abs());
-      }
-
-      continue;
-    }
-
-    if (event.type === "TRADE") {
-      const result = decimal(event.realizedPnlEur ?? event.realizedPnl);
-      if (result.gt(0)) {
-        capitalIncome = capitalIncome.plus(result);
-        evidence.push(toEvidence(event, "capitalIncome", result));
-      } else if (result.lt(0)) {
-        stockLosses = stockLosses.plus(result.abs());
-        evidence.push(toEvidence(event, "stockLosses", result.abs()));
-      }
-      continue;
-    }
-
-    if (event.type === "WITHHOLDING_TAX") {
-      const tax =
-        event.withholdingTaxEur !== undefined
-          ? decimal(event.withholdingTaxEur)
-          : event.withholdingTax !== undefined
-            ? decimal(event.withholdingTax)
-            : decimal(event.amountEur ?? event.amount).abs();
-      if (!tax.isZero()) {
-        foreignWithholdingTax = foreignWithholdingTax.plus(tax.abs());
-        evidence.push(toEvidence(event, "foreignWithholdingTax", tax.abs()));
-      }
-    }
-  }
-
-  return {
-    taxYear,
-    lines: {
-      capitalIncome: moneyString(capitalIncome),
-      stockLosses: moneyString(stockLosses),
-      foreignWithholdingTax: moneyString(foreignWithholdingTax),
-    },
-    evidence,
-    reviewItems,
-    filingReady: reviewItems.length === 0,
+  lines: {
+    Z19: string; // capital income gross (dividends + interest)
+    Z20: string; // of which foreign
+    Z21: string; // dummy placeholder, kept 0 for v1
+    Z22: string; // of which gains from share sales (positive matches)
+    Z41: string; // already-paid German Abgeltungsteuer (rare for foreign brokers)
+    Z51: string; // foreign WHT paid (gross)
+    Z52: string; // foreign WHT eligible for offset (treaty-capped)
   };
-}
+  evidence: KapEvidenceItem[];
+};
 
-function toEvidence(
-  event: NormalizedEvent,
-  line: keyof GermanTaxDraftLines,
-  amount: Decimal,
-): GermanTaxEvidenceItem {
+export type BuildAnlageKapInput = {
+  taxYear: number;
+  settings: KapSettings;
+  dividends: KapDividend[];
+  interest: KapInterest[];
+  matches: KapMatch[];
+};
+
+export function buildAnlageKap(input: BuildAnlageKapInput): GermanTaxDraft {
+  const dividendGross = input.dividends.reduce((s, d) => s.plus(d.grossEur || "0"), new Decimal(0));
+  const interestGross = input.interest.reduce((s, i) => s.plus(i.grossEur || "0"), new Decimal(0));
+  const foreignDividends = input.dividends
+    .filter(d => d.country && d.country !== "DE")
+    .reduce((s, d) => s.plus(d.grossEur || "0"), new Decimal(0));
+  const z19 = dividendGross.plus(interestGross);
+  const z20 = foreignDividends; // interest assumed domestic in v1
+
+  const positiveGains = input.matches.reduce((s, m) => s.plus(Decimal.max(0, new Decimal(m.gainEur || "0"))), new Decimal(0));
+  const negativeGains = input.matches.reduce((s, m) => s.plus(Decimal.min(0, new Decimal(m.gainEur || "0"))), new Decimal(0));
+  const z22 = positiveGains.plus(negativeGains); // net realized; negative losses reduce
+
+  const z41 = new Decimal(0); // foreign brokers don't withhold DE AbgSt
+
+  const whtTotal = input.dividends.reduce((s, d) => s.plus(d.whtEur || "0"), new Decimal(0));
+  const eligibleWht = input.dividends.reduce((sum, d) => {
+    const cap = d.country ? (TREATY_CAP[d.country] ?? DEFAULT_TREATY_CAP) : DEFAULT_TREATY_CAP;
+    const grossDec = new Decimal(d.grossEur || "0");
+    const whtDec = new Decimal(d.whtEur || "0");
+    return sum.plus(Decimal.min(whtDec, grossDec.mul(cap)));
+  }, new Decimal(0));
+
   return {
-    eventId: event.id,
-    date: event.date,
-    broker: event.broker,
-    accountNumber: event.accountNumber,
-    type: event.type,
-    currency: event.currency,
-    amount: moneyString(amount),
-    line,
-    ...(event.symbol ? { symbol: event.symbol } : {}),
-    ...(event.isin ? { isin: event.isin } : {}),
+    taxYear: input.taxYear,
+    lines: {
+      Z19: z19.toFixed(2),
+      Z20: z20.toFixed(2),
+      Z21: "0.00",
+      Z22: z22.toFixed(2),
+      Z41: z41.toFixed(2),
+      Z51: whtTotal.toFixed(2),
+      Z52: eligibleWht.toFixed(2),
+    },
+    evidence: [
+      ...input.dividends.map(d => ({
+        date: input.taxYear.toString(),
+        ticker: d.ticker,
+        country: d.country,
+        grossEur: d.grossEur,
+        whtEur: d.whtEur,
+        fingerprint: `div-${d.ticker}-${d.country ?? "??"}`,
+      })),
+      ...input.matches.map(m => ({
+        date: m.closedAt,
+        symbol: m.symbol,
+        grossEur: m.gainEur,
+        fingerprint: `match-${m.symbol}-${m.closedAt}`,
+      })),
+    ],
   };
 }
