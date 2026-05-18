@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.anthropic.com)",
+      "PowerShell($json = Get-Content \"C:\\\\Users\\\\Kostan\\\\Downloads\\\\900000_2021-04-30 23_59_59_2026-05-16 23_59_59_all.json\" -Raw | ConvertFrom-Json; Write-Output \"Top-level keys:\"; $json.PSObject.Properties.Name; Write-Output \"\"; Write-Output \"Type of root:\"; $json.GetType\\(\\).Name; if \\($json -is [System.Collections.IEnumerable] -and -not \\($json -is [string]\\)\\) { Write-Output \"Array length: $\\($json.Count\\)\"; Write-Output \"First item type:\"; $json[0].GetType\\(\\).Name; if \\($json[0]\\) { Write-Output \"First item keys:\"; $json[0].PSObject.Properties.Name } })",
+      "Skill(superpowers:brainstorming)"
+    ]
+  }
+}

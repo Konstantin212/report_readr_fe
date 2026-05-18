@@ -1,0 +1,65 @@
+{
+  "date_start": "2024-01-01",
+  "date_end": "2024-12-31",
+  "plainAccountInfoData": {
+    "account": "FF000000",
+    "currency": "EUR"
+  },
+  "trades": {
+    "detailed": [
+      {
+        "date": "2024-03-01T10:00:00Z",
+        "instr_nm": "Apple Inc",
+        "isin": "US0378331005",
+        "operation": "Buy",
+        "curr_c": "USD",
+        "q": 2,
+        "p": 150,
+        "summ": -300,
+        "profit": 0,
+        "commission": 1,
+        "commission_currency": "USD",
+        "id": "trade-1"
+      },
+      {
+        "date": "2024-09-01T10:00:00Z",
+        "instr_nm": "Apple Inc",
+        "isin": "US0378331005",
+        "operation": "Sell",
+        "curr_c": "USD",
+        "q": 1,
+        "p": 180,
+        "summ": 180,
+        "profit": 29,
+        "commission": 1,
+        "commission_currency": "USD",
+        "id": "trade-2"
+      }
+    ]
+  },
+  "cash_flows": {
+    "detailed": [
+      {
+        "date": "2024-05-10T00:00:00Z",
+        "instr_nm": "Apple Inc dividend",
+        "operation": "Dividend",
+        "curr_c": "USD",
+        "summ": 4.2,
+        "id": "dividend-1"
+      }
+    ]
+  },
+  "commissions": {
+    "detailed": [
+      {
+        "date": "2024-03-01T10:00:00Z",
+        "curr_c": "USD",
+        "summ": -1,
+        "id": "fee-1"
+      }
+    ]
+  },
+  "corporate_actions": {
+    "detailed": []
+  }
+}
