@@ -327,5 +327,24 @@ export const userSettings = pgTable("user_settings", {
   fxSource: text("fx_source").notNull().default("ECB"),
   accentPalette: jsonb("accent_palette").notNull().default(["#7CFFB2","#FFD24A","#FF5DA2"]),
   hideValues: boolean("hide_values").notNull().default(false),
+  benchmarkSymbol: text("benchmark_symbol").notNull().default("^GSPC"),
+  notifyDailySummary: boolean("notify_daily_summary").notNull().default(false),
+  autoRedactTickers: boolean("auto_redact_tickers").notNull().default(false),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const quoteHistory = pgTable(
+  "quote_history",
+  {
+    symbol: text("symbol").notNull(),
+    date: text("date").notNull(),
+    close: numeric("close").notNull(),
+    currency: text("currency").notNull(),
+    source: text("source").notNull().default("YAHOO"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.symbol, table.date] }),
+    symbolDateIdx: index("quote_history_symbol_date_idx").on(table.symbol, table.date),
+  }),
+);
