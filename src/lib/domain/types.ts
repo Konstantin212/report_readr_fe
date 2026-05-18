@@ -36,7 +36,7 @@ export type NormalizedEvent = {
   feeEur?: string;
   withholdingTax?: string;
   withholdingTaxEur?: string;
-  fxSource?: "BROKER" | "MANUAL_REVIEW" | "MISSING";
+  fxSource?: "BROKER" | "ECB" | "MANUAL_REVIEW" | "MISSING";
   requiresReview?: boolean;
   reviewedAt?: string;
   reviewedByUserId?: string;
