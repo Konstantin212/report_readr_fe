@@ -1,6 +1,7 @@
 import { parseFreedomFinanceStatement } from "./freedom";
 import { parseInteractiveBrokersStatement } from "./ibkr";
-import type { ParseBrokerStatementInput, ParsedBrokerStatement } from "./types";
+import { detectBroker } from "./detect";
+import type { ParseBrokerStatementInput, ParsedBrokerStatement, BrokerId } from "./types";
 import type { ParsedImport } from "@/lib/domain/types";
 
 export function parseBrokerStatement(input: ParseBrokerStatementInput): ParsedImport {
@@ -27,7 +28,11 @@ export function parseBrokerStatement(input: ParseBrokerStatementInput): ParsedIm
 }
 
 function parseBroker(input: ParseBrokerStatementInput): ParsedBrokerStatement {
-  if (input.broker === "INTERACTIVE_BROKERS") {
+  const bytes = input.bytes instanceof Uint8Array ? input.bytes : new Uint8Array(input.bytes);
+  const broker = input.broker ?? detectBroker({ fileName: input.fileName, bytes });
+  if (!broker) throw new Error("UNKNOWN_BROKER");
+
+  if (broker === "INTERACTIVE_BROKERS") {
     return parseInteractiveBrokersStatement(input.fileName, input.bytes, input.taxYear);
   }
 
