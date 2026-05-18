@@ -1,4 +1,4 @@
-import { Download, Landmark, ShieldAlert } from "lucide-react";
+import { Download, Landmark } from "lucide-react";
 
 import { AppShell } from "@/components/app/app-shell";
 import { MetricCard } from "@/components/app/metric-card";
@@ -19,13 +19,9 @@ export default async function TaxYearPage({ params }: { params: Promise<{ year: 
           <p className="text-sm font-medium text-secondary">Anlage KAP draft</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{taxYear} German tax report</h1>
           <p className="mt-4 text-sm leading-6 text-muted-foreground">
-            Draft figures are grouped by taxable capital income, stock losses, and foreign withholding tax. Each value will link back to normalized broker events.
+            Draft figures are grouped by taxable capital income, foreign dividends, share-sale gains, and foreign withholding tax.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <ButtonLink href={`/tax/${taxYear}/review`} variant={draft.filingReady ? "outline" : "primary"}>
-              <ShieldAlert size={17} aria-hidden />
-              Review EUR values
-            </ButtonLink>
             <ButtonLink href={`/api/tax/${taxYear}/export?format=csv`} variant="outline">
               <Download size={17} aria-hidden />
               Evidence CSV
@@ -49,19 +45,17 @@ export default async function TaxYearPage({ params }: { params: Promise<{ year: 
         </div>
       </section>
       <section className="mt-8 grid gap-4 md:grid-cols-3">
-        <MetricCard label="Capital income" value={`€${draft.lines.capitalIncome}`} detail="Dividends, interest, realized gains" />
-        <MetricCard label="Stock losses" value={`€${draft.lines.stockLosses}`} detail="Loss bucket for KAP review" tone="tertiary" />
-        <MetricCard label="Withholding tax" value={`€${draft.lines.foreignWithholdingTax}`} detail="Foreign tax evidence" tone="secondary" />
+        <MetricCard label="Capital income (Z19)" value={`€${draft.lines.Z19}`} detail="Dividends + interest gross" />
+        <MetricCard label="Share-sale gains (Z22)" value={`€${draft.lines.Z22}`} detail="Net realized gains/losses" tone="tertiary" />
+        <MetricCard label="WHT eligible (Z52)" value={`€${draft.lines.Z52}`} detail="Treaty-capped foreign WHT" tone="secondary" />
       </section>
       <section className="mt-8 grid gap-4 lg:grid-cols-[0.75fr_1.25fr]">
         <article className="rounded-md border border-border bg-card p-4 shadow-panel">
-          <p className="text-sm font-semibold">Review status</p>
+          <p className="text-sm font-semibold">Storage status</p>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {storageMode === "LOCAL"
               ? "No database is configured, so tax figures only update after DATABASE_URL is set."
-              : draft.reviewItems.length > 0
-                ? `${draft.reviewItems.length} event${draft.reviewItems.length === 1 ? "" : "s"} need reviewed EUR values before the draft is filing-ready.`
-                : "No review flags for this tax year. The draft is filing-ready for manual ELSTER entry."}
+              : "Tax draft loaded from database."}
           </p>
         </article>
         <article className="rounded-md border border-border bg-card p-4 shadow-panel">
@@ -71,13 +65,13 @@ export default async function TaxYearPage({ params }: { params: Promise<{ year: 
           ) : (
             <div className="mt-4 grid gap-2">
               {draft.evidence.slice(0, 8).map((item) => (
-                <div key={`${item.eventId}:${item.line}`} className="rounded-md border border-border bg-background/50 p-3 text-sm">
+                <div key={item.fingerprint} className="rounded-md border border-border bg-background/50 p-3 text-sm">
                   <p className="font-medium">
-                    {item.date} - {item.type} - €{item.amount}
+                    {item.date} — €{item.grossEur}
                   </p>
                   <p className="text-muted-foreground">
-                    {item.broker} {item.accountNumber}
-                    {item.symbol ? ` - ${item.symbol}` : ""}
+                    {item.ticker ?? item.symbol ?? "—"}
+                    {item.country ? ` (${item.country})` : ""}
                   </p>
                 </div>
               ))}
