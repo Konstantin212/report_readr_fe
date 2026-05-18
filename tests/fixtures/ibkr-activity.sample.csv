@@ -1,0 +1,17 @@
+Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers Ireland Limited
+Statement,Data,Period,"January 1, 2024 - December 31, 2024"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Account,U000000
+Account Information,Data,Base Currency,EUR
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,USD,VUAA,2024-02-01;10:00:00,2,80,-160,-1,160,0,0,O
+Trades,Data,Order,Stocks,USD,VUAA,2024-08-01;10:00:00,-1,100,100,-1,80,19,19,C
+Interest,Header,Currency,Date,Description,Amount
+Interest,Data,USD,2024-05-31,Broker Interest Paid and Received,3.5
+Interest,Data,Total,,,3.5
+Interest,Data,Total in EUR,,,3.2
+Cash Report,Header,Currency Summary,Currency,Total,Securities,Futures
+Cash Report,Data,Commissions,Base Currency Summary,-2,-2,0
+Deposits & Withdrawals,Header,Currency,Settle Date,Description,Amount
+Deposits & Withdrawals,Data,EUR,2024-01-15,Deposit,500
