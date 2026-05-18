@@ -7,10 +7,11 @@ const BROKERS = [
   { key: "ibkr", label: "IBKR" },
 ] as const;
 
-export function BrokerFilter({ active = "all" }: { active?: string }) {
+export function BrokerFilter({ active }: { active?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const current = active ?? (sp.get("broker") || "all");
   return (
     <div className="flex gap-0.5 p-[3px] rounded-full bg-panel border border-border">
       {BROKERS.map((b) => (
@@ -18,11 +19,12 @@ export function BrokerFilter({ active = "all" }: { active?: string }) {
           key={b.key}
           onClick={() => {
             const p = new URLSearchParams(sp.toString());
-            p.set("broker", b.key);
+            if (b.key === "all") p.delete("broker");
+            else p.set("broker", b.key);
             router.replace(`${pathname}?${p.toString()}` as never);
           }}
           className={`px-3 py-1.5 rounded-full font-mono text-[11px] uppercase tracking-widest ${
-            active === b.key ? "bg-mint text-bg" : "text-ink hover:text-mint"
+            current === b.key ? "bg-mint text-bg" : "text-ink hover:text-mint"
           }`}
         >
           {b.label}
