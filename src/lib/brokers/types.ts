@@ -65,7 +65,7 @@ export type ParsedBrokerStatement = {
 };
 
 export type ParseBrokerStatementInput = {
-  broker: BrokerId;
+  broker?: BrokerId;
   fileName: string;
   bytes: Uint8Array | ArrayBuffer;
   taxYear: number;
