@@ -1,22 +1,71 @@
 import { NextResponse } from "next/server";
+import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { positions, quoteCache } from "@/lib/db/schema";
+import { positions, quoteCache, quoteHistory, userSettings } from "@/lib/db/schema";
 import { fetchYahooQuotes } from "@/lib/quotes/yahoo";
+import { fetchYahooHistory } from "@/lib/quotes/history";
+
+const BENCHMARK_DEFAULT = "^GSPC";
 
 export async function GET(req: Request) {
   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response("unauthorized", { status: 401 });
   }
   const db = getDb();
-  const rows = await db.selectDistinct({ s: positions.symbol }).from(positions);
-  const list = rows.map(x => x.s);
-  if (!list.length) return NextResponse.json({ inserted: 0 });
-  const quotes = await fetchYahooQuotes(list);
-  for (const q of quotes) {
-    await db.insert(quoteCache).values(q).onConflictDoUpdate({
-      target: [quoteCache.symbol, quoteCache.date],
-      set: { close: q.close, updatedAt: new Date() },
-    });
+
+  const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
+  const heldSymbols = heldRows.map(x => x.s).filter(Boolean);
+
+  const benchRows = await db.selectDistinct({ s: userSettings.benchmarkSymbol }).from(userSettings);
+  const benchmarkSymbols = benchRows.map(x => x.s).filter(Boolean);
+  if (benchmarkSymbols.length === 0) benchmarkSymbols.push(BENCHMARK_DEFAULT);
+
+  const universe = Array.from(new Set([...heldSymbols, ...benchmarkSymbols]));
+
+  let spotInserted = 0;
+  if (heldSymbols.length) {
+    const quotes = await fetchYahooQuotes(heldSymbols);
+    for (const q of quotes) {
+      await db.insert(quoteCache).values(q).onConflictDoUpdate({
+        target: [quoteCache.symbol, quoteCache.date],
+        set: { close: q.close, updatedAt: new Date() },
+      });
+    }
+    spotInserted = quotes.length;
   }
-  return NextResponse.json({ inserted: quotes.length });
+
+  let historyInserted = 0;
+  const historyErrors: string[] = [];
+  for (const symbol of universe) {
+    try {
+      const latest = await db
+        .select({ d: quoteHistory.date })
+        .from(quoteHistory)
+        .where(eq(quoteHistory.symbol, symbol))
+        .orderBy(desc(quoteHistory.date))
+        .limit(1);
+      const have = latest[0]?.d ?? "1970-01-01";
+      const today = new Date().toISOString().slice(0, 10);
+      if (have >= today) continue;
+
+      const rows = await fetchYahooHistory(symbol, "2y");
+      const fresh = rows.filter(r => r.date > have);
+      if (fresh.length === 0) continue;
+      // Batch insert in 200-row chunks
+      for (let i = 0; i < fresh.length; i += 200) {
+        const chunk = fresh.slice(i, i + 200);
+        await db.insert(quoteHistory).values(chunk).onConflictDoNothing();
+      }
+      historyInserted += fresh.length;
+    } catch (err) {
+      historyErrors.push(`${symbol}: ${(err as Error).message}`);
+    }
+  }
+
+  return NextResponse.json({
+    spotInserted,
+    historyInserted,
+    historyErrors,
+    universe: universe.length,
+  });
 }
