@@ -5,7 +5,7 @@ import { positions, quoteCache, quoteHistory, userSettings } from "@/lib/db/sche
 import { fetchYahooQuotes } from "@/lib/quotes/yahoo";
 import { fetchYahooHistory } from "@/lib/quotes/history";
 
-export const maxDuration = 300;
+export const maxDuration = 60; // Hobby plan cap; the cron is throttled to fit within this.
 
 const BENCHMARK_DEFAULT = "^GSPC";
 
