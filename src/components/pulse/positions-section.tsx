@@ -1,0 +1,89 @@
+import Link from "next/link";
+import { Card } from "./card";
+
+type Row = {
+  symbol: string;
+  name?: string;
+  broker: string;
+  currency: string;
+  sector: string;
+  qty: number;
+  avgCostEur: number;
+  pricePerUnitEur: number | null;
+  marketEur: number | null;
+  plEur: number | null;
+  plPct: number | null;
+};
+
+export function PositionsSection({
+  title,
+  count,
+  rows,
+  hrefFor,
+  selectedSymbol,
+}: {
+  title: string;
+  count: number;
+  rows: Row[];
+  hrefFor: (symbol: string) => string;
+  selectedSymbol?: string | null;
+}) {
+  if (rows.length === 0) return null;
+  const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { maximumFractionDigits: 0 });
+  const fmtPct = (v: number | null) => v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="flex justify-between items-baseline px-5 py-3 border-b border-border">
+        <div className="font-semibold text-sm">{title}</div>
+        <div className="font-mono text-[11px] text-muted tracking-wider">{count} holdings</div>
+      </div>
+      <div className="grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+        <span>Holding</span>
+        <span>Broker</span>
+        <span className="text-right">Qty</span>
+        <span className="text-right">Avg €</span>
+        <span className="text-right">Price €</span>
+        <span className="text-right">Value €</span>
+        <span className="text-right">P/L</span>
+        <span className="text-right">%</span>
+      </div>
+      {rows.map(r => {
+        const isSelected = r.symbol === selectedSymbol;
+        return (
+          <Link
+            key={r.symbol}
+            href={hrefFor(r.symbol) as never}
+            className={`grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 items-center cursor-pointer hover:bg-panel2/50 ${
+              isSelected ? "bg-panel2 border-l-2 border-l-mint" : "border-l-2 border-transparent"
+            } border-b border-border last:border-b-0`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold ${
+                isSelected ? "bg-mint/20 text-mint" : "bg-panel2 text-muted"
+              }`}>{r.symbol.slice(0,2)}</div>
+              <div>
+                <div className="font-semibold text-[13px]">
+                  {r.symbol}{" "}
+                  <span className="font-mono text-[10px] text-dim ml-1">{r.sector} · {r.currency}</span>
+                </div>
+                {r.name && <div className="text-[11px] text-muted">{r.name}</div>}
+              </div>
+            </div>
+            <span className="font-mono text-xs text-muted">{r.broker}</span>
+            <span className="text-right font-mono text-xs text-muted">{r.qty}</span>
+            <span className="text-right font-mono text-xs text-muted">{r.avgCostEur.toFixed(2)}</span>
+            <span className="text-right font-mono text-xs">{r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}</span>
+            <span className="text-right font-mono font-semibold text-xs">{r.marketEur === null ? "—" : fmtEur(r.marketEur)}</span>
+            <span className={`text-right font-mono font-semibold text-xs ${r.plEur === null ? "text-muted" : r.plEur >= 0 ? "text-mint" : "text-bad"}`}>
+              {r.plEur === null ? "—" : (r.plEur >= 0 ? "+" : "−") + fmtEur(r.plEur)}
+            </span>
+            <span className={`text-right font-mono font-semibold text-xs ${r.plPct === null ? "text-muted" : r.plPct >= 0 ? "text-mint" : "text-bad"}`}>
+              {fmtPct(r.plPct)}
+            </span>
+          </Link>
+        );
+      })}
+    </Card>
+  );
+}
