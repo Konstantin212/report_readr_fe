@@ -103,18 +103,25 @@ export async function getPositionsData(
   const sector = filters.sector ?? null;
   const selectedSymbol = filters.symbol ?? null;
 
-  // All six top-level queries are independent of each other — fan them
-  // out concurrently. On Neon's HTTP driver each query is its own TLS
+  // All top-level queries are independent of each other — fan them out
+  // concurrently. On Neon's HTTP driver each query is its own TLS
   // round-trip (~80-150 ms); sequential awaits cost ~600-900 ms total,
-  // parallel ~120-200 ms (max of the slowest single query).
+  // parallel ~120-200 ms (max of the slowest single query). When a row
+  // is selected we ALSO need 180 daily closes for its sparkline — that
+  // query joins the same batch instead of running sequentially after,
+  // so clicking a row doesn't add another ~100 ms round-trip.
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  const [accountRows, allLots, allQuotes, allFx, allTxs, instrumentRows] = await Promise.all([
+  const detailHistoryPromise = selectedSymbol
+    ? db.select().from(quoteHistory).where(eq(quoteHistory.symbol, selectedSymbol))
+    : Promise.resolve([]);
+  const [accountRows, allLots, allQuotes, allFx, allTxs, instrumentRows, detailHistory] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
     db.select().from(quoteCache),
     db.select().from(fxRates),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId)),
+    detailHistoryPromise,
   ]);
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
@@ -358,14 +365,10 @@ export async function getPositionsData(
     const sel = filteredRows.find(r => r.symbol === selectedSymbol);
     if (sel) {
       // Detail panel needs: sparkline history (filtered to this symbol) +
-      // the user's transactions (already fetched above as `allTxs`). Only
-      // one new DB roundtrip remains — quote_history filtered server-side
-      // to just the row's symbol, keeping the payload small.
-      const histAll = await db
-        .select()
-        .from(quoteHistory)
-        .where(eq(quoteHistory.symbol, sel.symbol));
-      const hist = histAll.sort((a, b) => a.date.localeCompare(b.date));
+      // the user's transactions. Both already fetched above in the main
+      // parallel batch (`detailHistory` was queried with the same symbol
+      // the user clicked, so no second round-trip here).
+      const hist = [...detailHistory].sort((a, b) => a.date.localeCompare(b.date));
       const tail = hist.slice(-180);
       const sparkline = tail.map(h => {
         if (h.currency === "EUR") return Number(h.close);
