@@ -14,22 +14,25 @@ export async function GET(req: Request) {
   }
   const db = getDb();
   const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
-  const list = heldRows.map((x) => x.s).filter(Boolean);
-  if (!list.length) return NextResponse.json({ spotInserted: 0 });
+  const list = heldRows.map((x) => x.s).filter(Boolean) as string[];
+  if (!list.length) return NextResponse.json({ requested: [], inserted: [], unpriced: [] });
 
   const quotes = await fetchStooqQuotes(list);
+  let writeError: string | null = null;
   if (quotes.length) {
-    await db
-      .insert(quoteCache)
-      .values(quotes)
-      .onConflictDoUpdate({
-        target: [quoteCache.symbol, quoteCache.date],
-        set: { close: sql`excluded.close`, updatedAt: new Date() },
-      });
+    try {
+      await db
+        .insert(quoteCache)
+        .values(quotes)
+        .onConflictDoUpdate({
+          target: [quoteCache.symbol, quoteCache.date],
+          set: { close: sql`excluded.close`, updatedAt: new Date() },
+        });
+    } catch (e) {
+      writeError = (e as Error).message;
+    }
   }
-  return NextResponse.json({
-    requested: list.length,
-    spotInserted: quotes.length,
-    unpriced: list.filter((s) => !quotes.find((q) => q.symbol === s)),
-  });
+  const inserted = quotes.map((q) => q.symbol);
+  const unpriced = list.filter((s) => !inserted.includes(s));
+  return NextResponse.json({ requested: list, inserted, unpriced, writeError });
 }
