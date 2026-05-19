@@ -30,9 +30,9 @@ export function PositionsPreview({ rows }: { rows: PositionPreviewRow[] }) {
             {p.name && <span className="text-dim text-[10px] truncate">{p.name}</span>}
           </div>
           <span className="text-muted text-[11px]">{p.broker ?? "—"}</span>
-          <span className="text-right text-ink">€{p.marketEur.toLocaleString("de-DE", { maximumFractionDigits: 0 })}</span>
+          <span className="text-right text-ink">€{p.marketEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           <span className={`text-right ${p.plEur === null ? "text-muted" : p.plEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {p.plEur === null ? "—" : (p.plEur >= 0 ? "+€" : "−€") + Math.abs(p.plEur).toLocaleString("de-DE", { maximumFractionDigits: 0 })}
+            {p.plEur === null ? "—" : (p.plEur >= 0 ? "+€" : "−€") + Math.abs(p.plEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
           <span className={`text-right ${p.plPct === null ? "text-muted" : p.plPct >= 0 ? "text-mint" : "text-bad"}`}>
             {p.plPct === null ? "—" : (p.plPct >= 0 ? "+" : "") + p.plPct.toFixed(1) + "%"}

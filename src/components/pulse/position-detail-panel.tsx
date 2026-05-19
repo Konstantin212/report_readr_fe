@@ -31,7 +31,7 @@ export type DetailData = {
 };
 
 export function PositionDetailPanel({ d }: { d: DetailData }) {
-  const fmtEur = (v: number, dec = 0) => `€${Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
+  const fmtEur = (v: number, dec = 2) => `€${Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
   const palette = ["var(--accent-mint, #7CFFB2)", "var(--accent-amber, #FFD24A)", "var(--accent-pink, #FF5DA2)"];
   return (
     <Card>

@@ -35,12 +35,12 @@ export function PositionsSection({
   selectedSymbol?: string | null;
 }) {
   if (rows.length === 0) return null;
-  const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { maximumFractionDigits: 0 });
+  const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtPct = (v: number | null) => v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
   const fmtNative = (v: number | null, ccy: string | null) => {
     if (v === null || !ccy) return "—";
     const sym = CCY_SYMBOL[ccy] ?? "";
-    const num = Math.abs(v).toLocaleString("de-DE", { maximumFractionDigits: 0 });
+    const num = Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return sym ? `${sym}${num}` : `${num} ${ccy}`;
   };
 
