@@ -4,23 +4,46 @@ import { getDb } from "@/lib/db/client";
 import { quoteHistory, positions } from "@/lib/db/schema";
 
 /**
- * Diagnostic: shape of the quote_history table — total row count, distinct
- * symbols, date range, and held positions to compare against. Used to
- * sanity-check why the Performance page is showing empty curves.
+ * Inventory of what `quote_history` has versus what the user holds.
+ * Used by `scripts/refresh_history.py` to figure out which symbols need
+ * a backfill push, but also handy as a plain diagnostic of the table.
+ *
+ * Returns: total row count, per-symbol coverage (count + latest date)
+ * for every held symbol, and the global held set.
+ *
+ * Auth: Bearer CRON_SECRET (read-only but consistent with the rest of
+ * the admin API).
  */
-export async function GET() {
+export async function GET(req: Request) {
+  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response("unauthorized", { status: 401 });
+  }
   const db = getDb();
+
   const total = await db.select({ c: sql<number>`count(*)::int` }).from(quoteHistory);
-  const distinct = await db.select({ symbol: quoteHistory.symbol }).from(quoteHistory).groupBy(quoteHistory.symbol);
-  const range = await db.select({
-    min: sql<string>`min(${quoteHistory.date})`,
-    max: sql<string>`max(${quoteHistory.date})`,
-  }).from(quoteHistory);
-  const held = await db.selectDistinct({ s: positions.symbol }).from(positions);
+  const perSymbol = await db
+    .select({
+      symbol: quoteHistory.symbol,
+      rows: sql<number>`count(*)::int`,
+      latest: sql<string>`max(${quoteHistory.date})`,
+    })
+    .from(quoteHistory)
+    .groupBy(quoteHistory.symbol);
+  const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
+  const held = heldRows.map((h) => h.s).filter(Boolean) as string[];
+
+  const bySymbol = new Map(perSymbol.map((p) => [p.symbol, { rows: p.rows, latest: p.latest }]));
+  const coverage = held.map((sym) => {
+    const c = bySymbol.get(sym);
+    return {
+      symbol: sym,
+      rows: c?.rows ?? 0,
+      latestDate: c?.latest ?? null,
+    };
+  });
   return NextResponse.json({
     totalHistoryRows: total[0]?.c ?? 0,
-    distinctSymbolsInHistory: distinct.map(d => d.symbol),
-    historyDateRange: range[0],
-    heldSymbols: held.map(h => h.s).filter(Boolean),
+    held,
+    coverage,
   });
 }
