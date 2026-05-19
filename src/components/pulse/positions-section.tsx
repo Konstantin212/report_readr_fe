@@ -21,19 +21,19 @@ const CCY_SYMBOL: Record<string, string> = {
   EUR: "€", USD: "$", GBP: "£", CHF: "₣", JPY: "¥", SEK: "kr", HKD: "HK$", CAD: "C$",
 };
 
-// Broker-level color cue. Green for IBKR, red for Freedom — applied as
+// Broker-level color cue. Green for Freedom, red for IBKR — applied as
 // a pill on the broker label and a 2 px left-border tint on the row when
 // the row is not currently selected (selection uses solid mint, which
 // takes precedence so the selected state still pops).
 function brokerStyle(broker: string): { chip: string; borderLeft: string } {
   const norm = broker.toUpperCase();
-  if (norm === "IBKR") {
+  if (norm === "FF" || norm.startsWith("FREEDOM")) {
     return {
       chip: "bg-mint/15 text-mint border border-mint/30",
       borderLeft: "border-l-mint/40",
     };
   }
-  if (norm === "FF" || norm.startsWith("FREEDOM")) {
+  if (norm === "IBKR") {
     return {
       chip: "bg-bad/15 text-bad border border-bad/30",
       borderLeft: "border-l-bad/40",
