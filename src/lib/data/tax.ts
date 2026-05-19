@@ -41,7 +41,17 @@ const ABGELT_RATE = 0.26375; // 25 % AbgSt + 5.5 % SolZ
 export type TaxData = {
   year: number;
   hero: { netRealizedEur: number; taxableBaseEur: number; estTaxEur: number };
-  allowance: { usedEur: number; totalEur: number; pct: number; fxAdjustmentsEur: number; whtPaidEur: number };
+  allowance: {
+    usedEur: number;
+    totalEur: number;
+    pct: number;
+    fxAdjustmentsEur: number;
+    whtPaidEur: number;
+    // Breakdown of what's consuming the allowance this year — each
+    // contributes to `usedEur`. Surfaced in the UI so it's clear that
+    // dividends, realised gains and interest share the same €1k/2k.
+    breakdown: { dividendsEur: number; realizedGainsEur: number; interestEur: number };
+  };
   realizedLots: { ticker: string; broker: string; method: string; opened: string; closed: string; qty: number; costEur: number; proceedsEur: number; gainEur: number }[];
   kap: GermanTaxDraft;
 };
@@ -91,15 +101,23 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   const yrDivs = allTx.filter(t => t.eventType === "DIVIDEND" && t.eventDate.startsWith(yrStr));
   const dividendsEur = yrDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
   const whtPaid = yrDivs.reduce((s, t) => s + Number(t.withholdingTaxEur ?? 0), 0);
+  const yrInterest = allTx.filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yrStr));
+  const interestEur = yrInterest.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
 
   const settings = (await db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)))[0];
   const allowance = Number(settings?.saverAllowance ?? "1000");
 
-  const taxableBase = Math.max(0, netRealized + dividendsEur - allowance);
+  // Sparer-Pauschbetrag applies to the *sum* of all Kapitalerträge in the
+  // year (§20 EStG): realised gains net of losses + dividends + interest.
+  // Losses can pull the total below zero; in that case the allowance is
+  // untouched (and the losses carry forward separately — that's a v3
+  // concern).
+  const totalCapitalIncomeEur = netRealized + dividendsEur + interestEur;
+  const taxableBase = Math.max(0, totalCapitalIncomeEur - allowance);
   const estTax = taxableBase * ABGELT_RATE;
 
-  const usedEur = Math.min(dividendsEur, allowance);
-  const pct = Math.min(100, (dividendsEur / allowance) * 100);
+  const usedEur = Math.max(0, Math.min(totalCapitalIncomeEur, allowance));
+  const pct = allowance > 0 ? Math.min(100, Math.max(0, (totalCapitalIncomeEur / allowance) * 100)) : 0;
 
   // FX adjustments: events with fxSource=ECB AND raw.brokerEurAmount → delta sum
   // v2: best-effort — sum (amountEur - brokerEur) where broker raw includes EUR equivalent
@@ -131,7 +149,18 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   return {
     year,
     hero: { netRealizedEur: netRealized, taxableBaseEur: taxableBase, estTaxEur: estTax },
-    allowance: { usedEur, totalEur: allowance, pct, fxAdjustmentsEur: fxAdjustments, whtPaidEur: whtPaid },
+    allowance: {
+      usedEur,
+      totalEur: allowance,
+      pct,
+      fxAdjustmentsEur: fxAdjustments,
+      whtPaidEur: whtPaid,
+      breakdown: {
+        dividendsEur,
+        realizedGainsEur: netRealized,
+        interestEur,
+      },
+    },
     realizedLots,
     kap,
   };

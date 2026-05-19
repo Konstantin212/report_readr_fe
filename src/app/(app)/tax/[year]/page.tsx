@@ -81,6 +81,20 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
               ? `Exceeded by ${fmtEur(d.allowance.usedEur - d.allowance.totalEur, { dec: 0 })} — gains above this are taxable`
               : `${fmtEur(allowanceRemainingEur, { dec: 0 })} of tax-free room remaining`}
           </div>
+          <div className="mt-2 grid grid-cols-3 gap-2 font-mono text-[10px] text-dim">
+            <div>
+              <div className="uppercase tracking-widest">Dividends</div>
+              <div className="text-muted text-[11px] mt-0.5">{fmtEur(d.allowance.breakdown.dividendsEur, { dec: 0 })}</div>
+            </div>
+            <div>
+              <div className="uppercase tracking-widest">Realised</div>
+              <div className={`text-[11px] mt-0.5 ${d.allowance.breakdown.realizedGainsEur >= 0 ? "text-muted" : "text-bad"}`}>{fmtEur(d.allowance.breakdown.realizedGainsEur, { sign: true, dec: 0 })}</div>
+            </div>
+            <div>
+              <div className="uppercase tracking-widest">Interest</div>
+              <div className="text-muted text-[11px] mt-0.5">{fmtEur(d.allowance.breakdown.interestEur, { dec: 0 })}</div>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2 mt-4">
             <div className="bg-panel2 rounded-md px-3 py-2.5">
               <div className="font-mono text-[10px] text-dim uppercase tracking-widest">FX adjustments</div>
