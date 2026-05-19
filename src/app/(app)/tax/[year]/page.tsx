@@ -95,6 +95,56 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
               <div className="text-muted text-[11px] mt-0.5">{fmtEur(d.allowance.breakdown.interestEur, { dec: 0 })}</div>
             </div>
           </div>
+
+          {d.forecast && (() => {
+            const f = d.forecast;
+            const forecastExceeded = f.usedEur >= d.allowance.totalEur;
+            const forecastRoom = Math.max(0, d.allowance.totalEur - f.usedEur);
+            return (
+              <div className="mt-5 pt-4 border-t border-dashed border-border">
+                <div className="flex justify-between items-center">
+                  <div className="font-mono text-[11px] text-muted">
+                    Forecast by Dec 31
+                  </div>
+                  <div className="font-mono text-[10px] text-dim">
+                    +{fmtEur(f.additionalDividendsEur, { dec: 0 })} in projected dividends · {f.daysRemaining}d left
+                  </div>
+                </div>
+                <div className="mt-3 font-mono text-[11px] text-muted flex justify-between">
+                  <span>Projected used</span>
+                  <span>
+                    <span className="text-ink font-semibold">{fmtEur(f.usedEur, { dec: 0 })}</span> of €{d.allowance.totalEur.toLocaleString("de-DE")}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  {/* Striped fill marks the forecast bar as projected rather than realised. */}
+                  <ProgressBar
+                    pct={f.pct}
+                    height={10}
+                    fill="repeating-linear-gradient(45deg, var(--accent-amber, #FFD24A) 0 6px, rgba(255,210,74,0.45) 6px 12px)"
+                  />
+                </div>
+                <div className={`mt-2 font-mono text-[11px] ${forecastExceeded ? "text-bad" : "text-mint"}`}>
+                  {forecastExceeded
+                    ? `Forecast exceeds allowance by ${fmtEur(f.taxableBaseEur, { dec: 0 })}`
+                    : `${fmtEur(forecastRoom, { dec: 0 })} likely to remain unused`}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="bg-panel2 rounded-md px-3 py-2.5 border border-dashed border-amber/30">
+                    <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Forecast taxable base</div>
+                    <div className="font-bold text-lg num mt-0.5">{fmtEur(f.taxableBaseEur, { dec: 0 })}</div>
+                  </div>
+                  <div className="bg-panel2 rounded-md px-3 py-2.5 border border-dashed border-amber/30">
+                    <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Forecast tax</div>
+                    <div className="font-bold text-lg num mt-0.5 text-amber">{fmtEur(f.estTaxEur, { dec: 0 })}</div>
+                  </div>
+                </div>
+                <div className="mt-2 font-mono text-[10px] text-dim leading-relaxed">
+                  Projection — held positions × TTM dividend run-rate × days remaining. Doesn&apos;t affect the export or Anlage KAP draft.
+                </div>
+              </div>
+            );
+          })()}
           <div className="grid grid-cols-2 gap-2 mt-4">
             <div className="bg-panel2 rounded-md px-3 py-2.5">
               <div className="font-mono text-[10px] text-dim uppercase tracking-widest">FX adjustments</div>
