@@ -21,6 +21,27 @@ const CCY_SYMBOL: Record<string, string> = {
   EUR: "€", USD: "$", GBP: "£", CHF: "₣", JPY: "¥", SEK: "kr", HKD: "HK$", CAD: "C$",
 };
 
+// Broker-level color cue. Green for IBKR, red for Freedom — applied as
+// a pill on the broker label and a 2 px left-border tint on the row when
+// the row is not currently selected (selection uses solid mint, which
+// takes precedence so the selected state still pops).
+function brokerStyle(broker: string): { chip: string; borderLeft: string } {
+  const norm = broker.toUpperCase();
+  if (norm === "IBKR") {
+    return {
+      chip: "bg-mint/15 text-mint border border-mint/30",
+      borderLeft: "border-l-mint/40",
+    };
+  }
+  if (norm === "FF" || norm.startsWith("FREEDOM")) {
+    return {
+      chip: "bg-bad/15 text-bad border border-bad/30",
+      borderLeft: "border-l-bad/40",
+    };
+  }
+  return { chip: "bg-panel2 text-muted", borderLeft: "border-l-transparent" };
+}
+
 export function PositionsSection({
   title,
   count,
@@ -63,12 +84,13 @@ export function PositionsSection({
       </div>
       {rows.map(r => {
         const isSelected = r.symbol === selectedSymbol;
+        const bk = brokerStyle(r.broker);
         return (
           <Link
             key={r.symbol}
             href={hrefFor(r.symbol) as never}
-            className={`grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 items-center cursor-pointer hover:bg-panel2/50 ${
-              isSelected ? "bg-panel2 border-l-2 border-l-mint" : "border-l-2 border-transparent"
+            className={`grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 items-center cursor-pointer hover:bg-panel2/50 border-l-2 ${
+              isSelected ? "bg-panel2 border-l-mint" : bk.borderLeft
             } border-b border-border last:border-b-0`}
           >
             <div className="flex items-center gap-2.5">
@@ -83,7 +105,7 @@ export function PositionsSection({
                 {r.name && <div className="text-[11px] text-muted">{r.name}</div>}
               </div>
             </div>
-            <span className="font-mono text-xs text-muted">{r.broker}</span>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${bk.chip}`}>{r.broker}</span>
             <span className="text-right font-mono text-xs text-muted">{r.qty}</span>
             <span className="text-right font-mono text-xs text-muted">{r.avgCostEur.toFixed(2)}</span>
             <span className="text-right font-mono text-xs">{r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}</span>

@@ -11,6 +11,33 @@ import {
 } from "./format";
 import type { BrokerAccountMetadata, NormalizedEvent, ParsedBrokerStatement } from "./types";
 
+/**
+ * Freedom Finance / Freedom24 statement parser.
+ *
+ * Two formats coexist in the wild:
+ *
+ * - **Legacy (Freedom Finance, pre-2024)**: per-transaction rows live in
+ *   `cash_flows.detailed`, `commissions.detailed`, `corporate_actions.detailed`.
+ *   Field names use the broker's internal short codes (`curr_c`, `summ`,
+ *   `short_date`, `instr_nm`, …).
+ *
+ * - **Current (Freedom24, post-rebrand)**: those same arrays still exist but
+ *   contain GROUPED summary rows where almost every field is the string
+ *   `"Grouped"`. The real per-transaction data is now in:
+ *     `cash_in_outs`           — deposits, withdrawals, dividends, taxes, fees
+ *     `securities_in_outs`     — corporate actions (splits, conversions, transfers)
+ *   …with completely different field names (`amount`, `datetime`, `currency`,
+ *   `type`, `ticker`).
+ *
+ * Trades carry the same shape in both formats and use the existing field
+ * names verbatim, so `parseTrades` is unchanged.
+ *
+ * The parser uses the new arrays when populated; the old `*.detailed`
+ * arrays are still consulted for older files. Grouped sentinel rows are
+ * filtered out (their `date` field returns the empty string via
+ * `dateOnly`, and we drop empty-date events at the end of every section).
+ */
+
 type FreedomStatement = {
   date_start?: unknown;
   date_end?: unknown;
@@ -24,18 +51,12 @@ type FreedomStatement = {
     account_id?: unknown;
     currency?: unknown;
   };
-  trades?: {
-    detailed?: FreedomTrade[];
-  };
-  cash_flows?: {
-    detailed?: FreedomCashFlow[];
-  };
-  commissions?: {
-    detailed?: FreedomCommission[];
-  };
-  corporate_actions?: {
-    detailed?: FreedomCorporateAction[];
-  };
+  trades?: { detailed?: FreedomTrade[] };
+  cash_flows?: { detailed?: FreedomCashFlow[] };
+  cash_in_outs?: FreedomCashInOut[];
+  commissions?: { detailed?: FreedomCommission[] };
+  corporate_actions?: { detailed?: FreedomCorporateAction[] };
+  securities_in_outs?: FreedomSecurityInOut[];
 };
 
 type FreedomTrade = Record<string, unknown> & {
@@ -65,12 +86,28 @@ type FreedomCashFlow = Record<string, unknown> & {
   withholding_tax?: unknown;
 };
 
+type FreedomCashInOut = Record<string, unknown> & {
+  id?: unknown;
+  currency?: unknown;
+  type?: unknown;
+  datetime?: unknown;
+  pay_d?: unknown;
+  amount?: unknown;
+  commission?: unknown;
+  ticker?: unknown;
+  comment?: unknown;
+  corporate_action_id?: unknown;
+};
+
 type FreedomCommission = Record<string, unknown> & {
   id?: unknown;
   date?: unknown;
   short_date?: unknown;
+  datetime?: unknown;
   curr_c?: unknown;
+  currency?: unknown;
   summ?: unknown;
+  sum?: unknown;
 };
 
 type FreedomCorporateAction = Record<string, unknown> & {
@@ -78,11 +115,31 @@ type FreedomCorporateAction = Record<string, unknown> & {
   date?: unknown;
   short_date?: unknown;
   instr_nm?: unknown;
+  ticker?: unknown;
   isin?: unknown;
   operation?: unknown;
+  type?: unknown;
   curr_c?: unknown;
+  currency?: unknown;
   q?: unknown;
+  quantity?: unknown;
   summ?: unknown;
+  amount?: unknown;
+};
+
+type FreedomSecurityInOut = Record<string, unknown> & {
+  id?: unknown;
+  ticker?: unknown;
+  type?: unknown;
+  datetime?: unknown;
+  pay_d?: unknown;
+  quantity?: unknown;
+  commission?: unknown;
+  commission_currency?: unknown;
+  balance_currency?: unknown;
+  cost?: unknown;
+  market_value?: unknown;
+  comment?: unknown;
 };
 
 export function parseFreedomFinanceStatement(
@@ -107,8 +164,13 @@ export function parseFreedomFinanceStatement(
 
   const events = [
     ...parseTrades(statement.trades?.detailed ?? [], accountNumber),
+    // Cash side: prefer the newer per-transaction array when present,
+    // fall back to the legacy detailed list otherwise.
+    ...parseCashInOuts(statement.cash_in_outs ?? [], accountNumber),
     ...parseCashFlows(statement.cash_flows?.detailed ?? [], accountNumber),
     ...parseCommissions(statement.commissions?.detailed ?? [], accountNumber),
+    // Corporate actions: same shape choice as cash.
+    ...parseSecuritiesInOuts(statement.securities_in_outs ?? [], accountNumber),
     ...parseCorporateActions(statement.corporate_actions?.detailed ?? [], accountNumber),
   ];
 
@@ -147,9 +209,65 @@ function parseTrades(rows: FreedomTrade[], accountNumber: string): NormalizedEve
     .filter((event) => Boolean(event.date));
 }
 
+/**
+ * Freedom24 `cash_in_outs` — the per-transaction record of every cash
+ * movement on the account. The `type` field is a small enum: `card`,
+ * `bank`, `intercompany` for deposits/withdrawals; `dividend` for paid
+ * dividends; `tax` for tax-only flows; `dividend_reverted` / `tax_reverted`
+ * for unwinds; `block` / `unblock` / `block_commission` /
+ * `unblock_commission` for margin-collateral handling.
+ *
+ * We bucket those into our domain event types as follows:
+ *   card / bank / intercompany / unblock / block                     → CASH_TRANSFER
+ *   dividend / dividend_reverted                                      → DIVIDEND
+ *   tax / tax_reverted                                                → WITHHOLDING_TAX
+ *   block_commission / unblock_commission                             → FEE
+ */
+function parseCashInOuts(rows: FreedomCashInOut[], accountNumber: string): NormalizedEvent[] {
+  return rows
+    .map((row, index) => {
+      const date = dateOnly(cleanString(row.datetime) ?? cleanString(row.pay_d));
+      if (!date) return null;
+      const type = cleanString(row.type)?.toLowerCase() ?? "";
+      const amount = cleanNumber(row.amount);
+      const eventType: NormalizedEvent["type"] = classifyCashInOut(type);
+      const isReversal = type.endsWith("_reverted");
+      // Reversals flip the sign so cash math nets cleanly.
+      const cashAmount = isReversal && amount !== undefined ? negateNumber(amount) : amount;
+      const wht =
+        eventType === "WITHHOLDING_TAX" ? absoluteNumber(amount) : undefined;
+
+      return withTaxReview(compactEvent<NormalizedEvent>({
+        id: cleanString(row.id) ?? `freedom-cash-in-out-${index + 1}`,
+        broker: "FREEDOM_FINANCE",
+        accountNumber,
+        type: eventType,
+        date,
+        currency: cleanString(row.currency) ?? "UNKNOWN",
+        symbol: cleanString(row.ticker),
+        description: cleanString(row.comment) ?? cleanString(row.type),
+        amount: isReversal ? negateNumber(amount) : amount,
+        cashAmount,
+        withholdingTax: wht,
+        fee: cleanNumber(row.commission),
+        source: "cash_in_outs",
+      }));
+    })
+    .filter((event): event is NormalizedEvent => Boolean(event));
+}
+
+function classifyCashInOut(type: string): NormalizedEvent["type"] {
+  if (type.startsWith("dividend")) return "DIVIDEND";
+  if (type.startsWith("tax")) return "WITHHOLDING_TAX";
+  if (type === "block_commission" || type === "unblock_commission") return "FEE";
+  return "CASH_TRANSFER";
+}
+
 function parseCashFlows(rows: FreedomCashFlow[], accountNumber: string): NormalizedEvent[] {
   return rows
     .map((row, index) => {
+      const date = dateOnly(cleanString(row.short_date) ?? cleanString(row.date));
+      if (!date) return null;
       const operation = cleanString(row.operation)?.toLowerCase() ?? "";
       const eventType = operation.includes("dividend") ? "DIVIDEND" : "CASH_TRANSFER";
       const amount = cleanNumber(row.summ);
@@ -160,7 +278,7 @@ function parseCashFlows(rows: FreedomCashFlow[], accountNumber: string): Normali
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: eventType,
-        date: dateOnly(cleanString(row.short_date) ?? cleanString(row.date)),
+        date,
         currency: cleanString(row.curr_c) ?? "UNKNOWN",
         symbol: cleanString(row.instr_nm),
         description: cleanString(row.operation) ?? cleanString(row.instr_nm),
@@ -170,47 +288,84 @@ function parseCashFlows(rows: FreedomCashFlow[], accountNumber: string): Normali
         source: "cash_flows.detailed",
       }));
     })
-    .filter((event) => Boolean(event.date));
+    .filter((event): event is NormalizedEvent => Boolean(event));
 }
 
 function parseCommissions(rows: FreedomCommission[], accountNumber: string): NormalizedEvent[] {
   return rows
-    .map((row, index) =>
-      withTaxReview(compactEvent<NormalizedEvent>({
+    .map((row, index) => {
+      const date = dateOnly(
+        cleanString(row.short_date) ?? cleanString(row.date) ?? cleanString(row.datetime),
+      );
+      if (!date) return null;
+      const amount = cleanNumber(row.summ) ?? cleanNumber(row.sum);
+      return withTaxReview(compactEvent<NormalizedEvent>({
         id: cleanString(row.id) ?? `freedom-fee-${index + 1}`,
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: "FEE",
-        date: dateOnly(cleanString(row.short_date) ?? cleanString(row.date)),
-        currency: cleanString(row.curr_c) ?? "UNKNOWN",
-        amount: cleanNumber(row.summ),
-        fee: absoluteNumber(row.summ),
-        cashAmount: negateNumber(absoluteNumber(row.summ)),
+        date,
+        currency: cleanString(row.curr_c) ?? cleanString(row.currency) ?? "UNKNOWN",
+        amount,
+        fee: absoluteNumber(amount),
+        cashAmount: negateNumber(absoluteNumber(amount)),
         source: "commissions.detailed",
-      })),
-    )
-    .filter((event) => Boolean(event.date));
+      }));
+    })
+    .filter((event): event is NormalizedEvent => Boolean(event));
+}
+
+/**
+ * Freedom24 `securities_in_outs` — per-row corporate-action effects on
+ * security balances. Splits, conversions, transfers in/out all land here
+ * with `quantity` reflecting the share delta (positive when shares come
+ * in, negative when they go out). We surface the raw event so the FIFO
+ * replayer can decide how to handle it; v1 just stores them, v2 will
+ * re-base lots when a split factor is detected in the comment.
+ */
+function parseSecuritiesInOuts(rows: FreedomSecurityInOut[], accountNumber: string): NormalizedEvent[] {
+  return rows
+    .map((row, index) => {
+      const date = dateOnly(cleanString(row.datetime) ?? cleanString(row.pay_d));
+      if (!date) return null;
+      return compactEvent<NormalizedEvent>({
+        id: cleanString(row.id) ?? `freedom-security-in-out-${index + 1}`,
+        broker: "FREEDOM_FINANCE",
+        accountNumber,
+        type: "CORPORATE_ACTION",
+        date,
+        currency: cleanString(row.balance_currency) ?? cleanString(row.commission_currency) ?? "UNKNOWN",
+        symbol: cleanString(row.ticker),
+        description: cleanString(row.type) ?? cleanString(row.comment),
+        quantity: cleanNumber(row.quantity),
+        amount: cleanNumber(row.market_value) ?? cleanNumber(row.cost),
+        source: "securities_in_outs",
+      });
+    })
+    .filter((event): event is NormalizedEvent => Boolean(event));
 }
 
 function parseCorporateActions(rows: FreedomCorporateAction[], accountNumber: string): NormalizedEvent[] {
   return rows
-    .map((row, index) =>
-      compactEvent<NormalizedEvent>({
+    .map((row, index) => {
+      const date = dateOnly(cleanString(row.short_date) ?? cleanString(row.date));
+      if (!date) return null;
+      return compactEvent<NormalizedEvent>({
         id: cleanString(row.id) ?? `freedom-corporate-action-${index + 1}`,
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: "CORPORATE_ACTION",
-        date: dateOnly(cleanString(row.short_date) ?? cleanString(row.date)),
-        currency: cleanString(row.curr_c) ?? "UNKNOWN",
-        symbol: cleanString(row.instr_nm),
+        date,
+        currency: cleanString(row.curr_c) ?? cleanString(row.currency) ?? "UNKNOWN",
+        symbol: cleanString(row.instr_nm) ?? cleanString(row.ticker),
         isin: cleanString(row.isin),
-        description: cleanString(row.operation),
-        quantity: cleanNumber(row.q),
-        amount: cleanNumber(row.summ),
+        description: cleanString(row.operation) ?? cleanString(row.type),
+        quantity: cleanNumber(row.q) ?? cleanNumber(row.quantity),
+        amount: cleanNumber(row.summ) ?? cleanNumber(row.amount),
         source: "corporate_actions.detailed",
-      }),
-    )
-    .filter((event) => Boolean(event.date));
+      });
+    })
+    .filter((event): event is NormalizedEvent => Boolean(event));
 }
 
 function withTaxReview(event: NormalizedEvent): NormalizedEvent {
@@ -230,7 +385,7 @@ function withTaxReview(event: NormalizedEvent): NormalizedEvent {
   const needsTaxReview =
     (event.type === "TRADE" && event.realizedPnl !== undefined) ||
     ((event.type === "DIVIDEND" || event.type === "INTEREST") && event.amount !== undefined) ||
-    (event.type === "WITHHOLDING_TAX" && event.withholdingTax !== undefined);
+    (event.type === "WITHHOLDING_TAX" && (event.withholdingTax !== undefined || event.amount !== undefined));
 
   return needsTaxReview ? { ...event, fxSource: "MISSING", requiresReview: true } : event;
 }
