@@ -24,6 +24,15 @@ export type PositionRow = {
   plEur: number | null;
   plPct: number | null;
   asOf: string | null;
+  // P/L in the equity's listed/trade currency (USD for COIN, GBP for TRN, EUR for SPYW, …).
+  // Derived from each lot's source-transaction native amount + a current FX conversion of
+  // the EUR-equivalent market value. Null when source transactions are missing or the lot
+  // currency can't be determined.
+  nativeCurrency: string | null;
+  costNative: number | null;
+  pricePerUnitNative: number | null;
+  marketNative: number | null;
+  plNative: number | null;
 };
 
 export type DetailLot = {
@@ -77,6 +86,11 @@ export async function getPositionsData(
   const allQuotes = await db.select().from(quoteCache);
   const allFx = await db.select().from(fxRates);
 
+  // Build fingerprint → source TRADE transaction lookup so we can derive each
+  // lot's cost in its trade currency (lots only store cost_eur today).
+  const allTxs = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
+  const txByFingerprint = new Map(allTxs.map(t => [t.eventFingerprint, t]));
+
   // Load instruments for canonical symbol + name lookup
   const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
   const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
@@ -96,11 +110,31 @@ export async function getPositionsData(
   }
 
   // Group lots by (brokerAccountId, isin ?? symbol) → aggregated row
-  type Agg = { brokerAccountId: string; symbol: string; isin?: string; qty: Decimal; cost: Decimal; openedAt: string; lots: { openedAt: string; qty: string; costEur: string }[] };
+  type Agg = {
+    brokerAccountId: string;
+    symbol: string;
+    isin?: string;
+    qty: Decimal;
+    cost: Decimal;
+    costNative: Decimal;        // sum across lots, in nativeCurrency
+    nativeCurrency: string | null;
+    openedAt: string;
+    lots: { openedAt: string; qty: string; costEur: string }[];
+  };
   const groups = new Map<string, Agg>();
   for (const l of filteredLots) {
     const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
-    const g = groups.get(k) ?? { brokerAccountId: l.brokerAccountId, symbol: l.symbol, isin: l.isin ?? undefined, qty: new Decimal(0), cost: new Decimal(0), openedAt: l.openedAt, lots: [] };
+    const g = groups.get(k) ?? {
+      brokerAccountId: l.brokerAccountId,
+      symbol: l.symbol,
+      isin: l.isin ?? undefined,
+      qty: new Decimal(0),
+      cost: new Decimal(0),
+      costNative: new Decimal(0),
+      nativeCurrency: null,
+      openedAt: l.openedAt,
+      lots: [],
+    };
     g.qty = g.qty.plus(l.remainingQty);
     g.cost = g.cost.plus(l.costEur);
     if (l.openedAt < g.openedAt) g.openedAt = l.openedAt;
@@ -108,6 +142,23 @@ export async function getPositionsData(
     g.symbol = l.symbol;
     g.isin = l.isin ?? g.isin;
     g.lots.push({ openedAt: l.openedAt, qty: l.remainingQty, costEur: l.costEur });
+
+    // Derive the lot's native cost from its source transaction. The source
+    // TRADE event has the native trade `amount` (signed; negative for buys)
+    // and `fee`. Scale by the lot's remaining qty / the original buy qty,
+    // since the lot may have been partially closed by later sells.
+    const srcTx = txByFingerprint.get(l.sourceEventFingerprint);
+    if (srcTx && srcTx.quantity && Number(srcTx.quantity) > 0) {
+      const origQty = new Decimal(srcTx.quantity);
+      const remain = new Decimal(l.remainingQty);
+      const ratio = remain.div(origQty);
+      const amountAbs = new Decimal(srcTx.amount ?? "0").abs();
+      const feeAbs = new Decimal(srcTx.fee ?? "0").abs();
+      const lotCostNative = amountAbs.plus(feeAbs).mul(ratio);
+      g.costNative = g.costNative.plus(lotCostNative);
+      if (!g.nativeCurrency && srcTx.currency) g.nativeCurrency = srcTx.currency;
+    }
+
     groups.set(k, g);
   }
 
@@ -143,6 +194,26 @@ export async function getPositionsData(
     const plPct = plEur !== null && cost !== 0 ? (plEur / cost) * 100 : null;
     const sector = classifySector(displaySymbol);
     const kind = classifyKind(displaySymbol, sector);
+
+    // Native-currency P/L. Use the lot's source-transaction currency as the
+    // native; convert the EUR market value back to native via the latest FX
+    // rate. If lot ccy == quote ccy this collapses to qty × quote.close.
+    const nativeCcy = g.nativeCurrency;
+    const costNative = nativeCcy ? Number(g.costNative) : null;
+    let marketNative: number | null = null;
+    let pricePerUnitNative: number | null = null;
+    if (nativeCcy && marketEur !== null && qty > 0) {
+      if (nativeCcy === "EUR") {
+        marketNative = marketEur;
+      } else {
+        const fxNative = latestFx.get(nativeCcy);
+        // ECB stores `rate` as <native per 1 EUR>, so EUR → native is multiply.
+        if (fxNative) marketNative = marketEur * fxNative.rate;
+      }
+      if (marketNative !== null) pricePerUnitNative = marketNative / qty;
+    }
+    const plNative = costNative !== null && marketNative !== null ? marketNative - costNative : null;
+
     rows.push({
       symbol: displaySymbol,
       isin: g.isin,
@@ -159,6 +230,11 @@ export async function getPositionsData(
       plEur,
       plPct,
       asOf,
+      nativeCurrency: nativeCcy,
+      costNative,
+      pricePerUnitNative,
+      marketNative,
+      plNative,
     });
   }
 

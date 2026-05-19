@@ -13,6 +13,12 @@ type Row = {
   marketEur: number | null;
   plEur: number | null;
   plPct: number | null;
+  nativeCurrency: string | null;
+  plNative: number | null;
+};
+
+const CCY_SYMBOL: Record<string, string> = {
+  EUR: "€", USD: "$", GBP: "£", CHF: "₣", JPY: "¥", SEK: "kr", HKD: "HK$", CAD: "C$",
 };
 
 export function PositionsSection({
@@ -31,6 +37,12 @@ export function PositionsSection({
   if (rows.length === 0) return null;
   const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { maximumFractionDigits: 0 });
   const fmtPct = (v: number | null) => v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+  const fmtNative = (v: number | null, ccy: string | null) => {
+    if (v === null || !ccy) return "—";
+    const sym = CCY_SYMBOL[ccy] ?? "";
+    const num = Math.abs(v).toLocaleString("de-DE", { maximumFractionDigits: 0 });
+    return sym ? `${sym}${num}` : `${num} ${ccy}`;
+  };
 
   return (
     <Card className="p-0 overflow-hidden">
@@ -38,14 +50,15 @@ export function PositionsSection({
         <div className="font-semibold text-sm">{title}</div>
         <div className="font-mono text-[11px] text-muted tracking-wider">{count} holdings</div>
       </div>
-      <div className="grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+      <div className="grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
         <span>Holding</span>
         <span>Broker</span>
         <span className="text-right">Qty</span>
         <span className="text-right">Avg €</span>
         <span className="text-right">Price €</span>
         <span className="text-right">Value €</span>
-        <span className="text-right">P/L</span>
+        <span className="text-right">P/L €</span>
+        <span className="text-right">P/L ccy</span>
         <span className="text-right">%</span>
       </div>
       {rows.map(r => {
@@ -54,7 +67,7 @@ export function PositionsSection({
           <Link
             key={r.symbol}
             href={hrefFor(r.symbol) as never}
-            className={`grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 items-center cursor-pointer hover:bg-panel2/50 ${
+            className={`grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 items-center cursor-pointer hover:bg-panel2/50 ${
               isSelected ? "bg-panel2 border-l-2 border-l-mint" : "border-l-2 border-transparent"
             } border-b border-border last:border-b-0`}
           >
@@ -77,6 +90,9 @@ export function PositionsSection({
             <span className="text-right font-mono font-semibold text-xs">{r.marketEur === null ? "—" : fmtEur(r.marketEur)}</span>
             <span className={`text-right font-mono font-semibold text-xs ${r.plEur === null ? "text-muted" : r.plEur >= 0 ? "text-mint" : "text-bad"}`}>
               {r.plEur === null ? "—" : (r.plEur >= 0 ? "+" : "−") + fmtEur(r.plEur)}
+            </span>
+            <span className={`text-right font-mono font-semibold text-xs ${r.plNative === null ? "text-muted" : r.plNative >= 0 ? "text-mint" : "text-bad"}`}>
+              {r.plNative === null ? "—" : (r.plNative >= 0 ? "+" : "−") + fmtNative(r.plNative, r.nativeCurrency)}
             </span>
             <span className={`text-right font-mono font-semibold text-xs ${r.plPct === null ? "text-muted" : r.plPct >= 0 ? "text-mint" : "text-bad"}`}>
               {fmtPct(r.plPct)}
