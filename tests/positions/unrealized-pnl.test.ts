@@ -31,10 +31,10 @@ describe("Unrealized P&L — IBKR statement parity", () => {
     });
     expect(r).not.toBeNull();
     expect(r!.qty).toBeCloseTo(37.9744, 4);
-    expect(r!.costBasisNative).toBeCloseTo(885.99, 1);
-    expect(r!.avgPriceNative).toBeCloseTo(23.3315, 3);
-    expect(r!.marketValueNative).toBeCloseTo(862.4, 1);
-    expect(r!.unrealizedPnlNative).toBeCloseTo(-23.59, 1);
+    expect(r!.net.costBasisNative).toBeCloseTo(885.99, 1);
+    expect(r!.net.avgPriceNative).toBeCloseTo(23.3315, 3);
+    expect(r!.net.marketValueNative).toBeCloseTo(862.4, 1);
+    expect(r!.net.unrealizedPnlNative).toBeCloseTo(-23.59, 1);
     expect(r!.approximated).toBe(false);
   });
 
@@ -51,9 +51,9 @@ describe("Unrealized P&L — IBKR statement parity", () => {
       quoteCurrency: "USD",
       fxRatesPerEur: fx({ USD: 1.165 }),
     });
-    expect(r!.costBasisNative).toBeCloseTo(828.29, 2);
-    expect(r!.marketValueNative).toBeCloseTo(905.45, 0); // 4.7794 * 189.44
-    expect(r!.unrealizedPnlNative).toBeCloseTo(77.16, 0);
+    expect(r!.net.costBasisNative).toBeCloseTo(828.29, 2);
+    expect(r!.net.marketValueNative).toBeCloseTo(905.45, 0); // 4.7794 * 189.44
+    expect(r!.net.unrealizedPnlNative).toBeCloseTo(77.16, 0);
   });
 
   it("TRN (GBP/GBP): pence-scaled quote, FIFO-consistent partial lots", () => {
@@ -69,9 +69,9 @@ describe("Unrealized P&L — IBKR statement parity", () => {
       quoteCurrency: "GBP",
       fxRatesPerEur: fx({ GBP: 0.84 }),
     });
-    expect(r!.costBasisNative).toBeCloseTo(990.89, 1);
-    expect(r!.marketValueNative).toBeCloseTo(960.55, 0); // 441.0319 * 2.178
-    expect(r!.unrealizedPnlNative).toBeLessThan(0);
+    expect(r!.net.costBasisNative).toBeCloseTo(990.89, 1);
+    expect(r!.net.marketValueNative).toBeCloseTo(960.55, 0); // 441.0319 * 2.178
+    expect(r!.net.unrealizedPnlNative).toBeLessThan(0);
   });
 
   it("partially-closed lot: 50 bought, 30 still open ⇒ 60% of cost remains", () => {
@@ -85,9 +85,9 @@ describe("Unrealized P&L — IBKR statement parity", () => {
       fxRatesPerEur: fx({ USD: 1.10 }),
     });
     // (1000 + 2) * (30/50) = 601.20  ·  market 30 * 25 = 750
-    expect(r!.costBasisNative).toBeCloseTo(601.2, 2);
-    expect(r!.marketValueNative).toBeCloseTo(750, 2);
-    expect(r!.unrealizedPnlNative).toBeCloseTo(148.8, 2);
+    expect(r!.net.costBasisNative).toBeCloseTo(601.2, 2);
+    expect(r!.net.marketValueNative).toBeCloseTo(750, 2);
+    expect(r!.net.unrealizedPnlNative).toBeCloseTo(148.8, 2);
   });
 
   it("flags approximated=true when quote currency ≠ trade currency", () => {
@@ -103,7 +103,7 @@ describe("Unrealized P&L — IBKR statement parity", () => {
       fxRatesPerEur: fx({ GBP: 0.86, USD: 1.16 }),
     });
     expect(r!.approximated).toBe(true);
-    expect(r!.costBasisNative).toBeCloseTo(626, 0);
+    expect(r!.net.costBasisNative).toBeCloseTo(626, 0);
   });
 
   it("returns null when there are no open lots", () => {
@@ -140,8 +140,8 @@ describe("Unrealized P&L — IBKR statement parity", () => {
       fxRatesPerEur: fx({ USD: 1.10 }),
     });
     // cost = 502 + 251 = 753, qty = 15, avg = 50.2
-    expect(r!.costBasisNative).toBeCloseTo(753, 2);
-    expect(r!.avgPriceNative).toBeCloseTo(50.2, 2);
-    expect(r!.marketValueNative).toBe(900);
+    expect(r!.net.costBasisNative).toBeCloseTo(753, 2);
+    expect(r!.net.avgPriceNative).toBeCloseTo(50.2, 2);
+    expect(r!.net.marketValueNative).toBe(900);
   });
 });

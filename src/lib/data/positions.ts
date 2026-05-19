@@ -9,6 +9,31 @@ import { getCashBalances } from "@/lib/data/cash";
 import { yieldOnCost } from "@/lib/analytics/yield-on-cost";
 import { computeUnrealizedPnL, type ResolvedLot } from "@/lib/positions/unrealized-pnl";
 
+/**
+ * Per-view metrics on a position row. Two views coexist:
+ *
+ *   `broker`  Cost basis excludes commissions. Mirrors the brokerage UI
+ *             ("Entry Price × qty"). Dividends NOT included. Use this to
+ *             answer "did the share price move?".
+ *
+ *   `net`     Cost basis includes commissions (German Anschaffungskosten)
+ *             and the P/L further adds received dividends. This is the
+ *             figure that maps to Anlage KAP and to total economic
+ *             return.
+ *
+ * Market value, qty, and per-unit price are shared — they don't depend
+ * on the mode.
+ */
+export type PositionViewMetrics = {
+  avgCostEur: number;
+  costEur: number;
+  plEur: number | null;
+  plPct: number | null;
+  avgCostNative: number | null;
+  costNative: number | null;
+  plNative: number | null;
+};
+
 export type PositionRow = {
   symbol: string;
   isin?: string;
@@ -18,22 +43,26 @@ export type PositionRow = {
   sector: string;
   kind: "stock" | "etf" | "bond" | "other";
   qty: number;
-  avgCostEur: number;
-  costEur: number;
   pricePerUnitEur: number | null;
   marketEur: number | null;
-  plEur: number | null;
-  plPct: number | null;
   asOf: string | null;
   // P/L in the equity's listed/trade currency (USD for COIN, GBP for TRN, EUR for SPYW, …).
   // Derived from each lot's source-transaction native amount + a current FX conversion of
   // the EUR-equivalent market value. Null when source transactions are missing or the lot
   // currency can't be determined.
   nativeCurrency: string | null;
-  costNative: number | null;
   pricePerUnitNative: number | null;
   marketNative: number | null;
-  plNative: number | null;
+  // Mode-specific cost & P/L numbers. UI picks one based on the user's
+  // toggle setting in the PnlModeProvider.
+  views: { broker: PositionViewMetrics; net: PositionViewMetrics };
+  // Informational: cumulative cash dividends paid on this position in EUR
+  // and in the trade currency, after withholding tax. Surfaced in the
+  // detail panel and used to compute `net.plEur`.
+  dividendsEur: number;
+  dividendsNative: number;
+  /** Commissions baked into the lots' cost basis, in EUR. Detail-panel only. */
+  feesEur: number;
 };
 
 export type DetailLot = {
@@ -94,6 +123,26 @@ export async function getPositionsData(
   const allTxs = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const txById = new Map(allTxs.map(t => [t.id, t]));
 
+  // Total dividends received per (brokerAccountId, identity = isin ?? symbol),
+  // keyed in EUR (cash_amount_eur is post-WHT — the cash that actually
+  // arrived on the account). Used to layer dividend return into the `net`
+  // view's P/L. Held positions get credited the dividends paid while they
+  // were open; closed positions don't surface here because the row group
+  // only exists when remainingQty > 0.
+  const dividendsByKey = new Map<string, { eur: Decimal; native: Decimal; currency: string | null }>();
+  for (const t of allTxs) {
+    if (t.eventType !== "DIVIDEND") continue;
+    if (!t.brokerAccountId) continue;
+    const identity = t.isin ?? t.symbol;
+    if (!identity) continue;
+    const k = `${t.brokerAccountId}|${identity}`;
+    const slot = dividendsByKey.get(k) ?? { eur: new Decimal(0), native: new Decimal(0), currency: null };
+    if (t.cashAmountEur) slot.eur = slot.eur.plus(t.cashAmountEur);
+    if (t.cashAmount) slot.native = slot.native.plus(t.cashAmount);
+    if (!slot.currency && t.currency) slot.currency = t.currency;
+    dividendsByKey.set(k, slot);
+  }
+
   // Load instruments for canonical symbol + name lookup
   const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
   const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
@@ -122,7 +171,11 @@ export async function getPositionsData(
     symbol: string;
     isin?: string;
     qty: Decimal;
+    /** Sum of lots.cost_eur — includes commissions (already baked in at replay time). */
     cost: Decimal;
+    /** Sum of per-lot commission in EUR, scaled by remaining/original. Used to
+     *  derive the broker-view cost (gross of fees) by subtracting from `cost`. */
+    feesEur: Decimal;
     nativeCurrency: string | null;
     resolvedLots: ResolvedLot[];
     openedAt: string;
@@ -137,6 +190,7 @@ export async function getPositionsData(
       isin: l.isin ?? undefined,
       qty: new Decimal(0),
       cost: new Decimal(0),
+      feesEur: new Decimal(0),
       nativeCurrency: null,
       resolvedLots: [],
       openedAt: l.openedAt,
@@ -156,6 +210,15 @@ export async function getPositionsData(
     // transactions.id (UUID), not the event-fingerprint hash.
     const srcTx = txById.get(l.sourceEventFingerprint);
     if (srcTx && srcTx.quantity && Number(srcTx.quantity) > 0) {
+      // Accumulate fees-in-EUR scaled by the lot's remaining-vs-original
+      // ratio, mirroring how the unrealized-pnl function scales costs.
+      const origQty = new Decimal(srcTx.quantity);
+      const remain = new Decimal(l.remainingQty);
+      if (origQty.gt(0)) {
+        const ratio = remain.div(origQty);
+        const feeEur = new Decimal(srcTx.feeEur ?? "0").abs();
+        g.feesEur = g.feesEur.plus(feeEur.mul(ratio));
+      }
       g.resolvedLots.push({
         remainingQty: l.remainingQty,
         originalQty: srcTx.quantity,
@@ -196,15 +259,13 @@ export async function getPositionsData(
         }
       }
     }
-    const plEur = marketEur !== null ? marketEur - cost : null;
-    const plPct = plEur !== null && cost !== 0 ? (plEur / cost) * 100 : null;
     const sector = classifySector(displaySymbol);
     const kind = classifyKind(displaySymbol, sector);
 
     // Native-currency P/L via the IBKR-mirror function. The function returns
+    // both `broker` (cost excl. fees) and `net` (cost incl. fees) views, plus
     // null when inputs are incomplete (missing source transactions, missing
-    // FX rate for a cross-currency conversion, no open qty); in those cases
-    // we leave the native columns as null and the UI renders "—".
+    // FX rate for a cross-currency conversion, no open qty).
     const nativeCcy = g.nativeCurrency;
     const ratesPerEur = new Map<string, number>();
     for (const [ccy, fx] of latestFx) ratesPerEur.set(ccy, fx.rate);
@@ -217,10 +278,50 @@ export async function getPositionsData(
           fxRatesPerEur: ratesPerEur,
         })
       : null;
-    const costNative = pnl?.costBasisNative ?? null;
-    const marketNative = pnl?.marketValueNative ?? null;
-    const plNative = pnl?.unrealizedPnlNative ?? null;
-    const pricePerUnitNative = pnl ? pnl.marketValueNative / pnl.qty : null;
+    const marketNative = pnl?.broker.marketValueNative ?? null;
+    const pricePerUnitNative = pnl ? pnl.broker.marketValueNative / pnl.qty : null;
+
+    // EUR cost — net cost (incl. fees) is what's stored in lots.cost_eur.
+    // Broker cost subtracts fees to mirror what brokerage UIs show.
+    const feesEur = Number(g.feesEur);
+    const netCostEur = Number(g.cost);              // includes commissions
+    const brokerCostEur = Math.max(0, netCostEur - feesEur);
+
+    // Dividends received on this position (post-WHT, what cash arrived).
+    // Layered into the `net` view's P/L. The accessor groups by
+    // (brokerAccountId, isin ?? symbol) so dividends naturally follow the
+    // position even when the ticker has been canonicalized.
+    const divKey = `${g.brokerAccountId}|${g.isin ?? g.symbol}`;
+    const divSlot = dividendsByKey.get(divKey);
+    const dividendsEur = divSlot ? Number(divSlot.eur) : 0;
+    const dividendsNative = divSlot && divSlot.currency === nativeCcy ? Number(divSlot.native) : 0;
+
+    // Compose both views.
+    const buildEurView = (costEur: number, includeDivs: boolean): PositionViewMetrics => {
+      const plEur = marketEur !== null
+        ? marketEur - costEur + (includeDivs ? dividendsEur : 0)
+        : null;
+      const plPct = plEur !== null && costEur !== 0 ? (plEur / costEur) * 100 : null;
+      return {
+        avgCostEur: qty > 0 ? costEur / qty : 0,
+        costEur,
+        plEur,
+        plPct,
+        avgCostNative: null,
+        costNative: null,
+        plNative: null,
+      };
+    };
+    const brokerView = buildEurView(brokerCostEur, false);
+    const netView = buildEurView(netCostEur, true);
+    if (pnl) {
+      brokerView.costNative = pnl.broker.costBasisNative;
+      brokerView.avgCostNative = pnl.broker.avgPriceNative;
+      brokerView.plNative = pnl.broker.unrealizedPnlNative;
+      netView.costNative = pnl.net.costBasisNative;
+      netView.avgCostNative = pnl.net.avgPriceNative;
+      netView.plNative = pnl.net.unrealizedPnlNative + dividendsNative;
+    }
 
     rows.push({
       symbol: displaySymbol,
@@ -231,25 +332,25 @@ export async function getPositionsData(
       sector,
       kind,
       qty,
-      avgCostEur: qty > 0 ? cost / qty : 0,
-      costEur: cost,
       pricePerUnitEur,
       marketEur,
-      plEur,
-      plPct,
       asOf,
       nativeCurrency: nativeCcy,
-      costNative,
       pricePerUnitNative,
       marketNative,
-      plNative,
+      views: { broker: brokerView, net: netView },
+      dividendsEur,
+      dividendsNative,
+      feesEur,
     });
   }
 
   const sectors = Array.from(new Set(rows.map(r => r.sector))).sort();
   const filteredRows = sector ? rows.filter(r => r.sector === sector) : rows;
   const totalMarketEur = filteredRows.reduce((s, r) => s + (r.marketEur ?? 0), 0);
-  const totalPlEur = filteredRows.reduce((s, r) => s + (r.plEur ?? 0), 0);
+  // Use the `net` view for portfolio totals (matches the existing all-in
+  // economic view; UI toggle only affects per-row display).
+  const totalPlEur = filteredRows.reduce((s, r) => s + (r.views.net.plEur ?? 0), 0);
 
   // Selected position detail
   let selected: SelectedPosition | null = null;
@@ -288,7 +389,7 @@ export async function getPositionsData(
       const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
       const ttmDivs = txs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate >= cutoff);
       const ttmEur = ttmDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
-      const yieldOnCostPct = yieldOnCost(ttmEur, sel.costEur) * 100;
+      const yieldOnCostPct = yieldOnCost(ttmEur, sel.views.net.costEur) * 100;
 
       const earliestOpen = matching.reduce((min, l) => l.openedAt < min ? l.openedAt : min, matching[0]?.openedAt ?? new Date().toISOString().slice(0,10));
       const daysHeld = Math.floor((Date.now() - Date.parse(earliestOpen)) / 86400000);

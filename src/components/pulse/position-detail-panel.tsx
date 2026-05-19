@@ -1,5 +1,7 @@
+"use client";
 import { Card } from "./card";
 import { Sparkline } from "./sparkline";
+import { usePnlMode } from "./pnl-mode";
 
 export type Lot = {
   openedAt: string;
@@ -19,18 +21,26 @@ export type DetailData = {
   marketEur: number;
   qty: number;
   pricePerUnitEur: number;
-  unrealizedEur: number;
-  unrealizedPct: number | null;
-  avgCostEur: number;
+  // Mode-specific cost / P/L per the active toggle.
+  views: {
+    broker: { unrealizedEur: number; unrealizedPct: number | null; avgCostEur: number };
+    net:    { unrealizedEur: number; unrealizedPct: number | null; avgCostEur: number };
+  };
   sparkline: number[];
   sparkPctChange?: number | null;
   lots: Lot[];
   dividendsYtdEur: number;
+  /** Total dividends received on this position, EUR, after WHT. */
+  dividendsTotalEur: number;
+  /** Total broker commissions baked into the cost basis, EUR. */
+  feesEur: number;
   yieldOnCostPct: number;
   daysHeld: number;
 };
 
 export function PositionDetailPanel({ d }: { d: DetailData }) {
+  const { mode } = usePnlMode();
+  const v = d.views[mode];
   const fmtEur = (v: number, dec = 2) => `€${Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
   const palette = ["var(--accent-mint, #7CFFB2)", "var(--accent-amber, #FFD24A)", "var(--accent-pink, #FF5DA2)"];
   return (
@@ -56,13 +66,22 @@ export function PositionDetailPanel({ d }: { d: DetailData }) {
           <div className="font-mono text-[11px] text-muted mt-1">{d.qty} × {fmtEur(d.pricePerUnitEur, 2)}</div>
         </div>
         <div>
-          <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Unrealized P/L</div>
-          <div className={`font-bold text-[28px] num mt-1 tracking-tight ${d.unrealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {(d.unrealizedEur >= 0 ? "+" : "−") + fmtEur(d.unrealizedEur)}
+          <div className="font-mono text-[10px] text-dim uppercase tracking-widest flex items-center gap-1.5">
+            Unrealized P/L
+            <span className="px-1 py-0.5 rounded bg-panel2 text-mint normal-case tracking-normal text-[9px]">{mode}</span>
+          </div>
+          <div className={`font-bold text-[28px] num mt-1 tracking-tight ${v.unrealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
+            {(v.unrealizedEur >= 0 ? "+" : "−") + fmtEur(v.unrealizedEur)}
           </div>
           <div className="font-mono text-[11px] text-muted mt-1">
-            {d.unrealizedPct === null ? "—" : (d.unrealizedPct >= 0 ? "+" : "") + d.unrealizedPct.toFixed(1) + "%"} from {fmtEur(d.avgCostEur, 2)}
+            {v.unrealizedPct === null ? "—" : (v.unrealizedPct >= 0 ? "+" : "") + v.unrealizedPct.toFixed(1) + "%"} from {fmtEur(v.avgCostEur, 2)}
           </div>
+          {(d.feesEur > 0 || d.dividendsTotalEur > 0) && (
+            <div className="font-mono text-[10px] text-dim mt-2 leading-relaxed">
+              {d.feesEur > 0 && <>fees in cost basis: {fmtEur(d.feesEur)}<br/></>}
+              {d.dividendsTotalEur > 0 && <>dividends received (net): {fmtEur(d.dividendsTotalEur)}</>}
+            </div>
+          )}
         </div>
       </div>
 
