@@ -3,12 +3,12 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
 import { fetchStooqQuotes } from "@/lib/quotes/stooq";
-import { fetchYahooSpots, YAHOO_PRIMARY_SYMBOLS } from "@/lib/quotes/yahoo-spot";
+import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
 
-// Daily cron is spot-quotes only. Stooq covers most symbols at zero cost
-// and no rate limit; Yahoo is used as the primary source for a tiny
-// allow-list of symbols where Stooq lacks the user's actual exchange
-// listing (today: just IEMM on Amsterdam). History backfill is separate.
+// Daily spot-quotes cron. Stooq covers most symbols at zero cost and no
+// rate limit. Symbols Yahoo blocks for our IP range — and Stooq lacks the
+// correct listing for — are skipped here and refreshed by an out-of-band
+// script (scripts/refresh_quotes.py) running on a residential IP.
 export const maxDuration = 60;
 
 export async function GET(req: Request) {
@@ -17,24 +17,16 @@ export async function GET(req: Request) {
   }
   const db = getDb();
   const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
-  const list = heldRows.map((x) => x.s).filter(Boolean) as string[];
-  if (!list.length) return NextResponse.json({ requested: [], inserted: [], unpriced: [], writeError: null });
+  const allHeld = heldRows.map((x) => x.s).filter(Boolean) as string[];
+  if (!allHeld.length) {
+    return NextResponse.json({ requested: [], inserted: [], unpriced: [], skipped: [], writeError: null });
+  }
 
-  // Route symbols to their preferred provider.
-  const yahooList = list.filter((s) => YAHOO_PRIMARY_SYMBOLS.has(s));
-  const stooqList = list.filter((s) => !YAHOO_PRIMARY_SYMBOLS.has(s));
+  const skipped = allHeld.filter((s) => EXTERNALLY_PRICED_SYMBOLS.has(s));
+  const stooqList = allHeld.filter((s) => !EXTERNALLY_PRICED_SYMBOLS.has(s));
 
-  const [stooqQuotes, yahooResult] = await Promise.all([
-    fetchStooqQuotes(stooqList),
-    fetchYahooSpots(yahooList),
-  ]);
+  const quotes = await fetchStooqQuotes(stooqList);
 
-  // If Yahoo failed for a primary-Yahoo symbol, fall back to Stooq for it
-  // (e.g. EIMI.uk for IEMM). Better an approximation than no data.
-  const yahooFailed = yahooList.filter((s) => !yahooResult.quotes.find((q) => q.symbol === s));
-  const stooqFallback = yahooFailed.length ? await fetchStooqQuotes(yahooFailed) : [];
-
-  const quotes = [...stooqQuotes, ...yahooResult.quotes, ...stooqFallback];
   let writeError: string | null = null;
   if (quotes.length) {
     try {
@@ -43,8 +35,6 @@ export async function GET(req: Request) {
         .values(quotes)
         .onConflictDoUpdate({
           target: [quoteCache.symbol, quoteCache.date],
-          // Update currency too — same symbol can flip provider (Stooq GBP
-          // ↔ Yahoo EUR for IEMM) and the cached currency must follow.
           set: {
             close: sql`excluded.close`,
             currency: sql`excluded.currency`,
@@ -56,28 +46,12 @@ export async function GET(req: Request) {
     }
   }
   const inserted = quotes.map((q) => q.symbol);
-  const unpriced = list.filter((s) => !inserted.includes(s));
-  const responseBody = {
-    requested: list,
+  const unpriced = stooqList.filter((s) => !inserted.includes(s));
+  return NextResponse.json({
+    requested: stooqList,
     inserted,
     unpriced,
-    yahooRequested: yahooList,
-    yahooUsed: yahooResult.quotes.map((q) => ({ symbol: q.symbol, currency: q.currency, close: q.close, date: q.date })),
-    yahooErrors: yahooResult.errors,
+    skipped,
     writeError,
-  };
-  // Vercel runtime-log MCP truncates each message at ~30 chars when fetched
-  // remotely, so emit one short prefixed line per fact instead of a big
-  // JSON blob. Each line stays self-contained and visible.
-  console.log("CRONQ_STOOQ_OK", stooqQuotes.length);
-  console.log("CRONQ_YAHOO_REQ", yahooList.join(","));
-  for (const q of yahooResult.quotes) {
-    console.log("CRONQ_YAHOO_OK", q.symbol, q.currency, q.close, q.date);
-  }
-  for (const e of yahooResult.errors) {
-    console.log("CRONQ_YAHOO_ERR", e.symbol, e.error);
-  }
-  console.log("CRONQ_UNPRICED", unpriced.join(","));
-  if (writeError) console.log("CRONQ_WRITE_ERR", writeError);
-  return NextResponse.json(responseBody);
+  });
 }
