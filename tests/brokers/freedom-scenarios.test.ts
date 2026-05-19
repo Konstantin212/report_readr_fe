@@ -28,7 +28,7 @@ describe("Freedom24 — trades", () => {
     }), 2024);
     const t = r.events[0];
     expect(t.type).toBe("TRADE");
-    expect(t.symbol).toBe("BNTX.US");
+    expect(t.symbol).toBe("BNTX");
     expect(t.quantity).toBe("5");
     expect(t.amount).toBe("-500");
     expect(t.cashAmount).toBe("-502"); // -500 - 2 fee
@@ -115,7 +115,7 @@ describe("Freedom24 — cash_in_outs (the new per-transaction array)", () => {
     }), 2024);
     const e = r.events[0];
     expect(e.type).toBe("DIVIDEND");
-    expect(e.symbol).toBe("AAPL.US");
+    expect(e.symbol).toBe("AAPL");
     expect(e.amount).toBe("42.5");
   });
 
@@ -192,7 +192,7 @@ describe("Freedom24 — securities_in_outs (corporate actions, new array)", () =
     }), 2024);
     const e = r.events[0];
     expect(e.type).toBe("CORPORATE_ACTION");
-    expect(e.symbol).toBe("SCHD.US");
+    expect(e.symbol).toBe("SCHD");
     expect(e.quantity).toBe("-34");
     expect(e.description).toMatch(/split/i);
   });
@@ -206,7 +206,7 @@ describe("Freedom24 — securities_in_outs (corporate actions, new array)", () =
       }],
     }), 2024);
     expect(r.events[0].quantity).toBe("24");
-    expect(r.events[0].symbol).toBe("C.US");
+    expect(r.events[0].symbol).toBe("C");
   });
 });
 
