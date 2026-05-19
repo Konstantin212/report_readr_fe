@@ -86,10 +86,12 @@ export async function getPositionsData(
   const allQuotes = await db.select().from(quoteCache);
   const allFx = await db.select().from(fxRates);
 
-  // Build fingerprint → source TRADE transaction lookup so we can derive each
+  // Build transaction-id → source TRADE row lookup so we can derive each
   // lot's cost in its trade currency (lots only store cost_eur today).
+  // Note: lots.source_event_fingerprint is named misleadingly — it actually
+  // stores `transactions.id` (the row UUID), not the event-fingerprint hash.
   const allTxs = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
-  const txByFingerprint = new Map(allTxs.map(t => [t.eventFingerprint, t]));
+  const txById = new Map(allTxs.map(t => [t.id, t]));
 
   // Load instruments for canonical symbol + name lookup
   const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
@@ -147,7 +149,7 @@ export async function getPositionsData(
     // TRADE event has the native trade `amount` (signed; negative for buys)
     // and `fee`. Scale by the lot's remaining qty / the original buy qty,
     // since the lot may have been partially closed by later sells.
-    const srcTx = txByFingerprint.get(l.sourceEventFingerprint);
+    const srcTx = txById.get(l.sourceEventFingerprint);
     if (srcTx && srcTx.quantity && Number(srcTx.quantity) > 0) {
       const origQty = new Decimal(srcTx.quantity);
       const remain = new Decimal(l.remainingQty);
