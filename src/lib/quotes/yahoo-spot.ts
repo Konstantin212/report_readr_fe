@@ -8,23 +8,29 @@ import { fetchYahooHistory } from "./history";
  */
 export type YahooSpot = { symbol: string; date: string; close: string; currency: string };
 
-export async function fetchYahooSpot(symbol: string): Promise<YahooSpot | null> {
+export type YahooSpotResult =
+  | { ok: true; quote: YahooSpot }
+  | { ok: false; symbol: string; error: string };
+
+export async function fetchYahooSpot(symbol: string): Promise<YahooSpotResult> {
   try {
     const rows = await fetchYahooHistory(symbol, "5d");
-    if (!rows.length) return null;
+    if (!rows.length) return { ok: false, symbol, error: "no rows" };
     // History is chronological; the last entry is the most recent close.
     const last = rows[rows.length - 1];
-    return { symbol, date: last.date, close: last.close, currency: last.currency };
-  } catch {
-    return null;
+    return { ok: true, quote: { symbol, date: last.date, close: last.close, currency: last.currency } };
+  } catch (e) {
+    return { ok: false, symbol, error: (e as Error).message };
   }
 }
 
-export async function fetchYahooSpots(symbols: string[]): Promise<YahooSpot[]> {
-  const out: YahooSpot[] = [];
+export async function fetchYahooSpots(symbols: string[]): Promise<{ quotes: YahooSpot[]; errors: Array<{ symbol: string; error: string }> }> {
+  const quotes: YahooSpot[] = [];
+  const errors: Array<{ symbol: string; error: string }> = [];
   for (let i = 0; i < symbols.length; i++) {
-    const q = await fetchYahooSpot(symbols[i]);
-    if (q) out.push(q);
+    const r = await fetchYahooSpot(symbols[i]);
+    if (r.ok) quotes.push(r.quote);
+    else errors.push({ symbol: r.symbol, error: r.error });
     // Throttle to stay friendly with Yahoo's anonymous rate limit; cron
     // budget is 60 s and we only ever call this for the handful of
     // symbols Stooq can't cover (today: just IEMM).
@@ -32,7 +38,7 @@ export async function fetchYahooSpots(symbols: string[]): Promise<YahooSpot[]> {
       await new Promise((r) => setTimeout(r, 700));
     }
   }
-  return out;
+  return { quotes, errors };
 }
 
 /**
