@@ -22,6 +22,10 @@ describe("Stooq symbol mapping", () => {
     expect(toStooqSymbol("IEMM")).toBe("eimi.uk");
   });
 
+  it("routes RY4C (Freedom24's internal alias) to Ryanair's Frankfurt listing", () => {
+    expect(toStooqSymbol("RY4C")).toBe("ry4c.de");
+  });
+
   it("maps Stockholm tickers to .se", () => {
     expect(toStooqSymbol("EVO")).toBe("evo.se");
   });

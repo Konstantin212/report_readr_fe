@@ -48,6 +48,10 @@ const OVERRIDES: Record<string, StooqMapping> = {
   // Xetra UCITS ETFs — quoted in EUR at unit scale
   SPYW:  { stooq: "spyw.de",  scale: 1 },
   XSX7:  { stooq: "xsx7.de",  scale: 1 },
+  // Ryanair Frankfurt listing — Freedom24 uses "RY4C" as the internal
+  // ticker for the EUR-denominated Frankfurt-listed Ryanair share. Stooq
+  // carries it under ry4c.de in EUR at unit scale.
+  RY4C:  { stooq: "ry4c.de",  scale: 1 },
   // Stockholm — no Stooq coverage today, kept for completeness
   EVO:   { stooq: "evo.se",   scale: 1 },
   // Benchmarks
