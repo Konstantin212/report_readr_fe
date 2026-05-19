@@ -26,7 +26,7 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
 
   return (
     <main className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight">
           Tax{" "}
           <span className="font-mono text-sm text-muted ml-1 tracking-wider">{yearNum} · Germany</span>
@@ -35,7 +35,7 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
         <TaxYearSelector years={availableYears} activeYear={yearNum} />
       </div>
 
-      <div className="grid grid-cols-[1.4fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
         <Card className="relative overflow-hidden">
           <div className="absolute right-[-40px] top-[-40px] w-[220px] h-[220px] rounded-full"
             style={{ background: "radial-gradient(circle, rgba(255,210,74,0.13) 0%, transparent 70%)" }} />

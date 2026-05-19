@@ -27,7 +27,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
   return (
     <main className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap gap-3 justify-between items-center">
         <h1 className="text-2xl font-bold tracking-tight">
           Performance{" "}
           <span className="font-mono text-sm text-muted ml-2 tracking-wider">
@@ -42,7 +42,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         <div className="flex justify-between items-start mb-3">
           <div>
             <div className="font-mono text-[11px] text-muted uppercase tracking-widest">Equity curve · indexed to 100</div>
-            <div className="flex gap-6 mt-3 items-baseline">
+            <div className="flex flex-wrap gap-6 mt-3 items-baseline">
               <div>
                 <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Portfolio</div>
                 <div className="font-bold text-[36px] num leading-tight text-mint tracking-tight">{fmtPct(d.hero.portfolioReturnPct)}</div>
@@ -69,7 +69,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           </div>
         </div>
         {d.equityCurve.portfolio.length > 0 ? (
-          <div className="h-[320px] mt-2">
+          <div className="h-[260px] lg:h-[360px] mt-2">
             <PerfChart
               values={d.equityCurve.portfolio}
               benchmark={d.equityCurve.benchmark.length > 0 ? d.equityCurve.benchmark : undefined}
@@ -77,14 +77,14 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             />
           </div>
         ) : (
-          <div className="h-[320px] flex items-center justify-center text-muted text-sm">
+          <div className="h-[260px] lg:h-[360px] flex items-center justify-center text-muted text-sm">
             Not enough history yet. Cron will backfill within 24 hours.
           </div>
         )}
       </Card>
 
       {/* 6 metric tiles */}
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <MetricTile label="TWR" value={fmtPct(d.metrics.twrPct)} sublabel="annualized" accent={d.metrics.twrPct !== null && d.metrics.twrPct >= 0 ? "mint" : "bad"} />
         <MetricTile label="MWR / IRR" value={fmtPct(d.metrics.mwrPct)} sublabel="money-weighted" />
         <MetricTile label="Volatility" value={fmtPct(d.metrics.volatilityPct, 1)} sublabel="annualized" />
@@ -94,7 +94,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
       </div>
 
       {/* Heatmap + sector contribution */}
-      <div className="grid grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <Heatmap rows={d.heatmap} />
         <SectorContributionBars bars={d.sectorContribution} />
       </div>

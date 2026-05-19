@@ -18,7 +18,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-      <div className="grid grid-cols-[240px_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
         <SettingsSidebar active={section} />
 
         <div className="space-y-4">

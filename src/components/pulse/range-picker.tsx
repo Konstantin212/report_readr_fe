@@ -16,7 +16,7 @@ export function RangePicker({ active = "2Y" }: { active?: Range }) {
   }
 
   return (
-    <div className="flex gap-1 p-[3px] rounded-full bg-panel border border-border">
+    <div className="flex flex-wrap gap-1 p-[3px] rounded-full bg-panel border border-border">
       {RANGES.map((r) => (
         <button
           key={r}
