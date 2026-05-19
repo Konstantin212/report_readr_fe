@@ -177,36 +177,132 @@ export function parseFreedomFinanceStatement(
   return { account, events };
 }
 
+/**
+ * Strip a Freedom exchange suffix like `.US` / `.EU` / `.RU` / `.HK` from
+ * a stock ticker so the symbol aligns with the canonical form used by
+ * the IBKR parser and by the Stooq quote lookup. FX pairs (with a `/`)
+ * and benchmark indices (with a `^`) are returned untouched.
+ */
+function stripFreedomSuffix(symbol: string | undefined): string | undefined {
+  if (!symbol) return undefined;
+  if (symbol.includes("/") || symbol.startsWith("^")) return symbol;
+  return symbol.replace(/\.(US|EU|RU|HK|UK|DE|FR|NL|IT|CH|JP|CA|AU)$/i, "");
+}
+
+/**
+ * Sign the trade amount based on the operation, regardless of the broker's
+ * own sign convention. Freedom24 exports `summ` as the *absolute* total of
+ * the trade; older Freedom Finance reports sometimes already sign it
+ * (negative on buys). This helper normalises both: a buy ALWAYS yields a
+ * negative cash impact and a sell ALWAYS yields a positive one.
+ */
+function signTradeAmount(amount: string | undefined, operation: string | undefined): string | undefined {
+  if (amount === undefined) return undefined;
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return amount;
+  const op = String(operation ?? "").toLowerCase();
+  const isSell = op.includes("sell") || op.includes("sale") || op.includes("sold");
+  return (isSell ? Math.abs(num) : -Math.abs(num)).toString();
+}
+
+const FX_PAIR_RE = /^[A-Z]{3,4}\/[A-Z]{3,4}$/;
+
 function parseTrades(rows: FreedomTrade[], accountNumber: string): NormalizedEvent[] {
   return rows
-    .map((row, index) => {
+    .flatMap<NormalizedEvent>((row, index) => {
       const date = dateOnly(cleanString(row.short_date) ?? cleanString(row.date));
+      if (!date) return [];
       const operation = cleanString(row.operation);
+      const rawSymbol = cleanString(row.instr_nm);
+
+      // FX pair conversions (RUR/USD, EUR/USD, USD/EUR, …) are not stock
+      // trades. Emit them as two FX_CONVERSION legs — one per currency —
+      // so the cash totals net cleanly and no phantom symbol creeps into
+      // the positions table.
+      if (rawSymbol && FX_PAIR_RE.test(rawSymbol)) {
+        return parseForexTrade(row, index, accountNumber, date, rawSymbol, operation);
+      }
+
+      const symbol = stripFreedomSuffix(rawSymbol);
       const quantity = signedQuantity(row.q, operation);
       const fee = absoluteNumber(row.commission);
-      const amount = cleanNumber(row.summ);
+      const signedAmount = signTradeAmount(cleanNumber(row.summ), operation);
 
-      return withTaxReview(compactEvent<NormalizedEvent>({
+      return [withTaxReview(compactEvent<NormalizedEvent>({
         id: cleanString(row.id) ?? `freedom-trade-${index + 1}`,
         broker: "FREEDOM_FINANCE",
         accountNumber,
         type: "TRADE",
         date,
         currency: cleanString(row.curr_c) ?? "UNKNOWN",
-        symbol: cleanString(row.instr_nm),
+        symbol,
         isin: cleanString(row.isin),
         description: operation,
         quantity,
         price: cleanNumber(row.p),
-        amount,
-        cashAmount: subtractNumbers(amount, fee),
-        proceeds: amount,
+        amount: signedAmount,
+        cashAmount: subtractNumbers(signedAmount, fee),
+        proceeds: signedAmount,
         realizedPnl: cleanNumber(row.profit),
         fee,
         source: "trades.detailed",
-      }));
-    })
-    .filter((event) => Boolean(event.date));
+      }))];
+    });
+}
+
+/**
+ * Split a Freedom FX-pair row (e.g. RUR/USD buy q=4100 summ=56.54 in USD)
+ * into the two FX_CONVERSION legs the ledger expects:
+ *   base leg:  +q     in <base ccy>   (received) on buy / negated on sell
+ *   quote leg: -summ  in <quote ccy>  (paid)     on buy / sign-flipped on sell
+ *
+ * Per Freedom's convention, `q` is the absolute quantity of the base
+ * currency and `summ` is the absolute amount of the quote currency. The
+ * `operation` field tells us which direction. There is never a stock
+ * symbol on these rows, so no position can be created from them.
+ */
+function parseForexTrade(
+  row: FreedomTrade,
+  index: number,
+  accountNumber: string,
+  date: string,
+  pair: string,
+  operation: string | undefined,
+): NormalizedEvent[] {
+  const [base, quote] = pair.split("/");
+  const op = String(operation ?? "").toLowerCase();
+  const isSell = op.includes("sell") || op.includes("sale") || op.includes("sold");
+  const q = Number(cleanNumber(row.q) ?? "0");
+  const summ = Number(cleanNumber(row.summ) ?? "0");
+  if (!Number.isFinite(q) || !Number.isFinite(summ)) return [];
+  // Direction: buy of "BASE/QUOTE" means +base, -quote. sell flips both.
+  const baseAmount = (isSell ? -1 : 1) * Math.abs(q);
+  const quoteAmount = (isSell ? 1 : -1) * Math.abs(summ);
+  const baseLeg = compactEvent<NormalizedEvent>({
+    id: `${cleanString(row.id) ?? `freedom-fx-${index + 1}`}-base`,
+    broker: "FREEDOM_FINANCE",
+    accountNumber,
+    type: "FX_CONVERSION",
+    date,
+    currency: base,
+    description: pair,
+    amount: baseAmount.toString(),
+    cashAmount: baseAmount.toString(),
+    source: "trades.detailed",
+  });
+  const quoteLeg = compactEvent<NormalizedEvent>({
+    id: `${cleanString(row.id) ?? `freedom-fx-${index + 1}`}-quote`,
+    broker: "FREEDOM_FINANCE",
+    accountNumber,
+    type: "FX_CONVERSION",
+    date,
+    currency: quote,
+    description: pair,
+    amount: quoteAmount.toString(),
+    cashAmount: quoteAmount.toString(),
+    source: "trades.detailed",
+  });
+  return [baseLeg, quoteLeg];
 }
 
 /**
@@ -244,7 +340,7 @@ function parseCashInOuts(rows: FreedomCashInOut[], accountNumber: string): Norma
         type: eventType,
         date,
         currency: cleanString(row.currency) ?? "UNKNOWN",
-        symbol: cleanString(row.ticker),
+        symbol: stripFreedomSuffix(cleanString(row.ticker)),
         description: cleanString(row.comment) ?? cleanString(row.type),
         amount: isReversal ? negateNumber(amount) : amount,
         cashAmount,
@@ -280,7 +376,7 @@ function parseCashFlows(rows: FreedomCashFlow[], accountNumber: string): Normali
         type: eventType,
         date,
         currency: cleanString(row.curr_c) ?? "UNKNOWN",
-        symbol: cleanString(row.instr_nm),
+        symbol: stripFreedomSuffix(cleanString(row.instr_nm)),
         description: cleanString(row.operation) ?? cleanString(row.instr_nm),
         amount,
         cashAmount: eventType === "DIVIDEND" ? subtractNumbers(amount, withholdingTax) : amount,
@@ -328,6 +424,10 @@ function parseSecuritiesInOuts(rows: FreedomSecurityInOut[], accountNumber: stri
     .map((row, index) => {
       const date = dateOnly(cleanString(row.datetime) ?? cleanString(row.pay_d));
       if (!date) return null;
+      // Splits / transfers / conversions affect share counts, not cash.
+      // We deliberately omit `amount` and `cashAmount` so the cash
+      // accessor doesn't sum the (informational) market_value as a
+      // phantom cash flow that never happened.
       return compactEvent<NormalizedEvent>({
         id: cleanString(row.id) ?? `freedom-security-in-out-${index + 1}`,
         broker: "FREEDOM_FINANCE",
@@ -335,10 +435,9 @@ function parseSecuritiesInOuts(rows: FreedomSecurityInOut[], accountNumber: stri
         type: "CORPORATE_ACTION",
         date,
         currency: cleanString(row.balance_currency) ?? cleanString(row.commission_currency) ?? "UNKNOWN",
-        symbol: cleanString(row.ticker),
+        symbol: stripFreedomSuffix(cleanString(row.ticker)),
         description: cleanString(row.type) ?? cleanString(row.comment),
         quantity: cleanNumber(row.quantity),
-        amount: cleanNumber(row.market_value) ?? cleanNumber(row.cost),
         source: "securities_in_outs",
       });
     })
@@ -357,7 +456,7 @@ function parseCorporateActions(rows: FreedomCorporateAction[], accountNumber: st
         type: "CORPORATE_ACTION",
         date,
         currency: cleanString(row.curr_c) ?? cleanString(row.currency) ?? "UNKNOWN",
-        symbol: cleanString(row.instr_nm) ?? cleanString(row.ticker),
+        symbol: stripFreedomSuffix(cleanString(row.instr_nm) ?? cleanString(row.ticker)),
         isin: cleanString(row.isin),
         description: cleanString(row.operation) ?? cleanString(row.type),
         quantity: cleanNumber(row.q) ?? cleanNumber(row.quantity),
