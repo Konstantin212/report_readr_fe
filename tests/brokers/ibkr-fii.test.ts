@@ -34,6 +34,17 @@ describe("IBKR parser — ISIN enrichment, Forex routing, bond suffix", () => {
     expect(fx?.source).toBe("Forex");
   });
 
+  it("emits both currency legs of a Forex row so cash balances net correctly", () => {
+    // EUR.USD row in fixture: Quantity=909.79, Proceeds=-999.99 USD.
+    // Expect a -999.99 USD leg AND a +909.79 EUR leg.
+    const fxLegs = events.filter(e => e.type === "FX_CONVERSION" && e.source === "Forex");
+    expect(fxLegs.length).toBe(2);
+    const usdLeg = fxLegs.find(e => e.currency === "USD");
+    const eurLeg = fxLegs.find(e => e.currency === "EUR");
+    expect(Number(usdLeg?.amount)).toBeCloseTo(-999.99, 2);
+    expect(Number(eurLeg?.amount)).toBeCloseTo(909.79, 2);
+  });
+
   it("strips bond yield suffix from symbol and attaches ISIN", () => {
     const bond = events.find(e => e.symbol === "T 4 5/8 09/15/26");
     expect(bond).toBeDefined();

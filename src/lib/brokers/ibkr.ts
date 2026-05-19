@@ -143,7 +143,7 @@ function buildInstrumentMap(rows: SectionRow[]): Map<string, InstrumentInfo> {
 
 function parseTrades(rows: SectionRow[], accountNumber: string, instrumentMap: Map<string, InstrumentInfo>): NormalizedEvent[] {
   return getRows(rows, "Trades")
-    .map((row, index) => {
+    .flatMap<NormalizedEvent>((row, index) => {
       const date = dateOnly(row["Date/Time"]);
       const fee = absoluteNumber(row["Comm/Fee"]);
       const proceeds = cleanNumber(row.Proceeds);
@@ -159,13 +159,20 @@ function parseTrades(rows: SectionRow[], accountNumber: string, instrumentMap: M
       const symbol = canonical ?? (rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined);
 
       if (assetCategory.toLowerCase().startsWith("forex")) {
-        return withTaxReview(compactEvent<NormalizedEvent>({
-          id: `ibkr-fx-${index + 1}`,
+        // A Forex row is a paired conversion: quote-currency proceeds (e.g.
+        // USD) AND base-currency quantity (e.g. EUR from "EUR.USD"). Emit
+        // both legs so cash balances net out correctly across currencies —
+        // otherwise we double-debit one side without crediting the other.
+        const quoteCurrency = cleanString(row.Currency) ?? "UNKNOWN";
+        const [baseCurrency = "UNKNOWN"] = (rawSymbol ?? "").split(".");
+        const quantity = cleanNumber(row.Quantity);
+        const quoteLeg = withTaxReview(compactEvent<NormalizedEvent>({
+          id: `ibkr-fx-${index + 1}-quote`,
           broker: "INTERACTIVE_BROKERS",
           accountNumber,
           type: "FX_CONVERSION",
           date,
-          currency: cleanString(row.Currency) ?? "UNKNOWN",
+          currency: quoteCurrency,
           description: rawSymbol,
           amount: proceeds,
           cashAmount,
@@ -173,9 +180,22 @@ function parseTrades(rows: SectionRow[], accountNumber: string, instrumentMap: M
           fee,
           source: "Forex",
         }));
+        const baseLeg = withTaxReview(compactEvent<NormalizedEvent>({
+          id: `ibkr-fx-${index + 1}-base`,
+          broker: "INTERACTIVE_BROKERS",
+          accountNumber,
+          type: "FX_CONVERSION",
+          date,
+          currency: baseCurrency,
+          description: rawSymbol,
+          amount: quantity,
+          cashAmount: quantity,
+          source: "Forex",
+        }));
+        return [quoteLeg, baseLeg];
       }
 
-      return withTaxReview(compactEvent<NormalizedEvent>({
+      return [withTaxReview(compactEvent<NormalizedEvent>({
         id: `ibkr-trade-${index + 1}`,
         broker: "INTERACTIVE_BROKERS",
         accountNumber,
@@ -194,7 +214,7 @@ function parseTrades(rows: SectionRow[], accountNumber: string, instrumentMap: M
         fee,
         realizedPnl: cleanNumber(row["Realized P/L"]),
         source: "Trades",
-      }));
+      }))];
     })
     .filter((event) => Boolean(event.date));
 }
