@@ -5,11 +5,9 @@ import { quoteCache } from "@/lib/db/schema";
 import { fetchYahooSpot } from "@/lib/quotes/yahoo-spot";
 
 /**
- * Diagnostic: returns every quote_cache row for IEMM (latest first) plus a
- * live Yahoo probe from the same code path the cron uses. Lets us see
- * exactly what's stored and whether Yahoo is reachable from this Vercel
- * function — no log-mining required. Auth: cron-secret OR no auth at all
- * (it's read-only and just for IEMM).
+ * Diagnostic: returns every quote_cache row for IEMM (latest first) plus
+ * two live probes — the direct-from-Node Yahoo path AND the new Python
+ * yfinance proxy — so we can see exactly which one Vercel's IPs can reach.
  */
 export async function GET() {
   const db = getDb();
@@ -18,7 +16,24 @@ export async function GET() {
     .from(quoteCache)
     .where(eq(quoteCache.symbol, "IEMM"))
     .orderBy(desc(quoteCache.date));
-  const probe = await fetchYahooSpot("IEMM");
+
+  const directProbe = await fetchYahooSpot("IEMM");
+
+  let pythonProbe: unknown = null;
+  let pythonProbeStatus: number | null = null;
+  try {
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000";
+    const res = await fetch(`${baseUrl}/api/yahoo_spot?symbol=IEMM`, {
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` },
+    });
+    pythonProbeStatus = res.status;
+    pythonProbe = await res.json().catch(() => null);
+  } catch (e) {
+    pythonProbe = { error: (e as Error).message };
+  }
+
   return NextResponse.json({
     storedRows: rows.map((r) => ({
       date: r.date,
@@ -27,6 +42,7 @@ export async function GET() {
       source: r.source,
       updatedAt: r.updatedAt,
     })),
-    liveYahooProbe: probe,
+    directNodeYahooProbe: directProbe,
+    pythonYfinanceProbe: { status: pythonProbeStatus, body: pythonProbe },
   });
 }
