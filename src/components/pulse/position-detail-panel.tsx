@@ -103,13 +103,22 @@ export function PositionDetailPanel({ d }: { d: DetailData }) {
         {d.lots.map((l, i) => {
           const color = palette[i % palette.length];
           return (
-            <div key={i} className="mb-2">
-              <div className="flex justify-between font-mono text-[11px] mb-0.5">
-                <span className="text-muted">{l.openedAt}</span>
-                <span className="text-ink">{l.qty} sh @ €{l.pricePerUnitEur}</span>
-                {l.gainPct !== null && <span className={`font-semibold ${l.gainPct >= 0 ? "text-mint" : "text-bad"}`}>
-                  {(l.gainPct >= 0 ? "+" : "") + l.gainPct.toFixed(0)}%
-                </span>}
+            <div
+              key={i}
+              className="mb-2 p-2 rounded-md bg-panel2/40 lg:bg-transparent lg:p-0 lg:rounded-none"
+            >
+              {/* Mobile: stack opened / qty@price on first line, gain on its own line right-aligned.
+                  Desktop (lg): keep the original single-line flex row. */}
+              <div className="flex flex-col gap-1 lg:flex-row lg:justify-between lg:items-baseline lg:gap-2 font-mono text-[11px] mb-1 lg:mb-0.5">
+                <div className="flex justify-between items-baseline gap-2 lg:contents">
+                  <span className="text-muted">{l.openedAt}</span>
+                  <span className="text-ink">{l.qty} sh @ €{l.pricePerUnitEur}</span>
+                </div>
+                {l.gainPct !== null && (
+                  <span className={`font-semibold text-right lg:text-left ${l.gainPct >= 0 ? "text-mint" : "text-bad"}`}>
+                    {(l.gainPct >= 0 ? "+" : "") + l.gainPct.toFixed(0)}%
+                  </span>
+                )}
               </div>
               <div className="h-1 bg-white/5 rounded-full">
                 <div className="h-full rounded-full" style={{ width: `${l.pctOfTotal}%`, background: color }} />
