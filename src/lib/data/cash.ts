@@ -31,8 +31,37 @@ export async function getCashBalances(
     ? allTx.filter(t => t.brokerAccountId && accountIdsSet.has(t.brokerAccountId))
     : allTx;
 
-  const totals = new Map<string, Decimal>();
+  // Per (brokerAccount, currency) → latest CASH_REPORT_ENDING snapshot.
+  // When present, this is IBKR's authoritative ending balance and we
+  // bypass event-summing for that (brokerAccount, currency) pair entirely
+  // — the snapshot already reflects every fee class, FX translation
+  // adjustment, and day-of-statement timing quirk IBKR applies.
+  type SnapKey = string; // `${brokerAccountId}|${currency}`
+  const snapshots = new Map<SnapKey, { date: string; amount: Decimal }>();
   for (const t of txs) {
+    if (t.source !== "CASH_REPORT_ENDING" || !t.brokerAccountId) continue;
+    const key = `${t.brokerAccountId}|${t.currency || "EUR"}`;
+    const prev = snapshots.get(key);
+    if (!prev || t.eventDate > prev.date) {
+      snapshots.set(key, { date: t.eventDate, amount: new Decimal(t.cashAmount ?? "0") });
+    }
+  }
+  const snapshottedKeys = new Set(snapshots.keys());
+
+  const totals = new Map<string, Decimal>();
+  // Seed totals from snapshots (authoritative per-account per-currency balance).
+  for (const [key, snap] of snapshots) {
+    const currency = key.split("|")[1];
+    totals.set(currency, (totals.get(currency) ?? new Decimal(0)).plus(snap.amount));
+  }
+
+  for (const t of txs) {
+    if (t.source === "CASH_REPORT_ENDING") continue; // already seeded
+    // Skip events for (brokerAccount, currency) pairs that have a snapshot —
+    // those are already represented by the IBKR-authoritative ending balance.
+    const baKey = t.brokerAccountId ? `${t.brokerAccountId}|${t.currency || "EUR"}` : null;
+    if (baKey && snapshottedKeys.has(baKey)) continue;
+
     // Use cashAmount (signed) when present; otherwise fall back to amount with type-specific sign convention.
     let signed: Decimal | null = null;
     if (t.cashAmount !== null && t.cashAmount !== undefined) {

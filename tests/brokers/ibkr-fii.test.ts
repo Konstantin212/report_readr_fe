@@ -56,3 +56,36 @@ describe("IBKR parser — ISIN enrichment, Forex routing, bond suffix", () => {
     expect(stockTrades.every(t => !t.symbol?.includes("."))).toBe(true);
   });
 });
+
+describe("IBKR parser — Cash Report ending balances", () => {
+  const CSV = `Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers
+Statement,Data,Period,"January 1, 2025 - December 31, 2025"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Account,U000000
+Cash Report,Header,Currency Summary,Currency,Total,Securities,Futures
+Cash Report,Data,Ending Settled Cash,Base Currency Summary,59.06,59.06,0
+Cash Report,Data,Ending Settled Cash,EUR,6.65,6.65,0
+Cash Report,Data,Ending Settled Cash,USD,42.18,42.18,0
+Cash Report,Data,Ending Cash,EUR,6.65,6.65,0
+`;
+  const bytes = new TextEncoder().encode(CSV);
+  const result = parseInteractiveBrokersStatement("test.csv", bytes, 2025);
+  const snapshots = result.events.filter((e) => e.source === "CASH_REPORT_ENDING");
+
+  it("emits one snapshot per non-base currency from Ending Settled Cash", () => {
+    expect(snapshots.length).toBe(2);
+    expect(new Set(snapshots.map((s) => s.currency))).toEqual(new Set(["EUR", "USD"]));
+  });
+
+  it("skips the Base Currency Summary aggregate row", () => {
+    expect(snapshots.every((s) => s.currency !== "Base Currency Summary")).toBe(true);
+    expect(snapshots.every((s) => s.currency !== "BASE")).toBe(true);
+  });
+
+  it("stores the IBKR balance verbatim in cashAmount and dates it to the statement end", () => {
+    const eur = snapshots.find((s) => s.currency === "EUR");
+    expect(Number(eur?.cashAmount)).toBeCloseTo(6.65, 2);
+    expect(eur?.date).toBe("2025-12-31");
+  });
+});

@@ -88,6 +88,7 @@ export function parseInteractiveBrokersStatement(
       idPrefix: "ibkr-interest",
     }),
     ...parseCashReportFees(dataRows, accountNumber, statementDates.endDate ?? `${taxYear}-12-31`),
+    ...parseCashReportEndings(dataRows, accountNumber, statementDates.endDate ?? `${taxYear}-12-31`),
     ...parseCashTransfers(dataRows, accountNumber),
     ...parseCorporateActions(dataRows, accountNumber, instrumentMap),
   ];
@@ -272,6 +273,47 @@ function parseCashReportFees(
         source: "Cash Report",
       })),
     );
+}
+
+/**
+ * Capture IBKR's authoritative per-currency "Ending Settled Cash" from the
+ * statement's Cash Report. Emitted as CASH_TRANSFER events with a special
+ * `source = "CASH_REPORT_ENDING"` marker the cash accessor recognizes and
+ * uses as a snapshot, bypassing event-summing for that currency.
+ *
+ * Why: IBKR's Cash Report includes adjustments we can't reconstruct from
+ * raw events (UK stamp tax, FX translation gain/loss, transfer-day timing
+ * quirks). Trusting the broker's own per-currency total is more robust
+ * than trying to enumerate every fee class.
+ */
+function parseCashReportEndings(
+  rows: SectionRow[],
+  accountNumber: string,
+  statementEndDate: string,
+): NormalizedEvent[] {
+  return getRows(rows, "Cash Report")
+    .filter((row) => {
+      const summary = String(row["Currency Summary"] ?? "");
+      const currency = cleanString(row.Currency) ?? "";
+      // Take "Ending Settled Cash" per-currency rows; skip "Base Currency
+      // Summary" aggregates (those are EUR-equivalent totals, not native).
+      return summary === "Ending Settled Cash" && currency !== "" && currency !== "Base Currency Summary";
+    })
+    .map((row, index) =>
+      compactEvent<NormalizedEvent>({
+        id: `ibkr-cash-snapshot-${index + 1}`,
+        broker: "INTERACTIVE_BROKERS",
+        accountNumber,
+        type: "CASH_TRANSFER",
+        date: statementEndDate,
+        currency: cleanString(row.Currency) ?? "UNKNOWN",
+        description: "Ending Settled Cash",
+        amount: cleanNumber(row.Total),
+        cashAmount: cleanNumber(row.Total),
+        source: "CASH_REPORT_ENDING",
+      }),
+    )
+    .filter((event) => Boolean(event.amount));
 }
 
 function parseCashTransfers(rows: SectionRow[], accountNumber: string): NormalizedEvent[] {
