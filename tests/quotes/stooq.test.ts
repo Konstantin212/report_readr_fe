@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toStooqSymbol } from "@/lib/quotes/stooq-symbol-map";
+import { toStooqSymbol, resolveStooq } from "@/lib/quotes/stooq-symbol-map";
 
 describe("Stooq symbol mapping", () => {
   it("maps US tickers to .us suffix", () => {
@@ -32,5 +32,22 @@ describe("Stooq symbol mapping", () => {
 
   it("defaults to .us for unknown tickers", () => {
     expect(toStooqSymbol("UNKNOWN")).toBe("unknown.us");
+  });
+
+  describe("scale", () => {
+    it("scales LSE ordinary shares by 0.01 (pence → GBP)", () => {
+      expect(resolveStooq("TRN")).toEqual({ stooq: "trn.uk", scale: 0.01 });
+    });
+
+    it("keeps LSE UCITS ETFs at unit scale", () => {
+      expect(resolveStooq("VHYL").scale).toBe(1);
+      expect(resolveStooq("VUSA").scale).toBe(1);
+      expect(resolveStooq("IEMM").scale).toBe(1);
+    });
+
+    it("keeps US tickers at unit scale", () => {
+      expect(resolveStooq("COIN").scale).toBe(1);
+      expect(resolveStooq("UNKNOWN").scale).toBe(1);
+    });
   });
 });
