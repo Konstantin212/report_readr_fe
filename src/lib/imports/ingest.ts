@@ -138,7 +138,7 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
   return { importId: imp[0].id, duplicate: false, insertedCount, duplicateCount, reviewCount };
 }
 
-async function runReplayForAccount(ownerUserId: string, brokerAccountId: string): Promise<void> {
+export async function runReplayForAccount(ownerUserId: string, brokerAccountId: string): Promise<void> {
   const db = getDb();
   const rows = await db.select().from(s.transactions)
     .where(and(eq(s.transactions.ownerUserId, ownerUserId), eq(s.transactions.brokerAccountId, brokerAccountId)));

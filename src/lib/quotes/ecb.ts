@@ -24,3 +24,15 @@ export async function fetchEcbDaily(): Promise<EcbRate[]> {
   if (!res.ok) throw new Error(`ECB fetch failed: ${res.status}`);
   return parseEcbXml(await res.text());
 }
+
+/**
+ * ECB's full historical series — daily rates from 1999 onwards, ~5 MB XML.
+ * Pass `since` (YYYY-MM-DD) to drop rows older than that date before returning;
+ * the inserter only needs a window around our transaction history.
+ */
+export async function fetchEcbHistorical(since?: string): Promise<EcbRate[]> {
+  const res = await fetch("https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.xml", { cache: "no-store" });
+  if (!res.ok) throw new Error(`ECB historical fetch failed: ${res.status}`);
+  const all = parseEcbXml(await res.text());
+  return since ? all.filter((r) => r.date >= since) : all;
+}
