@@ -8,6 +8,8 @@ import { replay } from "@/lib/ledger/replay";
 import { derivePositions } from "@/lib/ledger/positions";
 import type { NormalizedEvent } from "@/lib/domain/types";
 
+type EventWithName = NormalizedEvent & { name?: string };
+
 export type IngestSummary = {
   importId: string;
   duplicate: boolean;
@@ -45,9 +47,35 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
   const rateRows = await db.select().from(s.fxRates);
   const rateMap = new Map(rateRows.map(r => [`${r.date}|${r.fromCurrency}`, r.rate]));
 
-  // 4. Insert events with ON CONFLICT DO NOTHING (fingerprint-based dedup)
+  // 4. Upsert instruments (distinct by isin) from parsed events
+  const seenIsins = new Set<string>();
+  for (const ev of payload.events) {
+    const evWithName = ev as EventWithName;
+    if (!evWithName.isin) continue;
+    if (seenIsins.has(evWithName.isin)) continue;
+    seenIsins.add(evWithName.isin);
+    await db.insert(s.instruments)
+      .values({
+        ownerUserId,
+        symbol: evWithName.symbol,
+        isin: evWithName.isin,
+        name: evWithName.name,
+        currency: evWithName.currency,
+      })
+      .onConflictDoUpdate({
+        target: [s.instruments.ownerUserId, s.instruments.isin],
+        set: {
+          symbol: evWithName.symbol,
+          name: evWithName.name,
+          currency: evWithName.currency,
+        },
+      });
+  }
+
+  // 5. Insert events with ON CONFLICT DO NOTHING (fingerprint-based dedup)
   let insertedCount = 0, duplicateCount = 0, reviewCount = 0;
   for (const ev of payload.events) {
+    const evWithName = ev as EventWithName;
     const enriched = convertEventToEur(ev as NormalizedEvent, rateMap);
     if (enriched.requiresReview) reviewCount++;
     const fingerprint = computeEventFingerprint(enriched);
@@ -62,6 +90,7 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
       currency: ev.currency,
       symbol: ev.symbol,
       isin: ev.isin,
+      name: evWithName.name,
       quantity: ev.quantity,
       price: ev.price,
       amount: ev.amount,

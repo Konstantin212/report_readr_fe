@@ -138,6 +138,7 @@ export const instruments = pgTable(
   },
   (table) => ({
     ownerIsinIndex: index("instruments_owner_isin_idx").on(table.ownerUserId, table.isin),
+    ownerIsinUnique: uniqueIndex("instruments_owner_isin_unique").on(table.ownerUserId, table.isin),
   }),
 );
 
@@ -177,6 +178,7 @@ export const transactions = pgTable(
     reviewedAt: timestamp("reviewed_at"),
     reviewedByUserId: text("reviewed_by_user_id").references(() => user.id, { onDelete: "set null" }),
     reviewNote: text("review_note"),
+    name: text("name"),
     description: text("description"),
     source: text("source"),
     raw: jsonb("raw"),

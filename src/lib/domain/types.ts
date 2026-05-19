@@ -21,6 +21,7 @@ export type NormalizedEvent = {
   source?: string;
   symbol?: string;
   isin?: string;
+  name?: string;
   description?: string;
   quantity?: string;
   price?: string;

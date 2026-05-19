@@ -16,6 +16,12 @@ type SectionRow = {
   values: Record<string, string>;
 };
 
+export type InstrumentInfo = {
+  isin?: string;
+  canonicalSymbol?: string;   // from FII "Underlying" column
+  name?: string;              // from FII "Description" column
+};
+
 export function parseInteractiveBrokersStatement(
   fileName: string,
   bytes: Uint8Array | ArrayBuffer,
@@ -66,9 +72,9 @@ export function parseInteractiveBrokersStatement(
     taxYear,
   };
 
-  const isinMap = buildIsinMap(dataRows);
+  const instrumentMap = buildInstrumentMap(dataRows);
   const events = [
-    ...parseTrades(dataRows, accountNumber, isinMap),
+    ...parseTrades(dataRows, accountNumber, instrumentMap),
     ...parseSimpleAmountSection(dataRows, {
       accountNumber,
       section: "Dividends",
@@ -83,7 +89,7 @@ export function parseInteractiveBrokersStatement(
     }),
     ...parseCashReportFees(dataRows, accountNumber, statementDates.endDate ?? `${taxYear}-12-31`),
     ...parseCashTransfers(dataRows, accountNumber),
-    ...parseCorporateActions(dataRows, accountNumber, isinMap),
+    ...parseCorporateActions(dataRows, accountNumber, instrumentMap),
   ];
 
   return { account, events };
@@ -107,31 +113,35 @@ function stripBondYieldSuffix(s: string): string {
   return s.replace(/\s+\d+(\.\d+)?%$/, "").trim();
 }
 
-function buildIsinMap(rows: SectionRow[]): Map<string, string> {
-  const map = new Map<string, string>();
+function buildInstrumentMap(rows: SectionRow[]): Map<string, InstrumentInfo> {
+  const map = new Map<string, InstrumentInfo>();
   for (const fii of getRows(rows, "Financial Instrument Information")) {
-    const isin = cleanString(fii.ISIN ?? fii.Isin);
-    if (!isin) continue;
-    const rawSymbol = cleanString(fii.Symbol);
-    if (rawSymbol) {
-      for (const s of rawSymbol.split(",").map(x => x.trim()).filter(Boolean)) {
-        map.set(s, isin);
-        // Also map the suffix-stripped variant for bonds
-        const stripped = stripBondYieldSuffix(s);
-        if (stripped !== s) map.set(stripped, isin);
-      }
-    }
+    const isin = cleanString(fii["Security ID"] ?? fii.ISIN ?? fii.Isin);
+    const underlying = cleanString(fii.Underlying);
     const description = cleanString(fii.Description);
+    if (!isin && !underlying && !description) continue;
+    const info: InstrumentInfo = { isin, canonicalSymbol: underlying, name: description };
+
+    // Index by every symbol variant in the Symbol column (comma-separated alias list)
+    const rawSymbol = cleanString(fii.Symbol) ?? "";
+    for (const alias of rawSymbol.split(",").map(s => s.trim()).filter(Boolean)) {
+      map.set(alias, info);
+      const stripped = stripBondYieldSuffix(alias);
+      if (stripped !== alias) map.set(stripped, info);
+    }
+    if (underlying) {
+      map.set(underlying, info);
+    }
     if (description) {
-      map.set(description, isin);
+      map.set(description, info);
       const stripped = stripBondYieldSuffix(description);
-      if (stripped !== description) map.set(stripped, isin);
+      if (stripped !== description) map.set(stripped, info);
     }
   }
   return map;
 }
 
-function parseTrades(rows: SectionRow[], accountNumber: string, isinMap: Map<string, string>): NormalizedEvent[] {
+function parseTrades(rows: SectionRow[], accountNumber: string, instrumentMap: Map<string, InstrumentInfo>): NormalizedEvent[] {
   return getRows(rows, "Trades")
     .map((row, index) => {
       const date = dateOnly(row["Date/Time"]);
@@ -140,10 +150,13 @@ function parseTrades(rows: SectionRow[], accountNumber: string, isinMap: Map<str
       const cashAmount = subtractNumbers(proceeds, fee);
       const assetCategory = cleanString(row["Asset Category"]) ?? "";
       const rawSymbol = cleanString(row.Symbol);
-      const symbol = rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined;
-      const isin = symbol
-        ? (isinMap.get(symbol) ?? isinMap.get(rawSymbol ?? ""))
+      const info = rawSymbol
+        ? (instrumentMap.get(stripBondYieldSuffix(rawSymbol)) ?? instrumentMap.get(rawSymbol))
         : undefined;
+      const isin = info?.isin;
+      const canonical = info?.canonicalSymbol;
+      const name = info?.name;
+      const symbol = canonical ?? (rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined);
 
       if (assetCategory.toLowerCase().startsWith("forex")) {
         return withTaxReview(compactEvent<NormalizedEvent>({
@@ -171,6 +184,7 @@ function parseTrades(rows: SectionRow[], accountNumber: string, isinMap: Map<str
         currency: cleanString(row.Currency) ?? "UNKNOWN",
         symbol,
         isin,
+        name,
         description: cleanString(row.DataDiscriminator),
         quantity: cleanNumber(row.Quantity),
         price: cleanNumber(row["T. Price"]),
@@ -261,13 +275,18 @@ function parseCashTransfers(rows: SectionRow[], accountNumber: string): Normaliz
     .filter((event) => Boolean(event.date));
 }
 
-function parseCorporateActions(rows: SectionRow[], accountNumber: string, isinMap: Map<string, string>): NormalizedEvent[] {
+function parseCorporateActions(rows: SectionRow[], accountNumber: string, instrumentMap: Map<string, InstrumentInfo>): NormalizedEvent[] {
   return getRows(rows, "Corporate Actions")
     .map((row, index) => {
       const date = dateOnly(row.Date ?? row["Date/Time"]);
       const rawSymbol = cleanString(row.Symbol);
-      const symbol = rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined;
-      const isin = symbol ? isinMap.get(symbol) : undefined;
+      const info = rawSymbol
+        ? (instrumentMap.get(stripBondYieldSuffix(rawSymbol)) ?? instrumentMap.get(rawSymbol))
+        : undefined;
+      const isin = info?.isin;
+      const canonical = info?.canonicalSymbol;
+      const name = info?.name;
+      const symbol = canonical ?? (rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined);
 
       return compactEvent<NormalizedEvent>({
         id: `ibkr-corporate-action-${index + 1}`,
@@ -278,6 +297,7 @@ function parseCorporateActions(rows: SectionRow[], accountNumber: string, isinMa
         currency: cleanString(row.Currency) ?? "UNKNOWN",
         symbol,
         isin,
+        name,
         description: cleanString(row.Description ?? row.Action),
         quantity: cleanNumber(row.Quantity),
         amount: cleanNumber(row.Amount),
