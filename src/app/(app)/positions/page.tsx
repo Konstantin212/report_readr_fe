@@ -56,6 +56,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
             rows={d.rowsByKind.stock}
             hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
             selectedSymbol={symbol}
+            showToggle
           />
           <PositionsSection
             title="ETFs"
@@ -95,13 +96,24 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
           marketEur: d.selected.marketEur ?? 0,
           qty: d.selected.qty,
           pricePerUnitEur: d.selected.pricePerUnitEur ?? 0,
-          unrealizedEur: d.selected.plEur ?? 0,
-          unrealizedPct: d.selected.plPct,
-          avgCostEur: d.selected.avgCostEur,
+          views: {
+            broker: {
+              unrealizedEur: d.selected.views.broker.plEur ?? 0,
+              unrealizedPct: d.selected.views.broker.plPct,
+              avgCostEur: d.selected.views.broker.avgCostEur,
+            },
+            net: {
+              unrealizedEur: d.selected.views.net.plEur ?? 0,
+              unrealizedPct: d.selected.views.net.plPct,
+              avgCostEur: d.selected.views.net.avgCostEur,
+            },
+          },
           sparkline: d.selected.sparkline,
           sparkPctChange: d.selected.sparkPctChange,
           lots: d.selected.lots,
           dividendsYtdEur: d.selected.dividendsYtdEur,
+          dividendsTotalEur: d.selected.dividendsEur,
+          feesEur: d.selected.feesEur,
           yieldOnCostPct: d.selected.yieldOnCostPct,
           daysHeld: d.selected.daysHeld,
         }} />}

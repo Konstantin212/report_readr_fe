@@ -31,7 +31,20 @@ export type DashboardData = {
   allocation: { name: string; pct: number; value: number }[];
   currency: { code: string; pct: number; flag?: string; valueEur: number }[];
   dividendsYtd: { totalEur: number; whtEur: number; monthly: number[]; months: string[] };
-  topPositions: { symbol: string; broker: string; marketEur: number; plEur: number | null; plPct: number | null; name?: string }[];
+  topPositions: {
+    symbol: string;
+    broker: string;
+    marketEur: number;
+    name?: string;
+    // Same shape as the Positions table for toggle consistency. The
+    // dashboard's simpler cost calc doesn't separate fees out yet, so
+    // both views currently carry identical numbers — the toggle is a
+    // no-op here. The positions page is the canonical view.
+    views: {
+      broker: { plEur: number | null; plPct: number | null };
+      net:    { plEur: number | null; plPct: number | null };
+    };
+  }[];
 };
 
 export async function getDashboardData(ownerUserId: string, broker: "all" | "ff" | "ibkr" = "all"): Promise<DashboardData> {
@@ -307,7 +320,16 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     .filter(r => r.marketEur !== null)
     .sort((a, b) => (b.marketEur ?? 0) - (a.marketEur ?? 0))
     .slice(0, 5)
-    .map(r => ({ symbol: r.symbol, broker: r.broker, marketEur: r.marketEur!, plEur: r.plEur, plPct: r.plPct, name: r.name }));
+    .map(r => ({
+      symbol: r.symbol,
+      broker: r.broker,
+      marketEur: r.marketEur!,
+      name: r.name,
+      views: {
+        broker: { plEur: r.plEur, plPct: r.plPct },
+        net:    { plEur: r.plEur, plPct: r.plPct },
+      },
+    }));
 
   return {
     hero: {
