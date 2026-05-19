@@ -66,8 +66,18 @@ export async function GET(req: Request) {
     yahooErrors: yahooResult.errors,
     writeError,
   };
-  // Surface to Vercel runtime logs so we can diagnose without the caller
-  // having to copy/paste the response body.
-  console.log("[cron/quotes]", JSON.stringify(responseBody));
+  // Vercel runtime-log MCP truncates each message at ~30 chars when fetched
+  // remotely, so emit one short prefixed line per fact instead of a big
+  // JSON blob. Each line stays self-contained and visible.
+  console.log("CRONQ_STOOQ_OK", stooqQuotes.length);
+  console.log("CRONQ_YAHOO_REQ", yahooList.join(","));
+  for (const q of yahooResult.quotes) {
+    console.log("CRONQ_YAHOO_OK", q.symbol, q.currency, q.close, q.date);
+  }
+  for (const e of yahooResult.errors) {
+    console.log("CRONQ_YAHOO_ERR", e.symbol, e.error);
+  }
+  console.log("CRONQ_UNPRICED", unpriced.join(","));
+  if (writeError) console.log("CRONQ_WRITE_ERR", writeError);
   return NextResponse.json(responseBody);
 }
