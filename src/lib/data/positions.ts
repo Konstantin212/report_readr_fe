@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import Decimal from "decimal.js";
 import { getDb } from "@/lib/db/client";
 import {
-  brokerAccounts, lots, quoteCache, quoteHistory, fxRates, transactions,
+  brokerAccounts, lots, quoteCache, quoteHistory, fxRates, transactions, instruments,
 } from "@/lib/db/schema";
 import { classifySector, classifyKind } from "@/lib/analytics/sector-map";
 import { getCashBalances } from "@/lib/data/cash";
@@ -77,6 +77,11 @@ export async function getPositionsData(
   const allQuotes = await db.select().from(quoteCache);
   const allFx = await db.select().from(fxRates);
 
+  // Load instruments for canonical symbol + name lookup
+  const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
+  const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
+  const instrumentBySymbol = new Map(instrumentRows.filter(i => i.symbol).map(i => [i.symbol!, i]));
+
   // Latest FX per currency
   const latestFx = new Map<string, { rate: number; date: string }>();
   for (const r of allFx) {
@@ -111,7 +116,11 @@ export async function getPositionsData(
     const qty = Number(g.qty);
     const cost = Number(g.cost);
     if (qty <= 0) continue;
-    const q = latestQuote.get(g.symbol);
+    // Resolve canonical symbol + name from instruments table
+    const inst = (g.isin && instrumentByIsin.get(g.isin)) || instrumentBySymbol.get(g.symbol);
+    const displaySymbol = inst?.symbol ?? g.symbol;
+    const displayName = inst?.name ?? undefined;
+    const q = latestQuote.get(displaySymbol);
     let pricePerUnitEur: number | null = null;
     let marketEur: number | null = null;
     let currency = "EUR";
@@ -132,11 +141,12 @@ export async function getPositionsData(
     }
     const plEur = marketEur !== null ? marketEur - cost : null;
     const plPct = plEur !== null && cost !== 0 ? (plEur / cost) * 100 : null;
-    const sector = classifySector(g.symbol);
-    const kind = classifyKind(g.symbol, sector);
+    const sector = classifySector(displaySymbol);
+    const kind = classifyKind(displaySymbol, sector);
     rows.push({
-      symbol: g.symbol,
+      symbol: displaySymbol,
       isin: g.isin,
+      name: displayName,
       broker: accountBrokerById.get(g.brokerAccountId) ?? "?",
       currency,
       sector,

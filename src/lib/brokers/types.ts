@@ -36,6 +36,7 @@ export type NormalizedEvent = {
   currency: string;
   symbol?: string;
   isin?: string;
+  name?: string;
   description?: string;
   quantity?: string;
   price?: string;

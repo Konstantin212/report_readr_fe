@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { getDb } from "@/lib/db/client";
 import {
   lots, realizedMatches, transactions,
-  quoteCache, quoteHistory, fxRates, brokerAccounts,
+  quoteCache, quoteHistory, fxRates, brokerAccounts, instruments,
 } from "@/lib/db/schema";
 import { classifySector } from "@/lib/analytics/sector-map";
 import { computeCurrencyExposure } from "@/lib/analytics/currency-exposure";
@@ -44,6 +44,11 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
+
+  // ----- 1b. instruments for canonical symbol + name
+  const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
+  const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
+  const instrumentBySymbol = new Map(instrumentRows.filter(i => i.symbol).map(i => [i.symbol!, i]));
 
   // ----- 2. open lots → cost basis
   const allLots = await db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId));
@@ -86,14 +91,18 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
   for (const [cur, { rate }] of fxByCurrencyLatest) latestFxByCurrency.set(cur, rate);
 
   // ----- 5. compute per-account-symbol market value in EUR
-  type Row = { brokerAccountId: string; broker: string; symbol: string; qty: number; costEur: number; marketEur: number | null; plEur: number | null; plPct: number | null; currency: string };
+  type Row = { brokerAccountId: string; broker: string; symbol: string; name?: string; qty: number; costEur: number; marketEur: number | null; plEur: number | null; plPct: number | null; currency: string };
   const rows: Row[] = [];
   const seenKeys = new Set<string>();
   for (const l of filteredLots) {
     const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
     if (seenKeys.has(k)) continue;
     seenKeys.add(k);
-    const symbol = symbolByKey.get(k) ?? l.symbol;
+    const rawSymbol = symbolByKey.get(k) ?? l.symbol;
+    // Resolve canonical symbol + name from instruments table
+    const inst = (l.isin && instrumentByIsin.get(l.isin)) || instrumentBySymbol.get(rawSymbol);
+    const symbol = inst?.symbol ?? rawSymbol;
+    const name = inst?.name ?? undefined;
     const qty = Number(qtyByAccountSymbol.get(k) ?? 0);
     const cost = Number(costEurByAccountSymbol.get(k) ?? 0);
     if (qty <= 0) continue;
@@ -116,6 +125,7 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
       brokerAccountId: l.brokerAccountId,
       broker: acc?.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR",
       symbol,
+      name,
       qty, costEur: cost, marketEur, plEur: pl, plPct, currency,
     });
   }
@@ -297,7 +307,7 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     .filter(r => r.marketEur !== null)
     .sort((a, b) => (b.marketEur ?? 0) - (a.marketEur ?? 0))
     .slice(0, 5)
-    .map(r => ({ symbol: r.symbol, broker: r.broker, marketEur: r.marketEur!, plEur: r.plEur, plPct: r.plPct }));
+    .map(r => ({ symbol: r.symbol, broker: r.broker, marketEur: r.marketEur!, plEur: r.plEur, plPct: r.plPct, name: r.name }));
 
   return {
     hero: {
