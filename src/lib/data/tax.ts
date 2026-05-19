@@ -1,6 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { realizedMatches, transactions, userSettings, brokerAccounts } from "@/lib/db/schema";
+import { realizedMatches, transactions, userSettings, brokerAccounts, positions as positionsTable } from "@/lib/db/schema";
 import { buildAnlageKap, type BuildAnlageKapInput, type GermanTaxDraft } from "@/lib/tax/german-tax";
 
 /**
@@ -38,6 +38,22 @@ export async function getAvailableTaxYears(ownerUserId: string): Promise<number[
 
 const ABGELT_RATE = 0.26375; // 25 % AbgSt + 5.5 % SolZ
 
+export type TaxForecast = {
+  // Date the projection was computed (today).
+  asOfDate: string;
+  // Days remaining until 31 Dec of this tax year.
+  daysRemaining: number;
+  // Projected additional dividends from currently-held positions over the
+  // remaining-year window, based on TTM dividend run-rate.
+  additionalDividendsEur: number;
+  // Forecasted year-end totals (actual + projected). The "used" / "pct"
+  // fields are clipped to the allowance the same way the actual ones are.
+  usedEur: number;
+  pct: number;
+  taxableBaseEur: number;
+  estTaxEur: number;
+};
+
 export type TaxData = {
   year: number;
   hero: { netRealizedEur: number; taxableBaseEur: number; estTaxEur: number };
@@ -52,6 +68,10 @@ export type TaxData = {
     // dividends, realised gains and interest share the same €1k/2k.
     breakdown: { dividendsEur: number; realizedGainsEur: number; interestEur: number };
   };
+  /** Year-end projection. Only populated for the current calendar year;
+   *  past years return null. UI-only — does NOT affect the hero totals,
+   *  the realised-lots table, the Anlage KAP draft, or the export. */
+  forecast: TaxForecast | null;
   realizedLots: { ticker: string; broker: string; method: string; opened: string; closed: string; qty: number; costEur: number; proceedsEur: number; gainEur: number }[];
   kap: GermanTaxDraft;
 };
@@ -146,6 +166,58 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   const kapInput = await loadTaxInputs(ownerUserId, year);
   const kap = buildAnlageKap(kapInput);
 
+  // ---- Forecast (current year only) -----------------------------------
+  // Projects how much more of the Pauschbetrag is likely to be consumed
+  // between now and Dec 31, based on the TTM dividend run-rate of the
+  // positions you currently hold. Strictly UI-helper — the Anlage KAP
+  // draft, hero totals, export, and CSV all stay on realised numbers.
+  let forecast: TaxForecast | null = null;
+  const today = new Date();
+  if (year === today.getFullYear()) {
+    const todayStr = today.toISOString().slice(0, 10);
+    const ttmStart = new Date(today.getTime() - 365 * 86400000).toISOString().slice(0, 10);
+    const heldRows = await db
+      .select({ symbol: positionsTable.symbol, isin: positionsTable.isin })
+      .from(positionsTable)
+      .where(eq(positionsTable.ownerUserId, ownerUserId));
+    const heldSymbols = new Set(heldRows.map(p => p.symbol).filter(Boolean));
+    const heldIsins = new Set(heldRows.map(p => p.isin).filter(Boolean) as string[]);
+    // Sum TTM dividends only for symbols currently held — past sold
+    // positions don't pay you any more, so they shouldn't anchor the
+    // forecast.
+    let ttmHeldDivsEur = 0;
+    for (const t of allTx) {
+      if (t.eventType !== "DIVIDEND") continue;
+      if (t.eventDate < ttmStart || t.eventDate >= todayStr) continue;
+      const symMatch = t.symbol && heldSymbols.has(t.symbol);
+      const isinMatch = t.isin && heldIsins.has(t.isin);
+      if (!symMatch && !isinMatch) continue;
+      ttmHeldDivsEur += Number(t.amountEur ?? 0);
+    }
+    // Days remaining until Dec 31 of the tax year (inclusive of end-of-day).
+    const yearEnd = new Date(year, 11, 31, 23, 59, 59);
+    const daysRemaining = Math.max(
+      0,
+      Math.floor((yearEnd.getTime() - today.getTime()) / 86_400_000),
+    );
+    const additionalDividendsEur = ttmHeldDivsEur * (daysRemaining / 365);
+    const forecastTotalCapitalIncome = totalCapitalIncomeEur + additionalDividendsEur;
+    const forecastTaxableBase = Math.max(0, forecastTotalCapitalIncome - allowance);
+    const forecastUsedEur = Math.max(0, Math.min(forecastTotalCapitalIncome, allowance));
+    const forecastPct = allowance > 0
+      ? Math.min(100, Math.max(0, (forecastTotalCapitalIncome / allowance) * 100))
+      : 0;
+    forecast = {
+      asOfDate: todayStr,
+      daysRemaining,
+      additionalDividendsEur,
+      usedEur: forecastUsedEur,
+      pct: forecastPct,
+      taxableBaseEur: forecastTaxableBase,
+      estTaxEur: forecastTaxableBase * ABGELT_RATE,
+    };
+  }
+
   return {
     year,
     hero: { netRealizedEur: netRealized, taxableBaseEur: taxableBase, estTaxEur: estTax },
@@ -161,6 +233,7 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
         interestEur,
       },
     },
+    forecast,
     realizedLots,
     kap,
   };
