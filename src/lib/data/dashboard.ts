@@ -49,22 +49,36 @@ export type DashboardData = {
 
 export async function getDashboardData(ownerUserId: string, broker: "all" | "ff" | "ibkr" = "all"): Promise<DashboardData> {
   const db = getDb();
-
-  // ----- 1. resolve broker filter to a list of brokerAccountIds (or null = all)
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  const accountRows = await db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId));
+
+  // All eight queries are independent of one another. On Neon HTTP that
+  // collapses ~800 ms of sequential round-trips into ~150 ms (the slowest
+  // single query). Big perceived win on the dashboard's first paint.
+  const [
+    accountRows,
+    instrumentRows,
+    allLots,
+    allQuotes,
+    allFx,
+    allMatches,
+    allHistory,
+    allTx,
+  ] = await Promise.all([
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId)),
+    db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
+    db.select().from(quoteCache),
+    db.select().from(fxRates),
+    db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
+    db.select().from(quoteHistory),
+    db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
+  ]);
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
-
-  // ----- 1b. instruments for canonical symbol + name
-  const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
   const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
   const instrumentBySymbol = new Map(instrumentRows.filter(i => i.symbol).map(i => [i.symbol!, i]));
-
-  // ----- 2. open lots → cost basis
-  const allLots = await db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId));
   const filteredLots = accountFilter
     ? allLots.filter(l => accountIdsSet.has(l.brokerAccountId))
     : allLots;
@@ -84,7 +98,6 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
   const totalCost = [...costEurByAccountSymbol.values()].reduce((s, c) => s.plus(c), new Decimal(0));
 
   // ----- 3. latest quote per symbol
-  const allQuotes = await db.select().from(quoteCache);
   const latestQuote = new Map<string, { close: number; currency: string; date: string }>();
   for (const q of allQuotes) {
     const prev = latestQuote.get(q.symbol);
@@ -94,7 +107,6 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
   }
 
   // ----- 4. fx_rates: latest rate per currency
-  const allFx = await db.select().from(fxRates);
   const fxByCurrencyLatest = new Map<string, { rate: number; date: string }>();
   for (const r of allFx) {
     const prev = fxByCurrencyLatest.get(r.fromCurrency);
@@ -150,7 +162,6 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
 
   // ----- 7. realized YTD
   const yr = String(new Date().getFullYear());
-  const allMatches = await db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId));
   const filteredMatches = accountFilter
     ? allMatches.filter(m => accountIdsSet.has(m.brokerAccountId))
     : allMatches;
@@ -159,7 +170,6 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     .reduce((s, m) => s + Number(m.gainEur), 0);
 
   // ----- 8. day change: compare today vs yesterday close from quote_history
-  const allHistory = await db.select().from(quoteHistory);
   const histBySymbol = new Map<string, Array<{ date: string; close: number; currency: string }>>();
   for (const h of allHistory) {
     if (!histBySymbol.has(h.symbol)) histBySymbol.set(h.symbol, []);
@@ -294,7 +304,6 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
   const currencyExposure = computeCurrencyExposure(rows.map(r => ({ currency: r.currency, marketEur: r.marketEur })));
 
   // ----- 13. dividends YTD
-  const allTx = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const filteredTx = accountFilter
     ? allTx.filter(t => accountIdsSet.has(t.brokerAccountId ?? ""))
     : allTx;

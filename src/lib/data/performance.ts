@@ -46,18 +46,22 @@ export async function getPerformanceData(
   const db = getDb();
 
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  const accountRows = await db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId));
+  // Five independent reads — fan out concurrently. quote_history is the
+  // biggest payload (10k+ rows) and previously serialised behind smaller
+  // queries.
+  const [accountRows, allLots, allMatches, allHistory, allFx] = await Promise.all([
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
+    db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
+    db.select().from(quoteHistory),
+    db.select().from(fxRates),
+  ]);
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
-
-  const allLots = await db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId));
   const filteredLots = accountFilter ? allLots.filter(l => accountIdsSet.has(l.brokerAccountId)) : allLots;
-  const allMatches = await db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId));
   const filteredMatches = accountFilter ? allMatches.filter(m => accountIdsSet.has(m.brokerAccountId)) : allMatches;
-  const allHistory = await db.select().from(quoteHistory);
-  const allFx = await db.select().from(fxRates);
 
   // Build holdings by symbol (aggregated across all broker accounts in filter)
   const qtyBySymbol = new Map<string, Decimal>();

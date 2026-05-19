@@ -20,13 +20,19 @@ export async function getCashBalances(
 ): Promise<CashByCurrency[]> {
   const db = getDb();
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  const accountRows = await db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId));
+  // Three independent reads — fan out concurrently. accountRows is needed
+  // for filtering but doesn't depend on the other two; same for allTx and
+  // allFx. Previously sequential at ~3 × 100 ms.
+  const [accountRows, allTx, allFx] = await Promise.all([
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
+    db.select().from(fxRates),
+  ]);
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
 
-  const allTx = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const txs = accountFilter
     ? allTx.filter(t => t.brokerAccountId && accountIdsSet.has(t.brokerAccountId))
     : allTx;
@@ -91,7 +97,6 @@ export async function getCashBalances(
   }
 
   // Latest fx per currency for EUR conversion
-  const allFx = await db.select().from(fxRates);
   const byCurrencyLatest = new Map<string, { rate: number; date: string }>();
   for (const r of allFx) {
     const prev = byCurrencyLatest.get(r.fromCurrency);

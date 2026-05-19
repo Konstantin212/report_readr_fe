@@ -14,14 +14,16 @@ import { buildAnlageKap, type BuildAnlageKapInput, type GermanTaxDraft } from "@
  */
 export async function getAvailableTaxYears(ownerUserId: string): Promise<number[]> {
   const db = getDb();
-  const matches = await db
-    .select({ closedAt: realizedMatches.closedAt })
-    .from(realizedMatches)
-    .where(eq(realizedMatches.ownerUserId, ownerUserId));
-  const txYears = await db
-    .select({ eventDate: transactions.eventDate, eventType: transactions.eventType })
-    .from(transactions)
-    .where(eq(transactions.ownerUserId, ownerUserId));
+  const [matches, txYears] = await Promise.all([
+    db
+      .select({ closedAt: realizedMatches.closedAt })
+      .from(realizedMatches)
+      .where(eq(realizedMatches.ownerUserId, ownerUserId)),
+    db
+      .select({ eventDate: transactions.eventDate, eventType: transactions.eventType })
+      .from(transactions)
+      .where(eq(transactions.ownerUserId, ownerUserId)),
+  ]);
   const years = new Set<number>();
   for (const m of matches) {
     const y = Number(m.closedAt.slice(0, 4));
@@ -78,9 +80,27 @@ export type TaxData = {
 
 export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promise<BuildAnlageKapInput> {
   const db = getDb();
-  const settings = (await db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)))[0];
+  const [settingsRows, tx, allMatches] = await Promise.all([
+    db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
+    db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
+    db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
+  ]);
+  return buildKapInputs(taxYear, settingsRows[0], tx, allMatches);
+}
+
+/**
+ * Pure assembly of the BuildAnlageKapInput from already-loaded rows.
+ * `getTaxData` reuses this to avoid re-querying transactions / matches /
+ * settings a second time on every Tax page render — those three tables
+ * are already in memory by the time we compute the KAP draft.
+ */
+function buildKapInputs(
+  taxYear: number,
+  settings: typeof userSettings.$inferSelect | undefined,
+  tx: Array<typeof transactions.$inferSelect>,
+  allMatches: Array<typeof realizedMatches.$inferSelect>,
+): BuildAnlageKapInput {
   const yr = String(taxYear);
-  const tx = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const dividends = tx
     .filter(t => t.eventType === "DIVIDEND" && t.eventDate.startsWith(yr))
     .map(t => ({
@@ -92,7 +112,7 @@ export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promi
   const interest = tx
     .filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yr))
     .map(t => ({ grossEur: t.amountEur ?? "0" }));
-  const matches = (await db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)))
+  const matches = allMatches
     .filter(m => m.closedAt.startsWith(yr))
     .map(m => ({ symbol: m.symbol, gainEur: m.gainEur, closedAt: m.closedAt }));
   return {
@@ -109,22 +129,25 @@ export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promi
 
 export async function getTaxData(ownerUserId: string, year: number): Promise<TaxData> {
   const db = getDb();
-  const accountRows = await db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId));
+  const yrStr = String(year);
+  const [accountRows, allMatches, allTx, settingsRows] = await Promise.all([
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
+    db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
+    db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
+  ]);
   const brokerById = new Map(accountRows.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]));
 
-  const allMatches = await db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId));
-  const yrStr = String(year);
   const yrMatches = allMatches.filter(m => m.closedAt.startsWith(yrStr));
   const netRealized = yrMatches.reduce((s, m) => s + Number(m.gainEur), 0);
 
-  const allTx = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const yrDivs = allTx.filter(t => t.eventType === "DIVIDEND" && t.eventDate.startsWith(yrStr));
   const dividendsEur = yrDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
   const whtPaid = yrDivs.reduce((s, t) => s + Number(t.withholdingTaxEur ?? 0), 0);
   const yrInterest = allTx.filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yrStr));
   const interestEur = yrInterest.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
 
-  const settings = (await db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)))[0];
+  const settings = settingsRows[0];
   const allowance = Number(settings?.saverAllowance ?? "1000");
 
   // Sparer-Pauschbetrag applies to the *sum* of all Kapitalerträge in the
@@ -163,8 +186,9 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
     gainEur: Number(m.gainEur),
   }));
 
-  const kapInput = await loadTaxInputs(ownerUserId, year);
-  const kap = buildAnlageKap(kapInput);
+  // Reuse the rows we already loaded above — avoids three redundant
+  // round-trips that `loadTaxInputs` would otherwise re-issue.
+  const kap = buildAnlageKap(buildKapInputs(year, settings, allTx, allMatches));
 
   // ---- Forecast (current year only) -----------------------------------
   // Projects how much more of the Pauschbetrag is likely to be consumed
