@@ -85,6 +85,11 @@ export function signedQuantity(quantity: unknown, operation: unknown): string | 
 }
 
 export function dateOnly(value: unknown): string {
+  // Returns YYYY-MM-DD when the input contains a recognizable ISO date,
+  // otherwise the empty string. Callers should filter "" rows out before
+  // emitting events — we deliberately don't fall back to slicing the raw
+  // text, because broker exports often use sentinel values like "Grouped"
+  // that would otherwise pass downstream validators and explode at ingest.
   const text = cleanString(value);
   if (!text) {
     return "";
@@ -92,7 +97,7 @@ export function dateOnly(value: unknown): string {
 
   const normalized = text.replace(";", "T");
   const isoDate = normalized.match(/\d{4}-\d{2}-\d{2}/)?.[0];
-  return isoDate ?? text.slice(0, 10);
+  return isoDate ?? "";
 }
 
 export function isInTaxYear(date: string | undefined, taxYear: number): boolean {
