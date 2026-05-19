@@ -16,7 +16,7 @@ export function TopbarNav() {
     { href: "/upload", label: "Upload", match: (p: string) => p.startsWith("/upload") },
   ] as const;
   return (
-    <nav className="flex gap-1 ml-4">
+    <nav className="hidden lg:flex gap-1 ml-4">
       {NAV.map((n) => {
         const isActive = n.match(pathname);
         return (
