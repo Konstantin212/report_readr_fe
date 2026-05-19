@@ -8,7 +8,7 @@
  * historical endpoint), so this works reliably without rate-limit issues
  * at our scale.
  */
-import { toStooqSymbol } from "./stooq-symbol-map";
+import { resolveStooq } from "./stooq-symbol-map";
 
 export type StooqQuote = {
   symbol: string;
@@ -44,7 +44,7 @@ function currencyForStooqSuffix(stooqSymbol: string): string {
 }
 
 export async function fetchStooqQuote(symbol: string): Promise<StooqQuote | null> {
-  const stooqSymbol = toStooqSymbol(symbol);
+  const { stooq: stooqSymbol, scale } = resolveStooq(symbol);
   const url = `${ENDPOINT}?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
   const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
   if (!res.ok) throw new Error(`STOOQ_${res.status}_${symbol}`);
@@ -56,8 +56,10 @@ export async function fetchStooqQuote(symbol: string): Promise<StooqQuote | null
   if (lines.length < 2) return null;
   const cells = lines[1].split(",");
   const date = cells[1];
-  const close = cells[6];
-  if (!date || date === "N/D" || !close || close === "N/D") return null;
+  const closeRaw = cells[6];
+  if (!date || date === "N/D" || !closeRaw || closeRaw === "N/D") return null;
+  // Apply scale (e.g. LSE ordinary shares quote in pence; scale=0.01)
+  const close = scale === 1 ? closeRaw : (Number(closeRaw) * scale).toString();
   return {
     symbol,                              // return the internal symbol, not the Stooq variant
     date,
