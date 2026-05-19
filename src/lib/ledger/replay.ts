@@ -3,6 +3,7 @@ import type { NormalizedEvent } from "@/lib/domain/types";
 
 export type Lot = {
   symbol: string;
+  isin?: string;
   openedAt: string;
   remainingQty: string;
   costEur: string;
@@ -11,6 +12,7 @@ export type Lot = {
 
 export type RealizedMatch = {
   symbol: string;
+  isin?: string;
   openingEventId: string;
   closingEventId: string;
   qty: string;
@@ -27,30 +29,35 @@ const TYPE_ORDER: Record<string, number> = {
   WITHHOLDING_TAX: 4, FEE: 5, CASH_TRANSFER: 6, POSITION_SNAPSHOT: 7, FX_CONVERSION: 8,
 };
 
+const identityOf = (e: NormalizedEvent): string => e.isin ?? e.symbol ?? "";
+
 export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: RealizedMatch[] } {
   const sorted = [...events].sort((a, b) =>
     a.date.localeCompare(b.date) || (TYPE_ORDER[a.type] - TYPE_ORDER[b.type]) || a.id.localeCompare(b.id),
   );
 
-  const openLotsBySymbol = new Map<string, Lot[]>();
+  const openLotsByIdentity = new Map<string, Lot[]>();
   const matches: RealizedMatch[] = [];
 
   for (const e of sorted) {
     if (e.type !== "TRADE" || !e.symbol) continue;
+    const id = identityOf(e);
+    if (!id) continue;
     const qty = new Decimal(e.quantity ?? "0");
     const amount = new Decimal(e.amountEur ?? e.amount ?? "0").abs();
     const fee = new Decimal(e.feeEur ?? e.fee ?? "0");
-    const list = openLotsBySymbol.get(e.symbol) ?? [];
+    const list = openLotsByIdentity.get(id) ?? [];
 
     if (qty.gt(0)) {
       list.push({
         symbol: e.symbol,
+        isin: e.isin,
         openedAt: e.date,
         remainingQty: qty.toString(),
         costEur: amount.plus(fee).toString(),
         sourceEventId: e.id,
       });
-      openLotsBySymbol.set(e.symbol, list);
+      openLotsByIdentity.set(id, list);
     } else if (qty.lt(0)) {
       let toClose = qty.abs();
       const totalSold = qty.abs();
@@ -66,7 +73,8 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
         const closedAt = e.date;
         const days = daysBetween(lot.openedAt, closedAt);
         matches.push({
-          symbol: e.symbol,
+          symbol: lot.symbol,
+          isin: lot.isin,
           openingEventId: lot.sourceEventId,
           closingEventId: e.id,
           qty: consume.toString(),
@@ -85,7 +93,7 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
     }
   }
 
-  const lots = [...openLotsBySymbol.values()].flat();
+  const lots = [...openLotsByIdentity.values()].flat();
   return { lots, matches };
 }
 
