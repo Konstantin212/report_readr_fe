@@ -23,14 +23,17 @@ export async function getDividendsData(
 ): Promise<DividendsData> {
   const db = getDb();
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  const accountRows = await db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId));
+  const [accountRows, allTx, allLots] = await Promise.all([
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
+    db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
+  ]);
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
   const brokerById = new Map(accountRows.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]));
 
-  const allTx = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const filteredTx = accountFilter ? allTx.filter(t => t.brokerAccountId && accountIdsSet.has(t.brokerAccountId)) : allTx;
   const divs = filteredTx.filter(t => t.eventType === "DIVIDEND");
 
@@ -62,7 +65,6 @@ export async function getDividendsData(
   const highlightIdx = 11 - (12 - 1 - new Date().getMonth() % 12);
 
   // Total cost basis for yield-on-cost
-  const allLots = await db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId));
   const filteredLots = accountFilter ? allLots.filter(l => accountIdsSet.has(l.brokerAccountId)) : allLots;
   const totalCost = filteredLots.reduce((s, l) => s + Number(l.costEur), 0);
 

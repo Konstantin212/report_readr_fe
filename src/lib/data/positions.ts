@@ -103,24 +103,25 @@ export async function getPositionsData(
   const sector = filters.sector ?? null;
   const selectedSymbol = filters.symbol ?? null;
 
+  // All six top-level queries are independent of each other — fan them
+  // out concurrently. On Neon's HTTP driver each query is its own TLS
+  // round-trip (~80-150 ms); sequential awaits cost ~600-900 ms total,
+  // parallel ~120-200 ms (max of the slowest single query).
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  const accountRows = await db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId));
+  const [accountRows, allLots, allQuotes, allFx, allTxs, instrumentRows] = await Promise.all([
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
+    db.select().from(quoteCache),
+    db.select().from(fxRates),
+    db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
+    db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId)),
+  ]);
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
   const accountBrokerById = new Map(accountRows.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]));
-
-  const allLots = await db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId));
   const filteredLots = accountFilter ? allLots.filter(l => accountIdsSet.has(l.brokerAccountId)) : allLots;
-  const allQuotes = await db.select().from(quoteCache);
-  const allFx = await db.select().from(fxRates);
-
-  // Build transaction-id → source TRADE row lookup so we can derive each
-  // lot's cost in its trade currency (lots only store cost_eur today).
-  // Note: lots.source_event_fingerprint is named misleadingly — it actually
-  // stores `transactions.id` (the row UUID), not the event-fingerprint hash.
-  const allTxs = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
   const txById = new Map(allTxs.map(t => [t.id, t]));
 
   // Total dividends received per (brokerAccountId, identity = isin ?? symbol),
@@ -143,8 +144,7 @@ export async function getPositionsData(
     dividendsByKey.set(k, slot);
   }
 
-  // Load instruments for canonical symbol + name lookup
-  const instrumentRows = await db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId));
+  // instrumentRows fetched above in the parallel batch.
   const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
   const instrumentBySymbol = new Map(instrumentRows.filter(i => i.symbol).map(i => [i.symbol!, i]));
 
@@ -357,8 +357,15 @@ export async function getPositionsData(
   if (selectedSymbol) {
     const sel = filteredRows.find(r => r.symbol === selectedSymbol);
     if (sel) {
-      // Sparkline from quoteHistory (last ~180 daily closes, converted to EUR)
-      const hist = (await db.select().from(quoteHistory)).filter(h => h.symbol === sel.symbol).sort((a, b) => a.date.localeCompare(b.date));
+      // Detail panel needs: sparkline history (filtered to this symbol) +
+      // the user's transactions (already fetched above as `allTxs`). Only
+      // one new DB roundtrip remains — quote_history filtered server-side
+      // to just the row's symbol, keeping the payload small.
+      const histAll = await db
+        .select()
+        .from(quoteHistory)
+        .where(eq(quoteHistory.symbol, sel.symbol));
+      const hist = histAll.sort((a, b) => a.date.localeCompare(b.date));
       const tail = hist.slice(-180);
       const sparkline = tail.map(h => {
         if (h.currency === "EUR") return Number(h.close);
@@ -379,15 +386,15 @@ export async function getPositionsData(
         return { openedAt: l.openedAt, qty: qty.toFixed(qty % 1 === 0 ? 0 : 4), costEur: cost.toFixed(2), pricePerUnitEur: ppu.toFixed(2), pctOfTotal, gainPct };
       });
 
-      // Dividends YTD for this symbol
+      // Dividends YTD / TTM for this symbol — reuse the already-loaded
+      // transactions instead of re-querying.
       const yr = String(new Date().getFullYear());
-      const txs = await db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId));
-      const symDivs = txs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate.startsWith(yr));
+      const symDivs = allTxs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate.startsWith(yr));
       const dividendsYtdEur = symDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
 
       // TTM dividends for yield on cost
       const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-      const ttmDivs = txs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate >= cutoff);
+      const ttmDivs = allTxs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate >= cutoff);
       const ttmEur = ttmDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
       const yieldOnCostPct = yieldOnCost(ttmEur, sel.views.net.costEur) * 100;
 
