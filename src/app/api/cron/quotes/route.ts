@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
 import { fetchStooqQuotes } from "@/lib/quotes/stooq";
@@ -17,13 +18,13 @@ export async function GET(req: Request) {
   if (!list.length) return NextResponse.json({ spotInserted: 0 });
 
   const quotes = await fetchStooqQuotes(list);
-  for (const q of quotes) {
+  if (quotes.length) {
     await db
       .insert(quoteCache)
-      .values(q)
+      .values(quotes)
       .onConflictDoUpdate({
         target: [quoteCache.symbol, quoteCache.date],
-        set: { close: q.close, updatedAt: new Date() },
+        set: { close: sql`excluded.close`, updatedAt: new Date() },
       });
   }
   return NextResponse.json({
