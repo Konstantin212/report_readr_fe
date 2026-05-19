@@ -72,14 +72,19 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
       });
   }
 
-  // 5. Insert events with ON CONFLICT DO NOTHING (fingerprint-based dedup)
-  let insertedCount = 0, duplicateCount = 0, reviewCount = 0;
-  for (const ev of payload.events) {
+  // 5. Insert events with ON CONFLICT DO NOTHING (fingerprint-based dedup).
+  // Bulk-chunked: a Freedom24 statement can ship ~800 events and the old
+  // one-INSERT-per-event loop blew past the 60 s Hobby function limit.
+  // Postgres caps parameters at 65 535; with ~24 columns per row we stay
+  // comfortably under that at chunk size 500 (≈12 000 params per query).
+  let insertedCount = 0;
+  let reviewCount = 0;
+  const rowsToInsert = payload.events.map((ev) => {
     const evWithName = ev as EventWithName;
     const enriched = convertEventToEur(ev as NormalizedEvent, rateMap);
     if (enriched.requiresReview) reviewCount++;
     const fingerprint = computeEventFingerprint(enriched);
-    const r = await db.insert(s.transactions).values({
+    return {
       ownerUserId,
       brokerAccountId,
       broker: payload.broker,
@@ -110,11 +115,22 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
       description: ev.description,
       source: ev.source,
       raw: ev as never,
-    }).onConflictDoNothing({
-      target: [s.transactions.ownerUserId, s.transactions.brokerAccountId, s.transactions.eventFingerprint],
-    }).returning();
-    if (r.length) insertedCount++; else duplicateCount++;
+    };
+  });
+
+  const CHUNK = 500;
+  for (let i = 0; i < rowsToInsert.length; i += CHUNK) {
+    const slice = rowsToInsert.slice(i, i + CHUNK);
+    const r = await db
+      .insert(s.transactions)
+      .values(slice)
+      .onConflictDoNothing({
+        target: [s.transactions.ownerUserId, s.transactions.brokerAccountId, s.transactions.eventFingerprint],
+      })
+      .returning({ id: s.transactions.id });
+    insertedCount += r.length;
   }
+  const duplicateCount = rowsToInsert.length - insertedCount;
 
   // 5. Audit row
   const imp = await db.insert(s.imports).values({
