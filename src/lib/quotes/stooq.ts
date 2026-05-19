@@ -67,14 +67,10 @@ export async function fetchStooqQuote(symbol: string): Promise<StooqQuote | null
 }
 
 export async function fetchStooqQuotes(symbols: string[]): Promise<StooqQuote[]> {
+  const results = await Promise.allSettled(symbols.map((s) => fetchStooqQuote(s)));
   const out: StooqQuote[] = [];
-  for (const symbol of symbols) {
-    try {
-      const q = await fetchStooqQuote(symbol);
-      if (q) out.push(q);
-    } catch {
-      // skip — leave the symbol unpriced for this run
-    }
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) out.push(r.value);
   }
   return out;
 }
