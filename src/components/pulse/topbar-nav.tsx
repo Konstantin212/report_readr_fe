@@ -2,17 +2,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const NAV = [
-  { href: "/", label: "Dashboard", match: (p: string) => p === "/" },
-  { href: "/performance", label: "Performance", match: (p: string) => p.startsWith("/performance") },
-  { href: "/positions", label: "Positions", match: (p: string) => p.startsWith("/positions") },
-  { href: "/dividends", label: "Dividends", match: (p: string) => p.startsWith("/dividends") },
-  { href: "/tax/2025", label: "Tax 2025", match: (p: string) => p.startsWith("/tax") },
-  { href: "/upload", label: "Upload", match: (p: string) => p.startsWith("/upload") },
-] as const;
-
 export function TopbarNav() {
   const pathname = usePathname();
+  // Tax link defaults to the current calendar year. The tax page itself
+  // hosts a year selector to switch to other years with data.
+  const currentYear = new Date().getFullYear();
+  const NAV = [
+    { href: "/", label: "Dashboard", match: (p: string) => p === "/" },
+    { href: "/performance", label: "Performance", match: (p: string) => p.startsWith("/performance") },
+    { href: "/positions", label: "Positions", match: (p: string) => p.startsWith("/positions") },
+    { href: "/dividends", label: "Dividends", match: (p: string) => p.startsWith("/dividends") },
+    { href: `/tax/${currentYear}`, label: "Tax", match: (p: string) => p.startsWith("/tax") },
+    { href: "/upload", label: "Upload", match: (p: string) => p.startsWith("/upload") },
+  ] as const;
   return (
     <nav className="flex gap-1 ml-4">
       {NAV.map((n) => {

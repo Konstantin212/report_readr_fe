@@ -1,7 +1,40 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { realizedMatches, transactions, userSettings, brokerAccounts } from "@/lib/db/schema";
 import { buildAnlageKap, type BuildAnlageKapInput, type GermanTaxDraft } from "@/lib/tax/german-tax";
+
+/**
+ * Returns the distinct tax years a user has any tax-relevant activity in
+ * (a realized match closed, a dividend received, an interest payment, a
+ * withholding-tax line). Sorted newest-first so the most recent year is
+ * the default selection.
+ *
+ * If the user has no activity at all the current calendar year is
+ * surfaced as a single-entry placeholder so the selector isn't empty.
+ */
+export async function getAvailableTaxYears(ownerUserId: string): Promise<number[]> {
+  const db = getDb();
+  const matches = await db
+    .select({ closedAt: realizedMatches.closedAt })
+    .from(realizedMatches)
+    .where(eq(realizedMatches.ownerUserId, ownerUserId));
+  const txYears = await db
+    .select({ eventDate: transactions.eventDate, eventType: transactions.eventType })
+    .from(transactions)
+    .where(eq(transactions.ownerUserId, ownerUserId));
+  const years = new Set<number>();
+  for (const m of matches) {
+    const y = Number(m.closedAt.slice(0, 4));
+    if (Number.isFinite(y)) years.add(y);
+  }
+  for (const t of txYears) {
+    if (t.eventType !== "DIVIDEND" && t.eventType !== "INTEREST" && t.eventType !== "WITHHOLDING_TAX") continue;
+    const y = Number(t.eventDate.slice(0, 4));
+    if (Number.isFinite(y)) years.add(y);
+  }
+  if (years.size === 0) years.add(new Date().getFullYear());
+  return [...years].sort((a, b) => b - a);
+}
 
 const ABGELT_RATE = 0.26375; // 25 % AbgSt + 5.5 % SolZ
 

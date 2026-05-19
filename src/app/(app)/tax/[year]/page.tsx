@@ -1,13 +1,17 @@
 import { requireCurrentUser } from "@/lib/auth/server";
-import { getTaxData } from "@/lib/data/tax";
+import { getTaxData, getAvailableTaxYears } from "@/lib/data/tax";
 import { Card } from "@/components/pulse/card";
 import { ProgressBar } from "@/components/pulse/progress-bar";
+import { TaxYearSelector } from "@/components/pulse/tax-year-selector";
 
 export default async function TaxPage({ params }: { params: Promise<{ year: string }> }) {
   const user = await requireCurrentUser();
   const { year } = await params;
   const yearNum = Number(year);
-  const d = await getTaxData(user.id, yearNum);
+  const [d, availableYears] = await Promise.all([
+    getTaxData(user.id, yearNum),
+    getAvailableTaxYears(user.id),
+  ]);
 
   const fmtEur = (v: number, opts: { sign?: boolean; dec?: number } = {}) => {
     const { sign = false, dec = 2 } = opts;
@@ -16,8 +20,21 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
     return `${pre}${abs}`;
   };
 
+  // How much of the saver's allowance is left in the selected year, in EUR.
+  const allowanceRemainingEur = Math.max(0, d.allowance.totalEur - d.allowance.usedEur);
+  const allowanceExceeded = d.allowance.usedEur >= d.allowance.totalEur;
+
   return (
     <main className="space-y-4">
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">
+          Tax{" "}
+          <span className="font-mono text-sm text-muted ml-1 tracking-wider">{yearNum} · Germany</span>
+        </h1>
+        <div className="flex-1" />
+        <TaxYearSelector years={availableYears} activeYear={yearNum} />
+      </div>
+
       <div className="grid grid-cols-[1.4fr_1fr] gap-4">
         <Card className="relative overflow-hidden">
           <div className="absolute right-[-40px] top-[-40px] w-[220px] h-[220px] rounded-full"
@@ -58,6 +75,11 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
           </div>
           <div className="mt-2">
             <ProgressBar pct={d.allowance.pct} fill="linear-gradient(90deg, var(--accent-mint, #7CFFB2), var(--accent-amber, #FFD24A))" height={10} />
+          </div>
+          <div className={`mt-2 font-mono text-[11px] ${allowanceExceeded ? "text-bad" : "text-mint"}`}>
+            {allowanceExceeded
+              ? `Exceeded by ${fmtEur(d.allowance.usedEur - d.allowance.totalEur, { dec: 0 })} — gains above this are taxable`
+              : `${fmtEur(allowanceRemainingEur, { dec: 0 })} of tax-free room remaining`}
           </div>
           <div className="grid grid-cols-2 gap-2 mt-4">
             <div className="bg-panel2 rounded-md px-3 py-2.5">
