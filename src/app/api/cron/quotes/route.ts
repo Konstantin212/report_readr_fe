@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
-import { fetchYahooQuotes } from "@/lib/quotes/yahoo";
+import { fetchStooqQuotes } from "@/lib/quotes/stooq";
 
-// Daily cron is spot-quotes only — fits in ~3 s on Hobby's 60 s cap.
-// Daily price history is backfilled at ingest time (and via
-// /api/admin/backfill-history) so it never competes for runtime here.
+// Daily cron is spot-quotes only via Stooq (no rate limits, no API key).
+// History backfill happens at ingest + via /api/admin/backfill-history.
 export const maxDuration = 60;
 
 export async function GET(req: Request) {
@@ -17,22 +16,19 @@ export async function GET(req: Request) {
   const list = heldRows.map((x) => x.s).filter(Boolean);
   if (!list.length) return NextResponse.json({ spotInserted: 0 });
 
-  let spotInserted = 0;
-  let spotError: string | null = null;
-  try {
-    const quotes = await fetchYahooQuotes(list);
-    for (const q of quotes) {
-      await db
-        .insert(quoteCache)
-        .values(q)
-        .onConflictDoUpdate({
-          target: [quoteCache.symbol, quoteCache.date],
-          set: { close: q.close, updatedAt: new Date() },
-        });
-    }
-    spotInserted = quotes.length;
-  } catch (err) {
-    spotError = (err as Error).message;
+  const quotes = await fetchStooqQuotes(list);
+  for (const q of quotes) {
+    await db
+      .insert(quoteCache)
+      .values(q)
+      .onConflictDoUpdate({
+        target: [quoteCache.symbol, quoteCache.date],
+        set: { close: q.close, updatedAt: new Date() },
+      });
   }
-  return NextResponse.json({ spotInserted, spotError });
+  return NextResponse.json({
+    requested: list.length,
+    spotInserted: quotes.length,
+    unpriced: list.filter((s) => !quotes.find((q) => q.symbol === s)),
+  });
 }
