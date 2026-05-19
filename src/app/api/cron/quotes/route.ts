@@ -3,9 +3,12 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
 import { fetchStooqQuotes } from "@/lib/quotes/stooq";
+import { fetchYahooSpots, YAHOO_PRIMARY_SYMBOLS } from "@/lib/quotes/yahoo-spot";
 
-// Daily cron is spot-quotes only via Stooq (no rate limits, no API key).
-// History backfill happens at ingest + via /api/admin/backfill-history.
+// Daily cron is spot-quotes only. Stooq covers most symbols at zero cost
+// and no rate limit; Yahoo is used as the primary source for a tiny
+// allow-list of symbols where Stooq lacks the user's actual exchange
+// listing (today: just IEMM on Amsterdam). History backfill is separate.
 export const maxDuration = 60;
 
 export async function GET(req: Request) {
@@ -15,9 +18,23 @@ export async function GET(req: Request) {
   const db = getDb();
   const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
   const list = heldRows.map((x) => x.s).filter(Boolean) as string[];
-  if (!list.length) return NextResponse.json({ requested: [], inserted: [], unpriced: [] });
+  if (!list.length) return NextResponse.json({ requested: [], inserted: [], unpriced: [], writeError: null });
 
-  const quotes = await fetchStooqQuotes(list);
+  // Route symbols to their preferred provider.
+  const yahooList = list.filter((s) => YAHOO_PRIMARY_SYMBOLS.has(s));
+  const stooqList = list.filter((s) => !YAHOO_PRIMARY_SYMBOLS.has(s));
+
+  const [stooqQuotes, yahooQuotes] = await Promise.all([
+    fetchStooqQuotes(stooqList),
+    fetchYahooSpots(yahooList),
+  ]);
+
+  // If Yahoo failed for a primary-Yahoo symbol, fall back to Stooq for it
+  // (e.g. EIMI.uk for IEMM). Better an approximation than no data.
+  const yahooFailed = yahooList.filter((s) => !yahooQuotes.find((q) => q.symbol === s));
+  const stooqFallback = yahooFailed.length ? await fetchStooqQuotes(yahooFailed) : [];
+
+  const quotes = [...stooqQuotes, ...yahooQuotes, ...stooqFallback];
   let writeError: string | null = null;
   if (quotes.length) {
     try {
@@ -26,7 +43,13 @@ export async function GET(req: Request) {
         .values(quotes)
         .onConflictDoUpdate({
           target: [quoteCache.symbol, quoteCache.date],
-          set: { close: sql`excluded.close`, updatedAt: new Date() },
+          // Update currency too — same symbol can flip provider (Stooq GBP
+          // ↔ Yahoo EUR for IEMM) and the cached currency must follow.
+          set: {
+            close: sql`excluded.close`,
+            currency: sql`excluded.currency`,
+            updatedAt: new Date(),
+          },
         });
     } catch (e) {
       writeError = (e as Error).message;
@@ -34,5 +57,11 @@ export async function GET(req: Request) {
   }
   const inserted = quotes.map((q) => q.symbol);
   const unpriced = list.filter((s) => !inserted.includes(s));
-  return NextResponse.json({ requested: list, inserted, unpriced, writeError });
+  return NextResponse.json({
+    requested: list,
+    inserted,
+    unpriced,
+    yahooUsed: yahooQuotes.map((q) => q.symbol),
+    writeError,
+  });
 }
