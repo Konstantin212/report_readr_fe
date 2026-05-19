@@ -14,7 +14,9 @@ export function Topbar({
         <span className="w-8 h-8 rounded-[10px] bg-mint text-bg font-mono font-bold flex items-center justify-center">◐</span>
         <span className="font-sans font-bold text-lg tracking-tight">folio<span className="text-mint">.</span></span>
       </Link>
-      <TopbarNav />
+      <div className="hidden lg:contents">
+        <TopbarNav />
+      </div>
       <div className="ml-auto flex items-center gap-2">
         <BrokerFilter />
         <UserMenu name={user?.name} email={user?.email} />
