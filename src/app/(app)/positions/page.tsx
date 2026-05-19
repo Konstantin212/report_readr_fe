@@ -1,10 +1,11 @@
-import Link from "next/link";
 import { requireCurrentUser } from "@/lib/auth/server";
 import { getPositionsData } from "@/lib/data/positions";
 import { Card } from "@/components/pulse/card";
 import { BrokerFilter } from "@/components/pulse/broker-filter";
 import { SectorFilter } from "@/components/pulse/sector-filter";
 import { PositionDetailPanel } from "@/components/pulse/position-detail-panel";
+import { PositionsSection } from "@/components/pulse/positions-section";
+import { CashCard } from "@/components/pulse/cash-card";
 
 type SP = Promise<{ broker?: string; sector?: string; symbol?: string }>;
 
@@ -28,8 +29,12 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
     return s ? `?${s}` : "";
   };
 
-  const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { maximumFractionDigits: 0 });
-  const fmtPct = (v: number | null) => v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+  const hasNoPositions =
+    d.rowsByKind.stock.length === 0 &&
+    d.rowsByKind.etf.length === 0 &&
+    d.rowsByKind.bond.length === 0 &&
+    d.rowsByKind.other.length === 0 &&
+    d.cash.length === 0;
 
   return (
     <main className="space-y-4">
@@ -44,67 +49,42 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
       </div>
 
       <div className={`grid gap-4 ${d.selected ? "grid-cols-[1.6fr_1fr]" : "grid-cols-1"}`}>
-        <Card className="p-0 overflow-hidden">
-          <div className="grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
-            <span>Holding</span>
-            <span>Broker</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Avg €</span>
-            <span className="text-right">Price €</span>
-            <span className="text-right">Value €</span>
-            <span className="text-right">P/L</span>
-            <span className="text-right">%</span>
-          </div>
-          {d.rows.length === 0 && <div className="p-6 text-muted text-sm">No positions match the current filter.</div>}
-          {d.rows.map(r => {
-            const isSelected = r.symbol === symbol;
-            return (
-              <Link
-                key={r.symbol}
-                href={`/positions${qs({ symbol: r.symbol })}` as never}
-                className={`grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 items-center cursor-pointer hover:bg-panel2/50 ${
-                  isSelected ? "bg-panel2 border-l-2 border-l-mint" : "border-l-2 border-transparent"
-                } border-b border-border`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold ${
-                    isSelected ? "bg-mint/20 text-mint" : "bg-panel2 text-muted"
-                  }`}>{r.symbol.slice(0,2)}</div>
-                  <div>
-                    <div className="font-semibold text-[13px]">
-                      {r.symbol}{" "}
-                      <span className="font-mono text-[10px] text-dim ml-1">{r.sector} · {r.currency}</span>
-                    </div>
-                    {r.name && <div className="text-[11px] text-muted">{r.name}</div>}
-                  </div>
-                </div>
-                <span className="font-mono text-xs text-muted">{r.broker}</span>
-                <span className="text-right font-mono text-xs text-muted">{r.qty}</span>
-                <span className="text-right font-mono text-xs text-muted">{r.avgCostEur.toFixed(2)}</span>
-                <span className="text-right font-mono text-xs">{r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}</span>
-                <span className="text-right font-mono font-semibold text-xs">
-                  {r.marketEur === null ? "—" : fmtEur(r.marketEur)}
-                </span>
-                <span className={`text-right font-mono font-semibold text-xs ${r.plEur === null ? "text-muted" : r.plEur >= 0 ? "text-mint" : "text-bad"}`}>
-                  {r.plEur === null ? "—" : (r.plEur >= 0 ? "+" : "−") + fmtEur(r.plEur)}
-                </span>
-                <span className={`text-right font-mono font-semibold text-xs ${r.plPct === null ? "text-muted" : r.plPct >= 0 ? "text-mint" : "text-bad"}`}>
-                  {fmtPct(r.plPct)}
-                </span>
-              </Link>
-            );
-          })}
-          {d.rows.length > 0 && (
-            <div className="grid grid-cols-[1.6fr_0.6fr_0.5fr_0.7fr_0.7fr_0.9fr_0.9fr_0.7fr] gap-0 px-5 py-3 bg-panel2 font-mono text-xs font-semibold">
-              <span className="col-span-5 font-mono text-[10px] text-muted uppercase tracking-widest">Σ Total</span>
-              <span className="text-right">{fmtEur(d.totalMarketEur)}</span>
-              <span className={`text-right ${d.totalPlEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {(d.totalPlEur >= 0 ? "+" : "−") + fmtEur(d.totalPlEur)}
-              </span>
-              <span />
-            </div>
+        <div className="space-y-4">
+          <PositionsSection
+            title="Stocks"
+            count={d.rowsByKind.stock.length}
+            rows={d.rowsByKind.stock}
+            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            selectedSymbol={symbol}
+          />
+          <PositionsSection
+            title="ETFs"
+            count={d.rowsByKind.etf.length}
+            rows={d.rowsByKind.etf}
+            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            selectedSymbol={symbol}
+          />
+          <PositionsSection
+            title="Bonds"
+            count={d.rowsByKind.bond.length}
+            rows={d.rowsByKind.bond}
+            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            selectedSymbol={symbol}
+          />
+          <PositionsSection
+            title="Other"
+            count={d.rowsByKind.other.length}
+            rows={d.rowsByKind.other}
+            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            selectedSymbol={symbol}
+          />
+          <CashCard balances={d.cash} />
+          {hasNoPositions && (
+            <Card>
+              <div className="text-muted text-sm">No positions match the current filter.</div>
+            </Card>
           )}
-        </Card>
+        </div>
 
         {d.selected && <PositionDetailPanel d={{
           symbol: d.selected.symbol,

@@ -4,15 +4,18 @@ import { getDb } from "@/lib/db/client";
 import {
   brokerAccounts, lots, quoteCache, quoteHistory, fxRates, transactions,
 } from "@/lib/db/schema";
-import { classifySector } from "@/lib/analytics/sector-map";
+import { classifySector, classifyKind } from "@/lib/analytics/sector-map";
+import { getCashBalances } from "@/lib/data/cash";
 import { yieldOnCost } from "@/lib/analytics/yield-on-cost";
 
 export type PositionRow = {
   symbol: string;
+  isin?: string;
   name?: string;
   broker: string;
   currency: string;
   sector: string;
+  kind: "stock" | "etf" | "bond" | "other";
   qty: number;
   avgCostEur: number;
   costEur: number;
@@ -43,10 +46,12 @@ export type SelectedPosition = PositionRow & {
 
 export type PositionsData = {
   rows: PositionRow[];
+  rowsByKind: { stock: PositionRow[]; etf: PositionRow[]; bond: PositionRow[]; other: PositionRow[] };
   total: number;
   totalMarketEur: number;
   totalPlEur: number;
   sectors: string[];
+  cash: import("@/lib/data/cash").CashByCurrency[];
   selected: SelectedPosition | null;
 };
 
@@ -127,11 +132,15 @@ export async function getPositionsData(
     }
     const plEur = marketEur !== null ? marketEur - cost : null;
     const plPct = plEur !== null && cost !== 0 ? (plEur / cost) * 100 : null;
+    const sector = classifySector(g.symbol);
+    const kind = classifyKind(g.symbol, sector);
     rows.push({
       symbol: g.symbol,
+      isin: g.isin,
       broker: accountBrokerById.get(g.brokerAccountId) ?? "?",
       currency,
-      sector: classifySector(g.symbol),
+      sector,
+      kind,
       qty,
       avgCostEur: qty > 0 ? cost / qty : 0,
       costEur: cost,
@@ -194,12 +203,22 @@ export async function getPositionsData(
     }
   }
 
+  const rowsByKind = {
+    stock: filteredRows.filter(r => r.kind === "stock"),
+    etf: filteredRows.filter(r => r.kind === "etf"),
+    bond: filteredRows.filter(r => r.kind === "bond"),
+    other: filteredRows.filter(r => r.kind === "other"),
+  };
+  const cash = await getCashBalances(ownerUserId, broker);
+
   return {
     rows: filteredRows,
+    rowsByKind,
     total: rows.length,
     totalMarketEur,
     totalPlEur,
     sectors,
+    cash,
     selected,
   };
 }
