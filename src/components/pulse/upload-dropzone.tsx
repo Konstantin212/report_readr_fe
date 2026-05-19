@@ -66,7 +66,7 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
 
   return (
     <section className="space-y-6">
-      <label className="block bg-panel border-2 border-dashed border-mint/40 rounded-[22px] p-8 text-center cursor-pointer">
+      <label className="block bg-panel border-2 border-dashed border-mint/40 rounded-[22px] p-6 lg:p-10 text-center cursor-pointer">
         <input
           type="file"
           hidden

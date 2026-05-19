@@ -24,7 +24,7 @@ export default async function DividendsPage({ searchParams }: { searchParams: SP
         <BrokerFilter active={broker} />
       </div>
 
-      <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] gap-4">
         <Card className="relative overflow-hidden">
           <div className="absolute right-[-60px] top-[-60px] w-[220px] h-[220px] rounded-full"
             style={{ background: "radial-gradient(circle, rgba(255,210,74,0.13) 0%, transparent 70%)" }} />
@@ -69,7 +69,7 @@ export default async function DividendsPage({ searchParams }: { searchParams: SP
         </Card>
       </div>
 
-      <div className="grid grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <Card>
           <div className="flex justify-between items-baseline mb-3">
             <div className="font-semibold text-[14px]">Monthly distributions</div>
@@ -86,7 +86,7 @@ export default async function DividendsPage({ searchParams }: { searchParams: SP
         </Card>
       </div>
 
-      <div className="grid grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <Card className="p-0 overflow-hidden">
           <div className="flex justify-between items-center px-5 py-3 border-b border-border">
             <div className="font-semibold text-[14px]">All distributions · {new Date().getFullYear()}</div>

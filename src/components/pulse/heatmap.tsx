@@ -41,7 +41,8 @@ export function Heatmap({ rows, hideEmpty = true }: { rows: HeatmapRow[]; hideEm
           <span>+5%</span>
         </div>
       </div>
-      <div className="space-y-1.5">
+      <div className="overflow-x-auto">
+        <div className="space-y-1.5 min-w-[600px]">
         <div className="grid grid-cols-[40px_repeat(12,1fr)] gap-1 font-mono text-[9px] text-dim tracking-wide">
           <span />
           {MONTHS.map((m) => <span key={m} className="text-center">{m}</span>)}
@@ -68,6 +69,7 @@ export function Heatmap({ rows, hideEmpty = true }: { rows: HeatmapRow[]; hideEm
             })}
           </div>
         ))}
+        </div>
       </div>
       {best && worst && (
         <div className="flex justify-between mt-4 pt-3 border-t border-border font-mono text-[11px] text-muted">

@@ -33,7 +33,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
 
   return (
     <main className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight">
           Positions{" "}
           <span className="font-mono text-sm text-muted ml-1 tracking-wider">{d.rows.length} of {d.total}</span>
@@ -43,7 +43,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
         <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
       </div>
 
-      <div className={`grid gap-4 ${d.selected ? "grid-cols-[1.6fr_1fr]" : "grid-cols-1"}`}>
+      <div className={`grid gap-4 ${d.selected ? "grid-cols-1 lg:grid-cols-[1.6fr_1fr]" : "grid-cols-1"}`}>
         <div className="space-y-4">
           <PositionsSection
             title="Stocks"

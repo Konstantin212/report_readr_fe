@@ -29,7 +29,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   return (
     <main className="space-y-4">
       {/* Hero row */}
-      <div className="grid grid-cols-[1.45fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.45fr_1fr] gap-4">
         <Card className="relative overflow-hidden">
           <div className="absolute right-[-60px] top-[-60px] w-[280px] h-[280px] rounded-full"
             style={{ background: "radial-gradient(circle, rgba(124,255,178,0.13) 0%, transparent 70%)" }} />
@@ -79,7 +79,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
       </div>
 
       {/* Chart + allocation */}
-      <div className="grid grid-cols-[1.6fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <Card>
           <div className="flex justify-between items-start mb-3">
             <div>
@@ -106,7 +106,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
       </div>
 
       {/* Currency + dividends + top positions */}
-      <div className="grid grid-cols-[1fr_1fr_1.6fr] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1.6fr] gap-4">
         <Card>
           <div className="font-semibold text-[14px] mb-3">Currency exposure</div>
           {d.currency.length > 0 ? <CurrencyBars data={d.currency} /> : <div className="text-muted text-sm">No data yet.</div>}
