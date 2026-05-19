@@ -57,7 +57,7 @@ export async function GET(req: Request) {
   }
   const inserted = quotes.map((q) => q.symbol);
   const unpriced = list.filter((s) => !inserted.includes(s));
-  return NextResponse.json({
+  const responseBody = {
     requested: list,
     inserted,
     unpriced,
@@ -65,5 +65,9 @@ export async function GET(req: Request) {
     yahooUsed: yahooResult.quotes.map((q) => ({ symbol: q.symbol, currency: q.currency, close: q.close, date: q.date })),
     yahooErrors: yahooResult.errors,
     writeError,
-  });
+  };
+  // Surface to Vercel runtime logs so we can diagnose without the caller
+  // having to copy/paste the response body.
+  console.log("[cron/quotes]", JSON.stringify(responseBody));
+  return NextResponse.json(responseBody);
 }
