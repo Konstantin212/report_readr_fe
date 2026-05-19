@@ -197,22 +197,33 @@ export async function getPositionsData(
     const sector = classifySector(displaySymbol);
     const kind = classifyKind(displaySymbol, sector);
 
-    // Native-currency P/L. Use the lot's source-transaction currency as the
-    // native; convert the EUR market value back to native via the latest FX
-    // rate. If lot ccy == quote ccy this collapses to qty × quote.close.
+    // Native-currency P/L. Cost is summed from the source-transaction native
+    // amounts (above). For market value we prefer a *direct* native price —
+    // i.e. when the quote's currency matches the trade currency, just use
+    // qty × quote.close — to avoid the double-FX round-trip (quote→EUR→native)
+    // that introduces precision drift when the quote currency and trade
+    // currency are the same. If they differ (rare: e.g. IEMM held in EUR on
+    // Amsterdam but priced from EIMI on LSE in GBP), fall back to the EUR
+    // round-trip and accept the listing-driven approximation.
     const nativeCcy = g.nativeCurrency;
     const costNative = nativeCcy ? Number(g.costNative) : null;
-    let marketNative: number | null = null;
     let pricePerUnitNative: number | null = null;
-    if (nativeCcy && marketEur !== null && qty > 0) {
-      if (nativeCcy === "EUR") {
-        marketNative = marketEur;
-      } else {
+    let marketNative: number | null = null;
+    if (nativeCcy && q && qty > 0) {
+      if (q.currency === nativeCcy) {
+        pricePerUnitNative = q.close;
+      } else if (nativeCcy === "EUR" && q.currency !== "EUR") {
+        const fxQuote = latestFx.get(q.currency);
+        if (fxQuote) pricePerUnitNative = q.close / fxQuote.rate;
+      } else if (q.currency === "EUR") {
         const fxNative = latestFx.get(nativeCcy);
-        // ECB stores `rate` as <native per 1 EUR>, so EUR → native is multiply.
-        if (fxNative) marketNative = marketEur * fxNative.rate;
+        if (fxNative) pricePerUnitNative = q.close * fxNative.rate;
+      } else {
+        const fxQuote = latestFx.get(q.currency);
+        const fxNative = latestFx.get(nativeCcy);
+        if (fxQuote && fxNative) pricePerUnitNative = (q.close / fxQuote.rate) * fxNative.rate;
       }
-      if (marketNative !== null) pricePerUnitNative = marketNative / qty;
+      if (pricePerUnitNative !== null) marketNative = qty * pricePerUnitNative;
     }
     const plNative = costNative !== null && marketNative !== null ? marketNative - costNative : null;
 
