@@ -17,17 +17,12 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
   const symbol = params.symbol ?? null;
 
   const d = await getPositionsData(user.id, { broker, sector, symbol });
-  const qs = (next: Record<string, string | null>) => {
-    const usp = new URLSearchParams();
-    if (broker !== "all") usp.set("broker", broker);
-    if (sector) usp.set("sector", sector);
-    for (const [k, v] of Object.entries(next)) {
-      if (v === null) usp.delete(k);
-      else usp.set(k, v);
-    }
-    const s = usp.toString();
-    return s ? `?${s}` : "";
-  };
+  // Plain serialisable shape for the client-side PositionsSection — broker
+  // and sector filters carry across when the user clicks a row, the
+  // component appends `symbol` on its own.
+  const preservedQuery: Record<string, string> = {};
+  if (broker !== "all") preservedQuery.broker = broker;
+  if (sector) preservedQuery.sector = sector;
 
   const hasNoPositions =
     d.rowsByKind.stock.length === 0 &&
@@ -54,7 +49,8 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
             title="Stocks"
             count={d.rowsByKind.stock.length}
             rows={d.rowsByKind.stock}
-            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            basePath="/positions"
+            preservedQuery={preservedQuery}
             selectedSymbol={symbol}
             showToggle
           />
@@ -62,21 +58,24 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
             title="ETFs"
             count={d.rowsByKind.etf.length}
             rows={d.rowsByKind.etf}
-            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            basePath="/positions"
+            preservedQuery={preservedQuery}
             selectedSymbol={symbol}
           />
           <PositionsSection
             title="Bonds"
             count={d.rowsByKind.bond.length}
             rows={d.rowsByKind.bond}
-            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            basePath="/positions"
+            preservedQuery={preservedQuery}
             selectedSymbol={symbol}
           />
           <PositionsSection
             title="Other"
             count={d.rowsByKind.other.length}
             rows={d.rowsByKind.other}
-            hrefFor={(sym) => `/positions${qs({ symbol: sym })}`}
+            basePath="/positions"
+            preservedQuery={preservedQuery}
             selectedSymbol={symbol}
           />
           <CashCard balances={d.cash} />

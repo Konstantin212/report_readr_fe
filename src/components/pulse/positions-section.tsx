@@ -55,19 +55,30 @@ export function PositionsSection({
   title,
   count,
   rows,
-  hrefFor,
+  basePath,
+  preservedQuery,
   selectedSymbol,
   showToggle = false,
 }: {
   title: string;
   count: number;
   rows: Row[];
-  hrefFor: (symbol: string) => string;
+  /** URL path for the link target on each row (e.g. "/positions"). */
+  basePath: string;
+  /** Query params to preserve when navigating between rows
+   *  (broker filter, sector filter, …). The component appends `symbol`. */
+  preservedQuery: Record<string, string>;
   selectedSymbol?: string | null;
   /** Render the Broker/Net toggle in the section header. Show on the first
    *  section only so the page doesn't repeat the same control. */
   showToggle?: boolean;
 }) {
+  const hrefFor = (symbol: string) => {
+    const usp = new URLSearchParams(preservedQuery);
+    usp.set("symbol", symbol);
+    const s = usp.toString();
+    return `${basePath}${s ? `?${s}` : ""}`;
+  };
   const { mode } = usePnlMode();
   if (rows.length === 0) return null;
   const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
