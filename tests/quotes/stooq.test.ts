@@ -18,6 +18,10 @@ describe("Stooq symbol mapping", () => {
     expect(toStooqSymbol("XSX7")).toBe("xsx7.de");
   });
 
+  it("routes IEMM to its LSE twin EIMI (Stooq has no Amsterdam listing)", () => {
+    expect(toStooqSymbol("IEMM")).toBe("eimi.uk");
+  });
+
   it("maps Stockholm tickers to .se", () => {
     expect(toStooqSymbol("EVO")).toBe("evo.se");
   });

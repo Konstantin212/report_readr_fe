@@ -33,7 +33,10 @@ const OVERRIDES: Record<string, string> = {
   // Xetra / Frankfurt
   SPYW: "spyw.de",
   XSX7: "xsx7.de",
-  IEMM: "iemm.de",   // iShares MSCI EM
+  // iShares MSCI EM UCITS — held as IEMM on Euronext Amsterdam (EUR), but
+  // Stooq only carries the LSE twin under EIMI (GBP). Same ISIN
+  // (IE00B0M63177); GBP→EUR is handled by the positions accessor.
+  IEMM: "eimi.uk",
   // Stockholm
   EVO: "evo.se",
   // Benchmarks
