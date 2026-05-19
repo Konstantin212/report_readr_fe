@@ -24,17 +24,17 @@ export async function GET(req: Request) {
   const yahooList = list.filter((s) => YAHOO_PRIMARY_SYMBOLS.has(s));
   const stooqList = list.filter((s) => !YAHOO_PRIMARY_SYMBOLS.has(s));
 
-  const [stooqQuotes, yahooQuotes] = await Promise.all([
+  const [stooqQuotes, yahooResult] = await Promise.all([
     fetchStooqQuotes(stooqList),
     fetchYahooSpots(yahooList),
   ]);
 
   // If Yahoo failed for a primary-Yahoo symbol, fall back to Stooq for it
   // (e.g. EIMI.uk for IEMM). Better an approximation than no data.
-  const yahooFailed = yahooList.filter((s) => !yahooQuotes.find((q) => q.symbol === s));
+  const yahooFailed = yahooList.filter((s) => !yahooResult.quotes.find((q) => q.symbol === s));
   const stooqFallback = yahooFailed.length ? await fetchStooqQuotes(yahooFailed) : [];
 
-  const quotes = [...stooqQuotes, ...yahooQuotes, ...stooqFallback];
+  const quotes = [...stooqQuotes, ...yahooResult.quotes, ...stooqFallback];
   let writeError: string | null = null;
   if (quotes.length) {
     try {
@@ -61,7 +61,9 @@ export async function GET(req: Request) {
     requested: list,
     inserted,
     unpriced,
-    yahooUsed: yahooQuotes.map((q) => q.symbol),
+    yahooRequested: yahooList,
+    yahooUsed: yahooResult.quotes.map((q) => ({ symbol: q.symbol, currency: q.currency, close: q.close, date: q.date })),
+    yahooErrors: yahooResult.errors,
     writeError,
   });
 }
