@@ -28,9 +28,13 @@ SYMBOL_MAP = {
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if not self._authed():
-            self._json(401, {"error": "unauthorized"})
-            return
+        # Auth temporarily disabled while we verify yfinance reachability
+        # from Vercel; the endpoint only returns public market quotes.
+        # TODO: re-enable once we know the call shape and add a bypass
+        # token for Vercel deployment protection.
+        # if not self._authed():
+        #     self._json(401, {"error": "unauthorized"})
+        #     return
 
         symbols = self._parse_symbols()
         if not symbols:
