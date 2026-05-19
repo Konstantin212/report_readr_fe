@@ -9,6 +9,7 @@ const NAV = [
   { href: "/dividends", label: "Dividends", match: (p: string) => p.startsWith("/dividends") },
   { href: "/tax/2025", label: "Tax 2025", match: (p: string) => p.startsWith("/tax") },
   { href: "/upload", label: "Upload", match: (p: string) => p.startsWith("/upload") },
+  { href: "/settings", label: "Settings", match: (p: string) => p.startsWith("/settings") },
 ] as const;
 
 export function TopbarNav() {
