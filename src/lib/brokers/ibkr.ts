@@ -66,8 +66,9 @@ export function parseInteractiveBrokersStatement(
     taxYear,
   };
 
+  const isinMap = buildIsinMap(dataRows);
   const events = [
-    ...parseTrades(dataRows, accountNumber),
+    ...parseTrades(dataRows, accountNumber, isinMap),
     ...parseSimpleAmountSection(dataRows, {
       accountNumber,
       section: "Dividends",
@@ -82,7 +83,7 @@ export function parseInteractiveBrokersStatement(
     }),
     ...parseCashReportFees(dataRows, accountNumber, statementDates.endDate ?? `${taxYear}-12-31`),
     ...parseCashTransfers(dataRows, accountNumber),
-    ...parseCorporateActions(dataRows, accountNumber),
+    ...parseCorporateActions(dataRows, accountNumber, isinMap),
   ];
 
   return { account, events };
@@ -101,13 +102,65 @@ function getField(rows: Record<string, string>[], fieldName: string): string | u
   return cleanString(rows.find((row) => cleanString(row[fieldName]))?.[fieldName]);
 }
 
-function parseTrades(rows: SectionRow[], accountNumber: string): NormalizedEvent[] {
+function stripBondYieldSuffix(s: string): string {
+  // Strip trailing " 4.52262213%" from bond names like "T 4 5/8 09/15/26 4.52262213%"
+  return s.replace(/\s+\d+(\.\d+)?%$/, "").trim();
+}
+
+function buildIsinMap(rows: SectionRow[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const fii of getRows(rows, "Financial Instrument Information")) {
+    const isin = cleanString(fii.ISIN ?? fii.Isin);
+    if (!isin) continue;
+    const rawSymbol = cleanString(fii.Symbol);
+    if (rawSymbol) {
+      for (const s of rawSymbol.split(",").map(x => x.trim()).filter(Boolean)) {
+        map.set(s, isin);
+        // Also map the suffix-stripped variant for bonds
+        const stripped = stripBondYieldSuffix(s);
+        if (stripped !== s) map.set(stripped, isin);
+      }
+    }
+    const description = cleanString(fii.Description);
+    if (description) {
+      map.set(description, isin);
+      const stripped = stripBondYieldSuffix(description);
+      if (stripped !== description) map.set(stripped, isin);
+    }
+  }
+  return map;
+}
+
+function parseTrades(rows: SectionRow[], accountNumber: string, isinMap: Map<string, string>): NormalizedEvent[] {
   return getRows(rows, "Trades")
     .map((row, index) => {
       const date = dateOnly(row["Date/Time"]);
       const fee = absoluteNumber(row["Comm/Fee"]);
       const proceeds = cleanNumber(row.Proceeds);
       const cashAmount = subtractNumbers(proceeds, fee);
+      const assetCategory = cleanString(row["Asset Category"]) ?? "";
+      const rawSymbol = cleanString(row.Symbol);
+      const symbol = rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined;
+      const isin = symbol
+        ? (isinMap.get(symbol) ?? isinMap.get(rawSymbol ?? ""))
+        : undefined;
+
+      if (assetCategory.toLowerCase().startsWith("forex")) {
+        return withTaxReview(compactEvent<NormalizedEvent>({
+          id: `ibkr-fx-${index + 1}`,
+          broker: "INTERACTIVE_BROKERS",
+          accountNumber,
+          type: "FX_CONVERSION",
+          date,
+          currency: cleanString(row.Currency) ?? "UNKNOWN",
+          description: rawSymbol,
+          amount: proceeds,
+          cashAmount,
+          proceeds,
+          fee,
+          source: "Forex",
+        }));
+      }
 
       return withTaxReview(compactEvent<NormalizedEvent>({
         id: `ibkr-trade-${index + 1}`,
@@ -116,7 +169,8 @@ function parseTrades(rows: SectionRow[], accountNumber: string): NormalizedEvent
         type: "TRADE",
         date,
         currency: cleanString(row.Currency) ?? "UNKNOWN",
-        symbol: cleanString(row.Symbol),
+        symbol,
+        isin,
         description: cleanString(row.DataDiscriminator),
         quantity: cleanNumber(row.Quantity),
         price: cleanNumber(row["T. Price"]),
@@ -207,10 +261,13 @@ function parseCashTransfers(rows: SectionRow[], accountNumber: string): Normaliz
     .filter((event) => Boolean(event.date));
 }
 
-function parseCorporateActions(rows: SectionRow[], accountNumber: string): NormalizedEvent[] {
+function parseCorporateActions(rows: SectionRow[], accountNumber: string, isinMap: Map<string, string>): NormalizedEvent[] {
   return getRows(rows, "Corporate Actions")
     .map((row, index) => {
       const date = dateOnly(row.Date ?? row["Date/Time"]);
+      const rawSymbol = cleanString(row.Symbol);
+      const symbol = rawSymbol ? stripBondYieldSuffix(rawSymbol) : undefined;
+      const isin = symbol ? isinMap.get(symbol) : undefined;
 
       return compactEvent<NormalizedEvent>({
         id: `ibkr-corporate-action-${index + 1}`,
@@ -219,7 +276,8 @@ function parseCorporateActions(rows: SectionRow[], accountNumber: string): Norma
         type: "CORPORATE_ACTION",
         date,
         currency: cleanString(row.Currency) ?? "UNKNOWN",
-        symbol: cleanString(row.Symbol),
+        symbol,
+        isin,
         description: cleanString(row.Description ?? row.Action),
         quantity: cleanNumber(row.Quantity),
         amount: cleanNumber(row.Amount),

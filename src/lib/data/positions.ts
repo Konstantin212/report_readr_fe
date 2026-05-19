@@ -85,15 +85,18 @@ export async function getPositionsData(
     if (!prev || q.date > prev.date) latestQuote.set(q.symbol, { close: Number(q.close), currency: q.currency, date: q.date });
   }
 
-  // Group lots by (brokerAccountId, symbol) → aggregated row
-  type Agg = { brokerAccountId: string; symbol: string; qty: Decimal; cost: Decimal; openedAt: string; lots: { openedAt: string; qty: string; costEur: string }[] };
+  // Group lots by (brokerAccountId, isin ?? symbol) → aggregated row
+  type Agg = { brokerAccountId: string; symbol: string; isin?: string; qty: Decimal; cost: Decimal; openedAt: string; lots: { openedAt: string; qty: string; costEur: string }[] };
   const groups = new Map<string, Agg>();
   for (const l of filteredLots) {
-    const k = `${l.brokerAccountId}|${l.symbol}`;
-    const g = groups.get(k) ?? { brokerAccountId: l.brokerAccountId, symbol: l.symbol, qty: new Decimal(0), cost: new Decimal(0), openedAt: l.openedAt, lots: [] };
+    const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
+    const g = groups.get(k) ?? { brokerAccountId: l.brokerAccountId, symbol: l.symbol, isin: l.isin ?? undefined, qty: new Decimal(0), cost: new Decimal(0), openedAt: l.openedAt, lots: [] };
     g.qty = g.qty.plus(l.remainingQty);
     g.cost = g.cost.plus(l.costEur);
     if (l.openedAt < g.openedAt) g.openedAt = l.openedAt;
+    // Keep the latest symbol seen
+    g.symbol = l.symbol;
+    g.isin = l.isin ?? g.isin;
     g.lots.push({ openedAt: l.openedAt, qty: l.remainingQty, costEur: l.costEur });
     groups.set(k, g);
   }

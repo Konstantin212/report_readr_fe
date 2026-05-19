@@ -52,13 +52,16 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     : allLots;
   const costEurByAccountSymbol = new Map<string, Decimal>();
   for (const l of filteredLots) {
-    const k = `${l.brokerAccountId}|${l.symbol}`;
+    const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
     costEurByAccountSymbol.set(k, (costEurByAccountSymbol.get(k) ?? new Decimal(0)).plus(l.costEur));
   }
   const qtyByAccountSymbol = new Map<string, Decimal>();
+  // Track latest symbol per (account, isin??symbol) key so we look up quotes by current ticker
+  const symbolByKey = new Map<string, string>();
   for (const l of filteredLots) {
-    const k = `${l.brokerAccountId}|${l.symbol}`;
+    const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
     qtyByAccountSymbol.set(k, (qtyByAccountSymbol.get(k) ?? new Decimal(0)).plus(l.remainingQty));
+    symbolByKey.set(k, l.symbol);
   }
   const totalCost = [...costEurByAccountSymbol.values()].reduce((s, c) => s.plus(c), new Decimal(0));
 
@@ -85,13 +88,16 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
   // ----- 5. compute per-account-symbol market value in EUR
   type Row = { brokerAccountId: string; broker: string; symbol: string; qty: number; costEur: number; marketEur: number | null; plEur: number | null; plPct: number | null; currency: string };
   const rows: Row[] = [];
+  const seenKeys = new Set<string>();
   for (const l of filteredLots) {
-    const k = `${l.brokerAccountId}|${l.symbol}`;
-    if (rows.find(r => r.brokerAccountId === l.brokerAccountId && r.symbol === l.symbol)) continue;
+    const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
+    if (seenKeys.has(k)) continue;
+    seenKeys.add(k);
+    const symbol = symbolByKey.get(k) ?? l.symbol;
     const qty = Number(qtyByAccountSymbol.get(k) ?? 0);
     const cost = Number(costEurByAccountSymbol.get(k) ?? 0);
     if (qty <= 0) continue;
-    const q = latestQuote.get(l.symbol);
+    const q = latestQuote.get(symbol);
     let marketEur: number | null = null;
     let currency = "EUR";
     if (q) {
@@ -109,7 +115,7 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     rows.push({
       brokerAccountId: l.brokerAccountId,
       broker: acc?.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR",
-      symbol: l.symbol,
+      symbol,
       qty, costEur: cost, marketEur, plEur: pl, plPct, currency,
     });
   }
