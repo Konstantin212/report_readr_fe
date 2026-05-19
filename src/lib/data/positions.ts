@@ -7,6 +7,7 @@ import {
 import { classifySector, classifyKind } from "@/lib/analytics/sector-map";
 import { getCashBalances } from "@/lib/data/cash";
 import { yieldOnCost } from "@/lib/analytics/yield-on-cost";
+import { computeUnrealizedPnL, type ResolvedLot } from "@/lib/positions/unrealized-pnl";
 
 export type PositionRow = {
   symbol: string;
@@ -111,15 +112,19 @@ export async function getPositionsData(
     if (!prev || q.date > prev.date) latestQuote.set(q.symbol, { close: Number(q.close), currency: q.currency, date: q.date });
   }
 
-  // Group lots by (brokerAccountId, isin ?? symbol) → aggregated row
+  // Group lots by (brokerAccountId, isin ?? symbol) → aggregated row.
+  // For each lot we resolve the source-transaction native amount + fee +
+  // original buy qty so we can feed `computeUnrealizedPnL` later (which
+  // mirrors IBKR's Open Positions math exactly — see tests in
+  // tests/positions/unrealized-pnl.test.ts).
   type Agg = {
     brokerAccountId: string;
     symbol: string;
     isin?: string;
     qty: Decimal;
     cost: Decimal;
-    costNative: Decimal;        // sum across lots, in nativeCurrency
     nativeCurrency: string | null;
+    resolvedLots: ResolvedLot[];
     openedAt: string;
     lots: { openedAt: string; qty: string; costEur: string }[];
   };
@@ -132,8 +137,8 @@ export async function getPositionsData(
       isin: l.isin ?? undefined,
       qty: new Decimal(0),
       cost: new Decimal(0),
-      costNative: new Decimal(0),
       nativeCurrency: null,
+      resolvedLots: [],
       openedAt: l.openedAt,
       lots: [],
     };
@@ -145,19 +150,18 @@ export async function getPositionsData(
     g.isin = l.isin ?? g.isin;
     g.lots.push({ openedAt: l.openedAt, qty: l.remainingQty, costEur: l.costEur });
 
-    // Derive the lot's native cost from its source transaction. The source
-    // TRADE event has the native trade `amount` (signed; negative for buys)
-    // and `fee`. Scale by the lot's remaining qty / the original buy qty,
-    // since the lot may have been partially closed by later sells.
+    // Resolve the lot back to its originating TRADE transaction so the
+    // unrealized-pnl function can apply FIFO-consistent scaling using the
+    // native proceeds + fee. Note: lots.source_event_fingerprint stores
+    // transactions.id (UUID), not the event-fingerprint hash.
     const srcTx = txById.get(l.sourceEventFingerprint);
     if (srcTx && srcTx.quantity && Number(srcTx.quantity) > 0) {
-      const origQty = new Decimal(srcTx.quantity);
-      const remain = new Decimal(l.remainingQty);
-      const ratio = remain.div(origQty);
-      const amountAbs = new Decimal(srcTx.amount ?? "0").abs();
-      const feeAbs = new Decimal(srcTx.fee ?? "0").abs();
-      const lotCostNative = amountAbs.plus(feeAbs).mul(ratio);
-      g.costNative = g.costNative.plus(lotCostNative);
+      g.resolvedLots.push({
+        remainingQty: l.remainingQty,
+        originalQty: srcTx.quantity,
+        proceeds: srcTx.amount ?? "0",
+        fee: srcTx.fee ?? "0",
+      });
       if (!g.nativeCurrency && srcTx.currency) g.nativeCurrency = srcTx.currency;
     }
 
@@ -197,35 +201,26 @@ export async function getPositionsData(
     const sector = classifySector(displaySymbol);
     const kind = classifyKind(displaySymbol, sector);
 
-    // Native-currency P/L. Cost is summed from the source-transaction native
-    // amounts (above). For market value we prefer a *direct* native price —
-    // i.e. when the quote's currency matches the trade currency, just use
-    // qty × quote.close — to avoid the double-FX round-trip (quote→EUR→native)
-    // that introduces precision drift when the quote currency and trade
-    // currency are the same. If they differ (rare: e.g. IEMM held in EUR on
-    // Amsterdam but priced from EIMI on LSE in GBP), fall back to the EUR
-    // round-trip and accept the listing-driven approximation.
+    // Native-currency P/L via the IBKR-mirror function. The function returns
+    // null when inputs are incomplete (missing source transactions, missing
+    // FX rate for a cross-currency conversion, no open qty); in those cases
+    // we leave the native columns as null and the UI renders "—".
     const nativeCcy = g.nativeCurrency;
-    const costNative = nativeCcy ? Number(g.costNative) : null;
-    let pricePerUnitNative: number | null = null;
-    let marketNative: number | null = null;
-    if (nativeCcy && q && qty > 0) {
-      if (q.currency === nativeCcy) {
-        pricePerUnitNative = q.close;
-      } else if (nativeCcy === "EUR" && q.currency !== "EUR") {
-        const fxQuote = latestFx.get(q.currency);
-        if (fxQuote) pricePerUnitNative = q.close / fxQuote.rate;
-      } else if (q.currency === "EUR") {
-        const fxNative = latestFx.get(nativeCcy);
-        if (fxNative) pricePerUnitNative = q.close * fxNative.rate;
-      } else {
-        const fxQuote = latestFx.get(q.currency);
-        const fxNative = latestFx.get(nativeCcy);
-        if (fxQuote && fxNative) pricePerUnitNative = (q.close / fxQuote.rate) * fxNative.rate;
-      }
-      if (pricePerUnitNative !== null) marketNative = qty * pricePerUnitNative;
-    }
-    const plNative = costNative !== null && marketNative !== null ? marketNative - costNative : null;
+    const ratesPerEur = new Map<string, number>();
+    for (const [ccy, fx] of latestFx) ratesPerEur.set(ccy, fx.rate);
+    const pnl = (nativeCcy && q && g.resolvedLots.length > 0)
+      ? computeUnrealizedPnL({
+          lots: g.resolvedLots,
+          tradeCurrency: nativeCcy,
+          lastPrice: q.close,
+          quoteCurrency: q.currency,
+          fxRatesPerEur: ratesPerEur,
+        })
+      : null;
+    const costNative = pnl?.costBasisNative ?? null;
+    const marketNative = pnl?.marketValueNative ?? null;
+    const plNative = pnl?.unrealizedPnlNative ?? null;
+    const pricePerUnitNative = pnl ? pnl.marketValueNative / pnl.qty : null;
 
     rows.push({
       symbol: displaySymbol,
