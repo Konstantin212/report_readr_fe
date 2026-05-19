@@ -4,6 +4,7 @@ import { Card } from "@/components/pulse/card";
 import { SettingRow } from "@/components/pulse/setting-row";
 import { ToggleRow } from "@/components/pulse/toggle-row";
 import { SettingsSidebar } from "@/components/pulse/settings-sidebar";
+import { ResetBrokerButton } from "@/components/pulse/reset-broker-button";
 
 type SP = Promise<{ section?: string }>;
 
@@ -61,7 +62,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                       <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Status</div>
                       <div className="text-xs mt-1 text-mint">● Active</div>
                     </div>
-                    <button className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-1.5 rounded-md opacity-50 cursor-not-allowed">Manage</button>
+                    <ResetBrokerButton
+                      brokerAccountId={b.id}
+                      brokerLabel={b.broker === "FREEDOM_FINANCE" ? "Freedom Finance" : "Interactive Brokers"}
+                      accountNumber={b.accountNumber}
+                    />
                   </div>
                 ))}
               </Card>
