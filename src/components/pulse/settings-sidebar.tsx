@@ -5,17 +5,18 @@ export const SETTINGS_SECTIONS = [
   { key: "account",       label: "Account",        icon: "◔" },
   { key: "brokers",       label: "Brokers & data", icon: "◐" },
   { key: "tax",           label: "Tax & currency", icon: "◑" },
+  { key: "members",       label: "Members",        icon: "◕", adminOnly: true },
   { key: "notifications", label: "Notifications",  icon: "◓" },
   { key: "appearance",    label: "Appearance",     icon: "◒" },
 ] as const;
 
-export function SettingsSidebar({ active = "account" }: { active?: string }) {
+export function SettingsSidebar({ active = "account", isAdmin = false }: { active?: string; isAdmin?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
   return (
     <div className="bg-panel border border-border rounded-[22px] p-2.5 h-fit">
-      {SETTINGS_SECTIONS.map((n) => {
+      {SETTINGS_SECTIONS.filter((n) => !("adminOnly" in n && n.adminOnly) || isAdmin).map((n) => {
         const isActive = active === n.key;
         return (
           <button

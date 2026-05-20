@@ -1,11 +1,16 @@
+import { desc } from "drizzle-orm";
 import { requireCurrentUser } from "@/lib/auth/server";
+import { isAdminEmail } from "@/lib/auth/admin";
 import { getSettings } from "@/lib/data/settings";
+import { getDb } from "@/lib/db/client";
+import { allowedEmails } from "@/lib/db/schema";
 import { Card } from "@/components/pulse/card";
 import { SettingRow } from "@/components/pulse/setting-row";
 import { ToggleRow } from "@/components/pulse/toggle-row";
 import { SettingsSidebar } from "@/components/pulse/settings-sidebar";
 import { ResetBrokerButton } from "@/components/pulse/reset-broker-button";
 import { BackfillFxButton } from "@/components/pulse/backfill-fx-button";
+import { MembersManager } from "@/components/pulse/members-manager";
 
 type SP = Promise<{ section?: string }>;
 
@@ -14,12 +19,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
   const { settings, accounts } = await getSettings(user.id);
   const params = await searchParams;
   const section = params.section ?? "brokers";
+  const isAdmin = isAdminEmail(user.email);
+  const members = isAdmin && section === "members"
+    ? await getDb().select().from(allowedEmails).orderBy(desc(allowedEmails.addedAt))
+    : [];
 
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
       <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
-        <SettingsSidebar active={section} />
+        <SettingsSidebar active={section} isAdmin={isAdmin} />
 
         <div className="space-y-4">
           {section === "account" && (
@@ -72,6 +81,32 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                 ))}
               </Card>
             </>
+          )}
+
+          {section === "members" && isAdmin && (
+            <Card>
+              <div className="flex justify-between items-baseline mb-3">
+                <div>
+                  <div className="font-semibold text-base">Members</div>
+                  <div className="font-mono text-[11px] text-muted mt-1">
+                    Emails allowed to sign in to this workspace. Add a friend&apos;s Google account here, then share the sign-in link with them.
+                  </div>
+                </div>
+                <div className="font-mono text-[10px] text-amber tracking-wider">ADMIN ONLY</div>
+              </div>
+              <MembersManager initial={members.map(m => ({
+                id: m.id,
+                email: m.email,
+                note: m.note,
+                addedAt: m.addedAt.toISOString(),
+              }))} />
+            </Card>
+          )}
+
+          {section === "members" && !isAdmin && (
+            <Card>
+              <div className="text-muted text-sm">Members are managed by the workspace admin.</div>
+            </Card>
           )}
 
           {section === "tax" && (

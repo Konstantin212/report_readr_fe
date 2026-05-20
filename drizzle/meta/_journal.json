@@ -15,6 +15,13 @@
       "when": 1779124547426,
       "tag": "0001_faulty_spacker_dave",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779266282833,
+      "tag": "0002_cold_karma",
+      "breakpoints": true
     }
   ]
 }
