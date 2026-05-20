@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
-import { getAuthorizedEmails, isEmailAuthorized } from "./allowlist";
+import { isEmailAllowedToSignIn } from "./allowlist";
 import { getDb } from "@/lib/db/client";
 
 function getAuthSecret(): string {
@@ -59,8 +59,7 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          const allowlist = getAuthorizedEmails();
-          if (!isEmailAuthorized(user.email, allowlist)) {
+          if (!(await isEmailAllowedToSignIn(user.email))) {
             throw new Error("Email is not authorized for this private app.");
           }
 

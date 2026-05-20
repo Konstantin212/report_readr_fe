@@ -26,6 +26,20 @@ export const eventTypeEnum = pgEnum("event_type", [
   "POSITION_SNAPSHOT",
 ]);
 
+/**
+ * Email allowlist for the private app. Only emails in this table (plus
+ * the AUTHORIZED_EMAILS env var, which is kept as a bootstrap fallback)
+ * can complete the OAuth sign-up flow. Managed via the Settings page by
+ * the admin user — see lib/auth/admin.ts for the admin-email check.
+ */
+export const allowedEmails = pgTable("allowed_emails", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  note: text("note"),
+  addedAt: timestamp("added_at").notNull().defaultNow(),
+  addedByUserId: text("added_by_user_id").references(() => user.id, { onDelete: "set null" }),
+});
+
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name"),
