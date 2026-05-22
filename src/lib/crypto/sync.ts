@@ -1,13 +1,16 @@
 import { and, eq, sql } from "drizzle-orm";
+import Decimal from "decimal.js";
 
 import { getDb } from "@/lib/db/client";
-import { brokerAccounts, cryptoAccounts, cryptoWallets, transactions } from "@/lib/db/schema";
+import { brokerAccounts, cryptoAccounts, cryptoWallets, fxRates, transactions } from "@/lib/db/schema";
 import {
   fetchAccounts,
+  fetchSpotPriceEur,
   fetchTransactionsForAccount,
   type CoinbaseCredentials,
 } from "@/lib/crypto/coinbase";
 import { mapCoinbaseTransaction } from "@/lib/crypto/mapper";
+import { convertEventToEur } from "@/lib/ledger/fx";
 import { computeEventFingerprint } from "@/lib/imports/fingerprint";
 
 export type SyncResult = {
@@ -72,39 +75,64 @@ export async function syncCoinbaseAccount(opts: {
 
   const wallets = await fetchAccounts(opts.credentials);
 
-  // Snapshot balances per wallet for the Dashboard. native_balance may be
-  // missing on rare account types — skip those rather than fail the sync.
+  // Coinbase CDP key access returns native_balance = 0 on /v2/accounts,
+  // so we compute EUR value ourselves: qty × public spot price (no auth).
+  // Cache prices per symbol so we do one fetch per coin, not per wallet.
+  const priceEur = new Map<string, string>();
+  const uniqueSymbols = [...new Set(wallets.map((w) => w.currency?.code).filter(Boolean) as string[])];
+  await Promise.all(
+    uniqueSymbols.map(async (sym) => {
+      if (sym === "EUR") {
+        priceEur.set(sym, "1");
+        return;
+      }
+      try {
+        const price = await fetchSpotPriceEur(sym);
+        if (price) priceEur.set(sym, price);
+      } catch {
+        // Coin not quoted in EUR (rare for major coins) — leave it out
+        // and the wallet will land with native_amount = "0".
+      }
+    }),
+  );
+
   for (const wallet of wallets) {
     const balanceQty = wallet.balance?.amount ?? "0";
-    const nativeAmount = wallet.native_balance?.amount ?? "0";
-    const nativeCurrency = wallet.native_balance?.currency ?? "EUR";
+    const sym = wallet.currency?.code ?? "?";
+    const price = priceEur.get(sym);
+    const nativeAmount = price ? multiply(balanceQty, price) : "0";
     await db
       .insert(cryptoWallets)
       .values({
         ownerUserId: opts.ownerUserId,
         cryptoAccountId: opts.cryptoAccountId,
         walletId: wallet.id,
-        symbol: wallet.currency?.code ?? "?",
+        symbol: sym,
         name: wallet.name,
         quantity: balanceQty,
         nativeAmount,
-        nativeCurrency,
+        nativeCurrency: "EUR",
         primary: wallet.primary ?? false,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: [cryptoWallets.cryptoAccountId, cryptoWallets.walletId],
         set: {
-          symbol: wallet.currency?.code ?? "?",
+          symbol: sym,
           name: wallet.name,
           quantity: balanceQty,
           nativeAmount,
-          nativeCurrency,
+          nativeCurrency: "EUR",
           primary: wallet.primary ?? false,
           updatedAt: new Date(),
         },
       });
   }
+
+  // Load ECB USD→EUR (and any other relevant pairs) once — the
+  // converter divides amount by the stored rate to get EUR.
+  const rateRows = await db.select().from(fxRates);
+  const rateMap = new Map(rateRows.map((r) => [`${r.date}|${r.fromCurrency}`, r.rate]));
 
   let inserted = 0;
   let skipped = 0;
@@ -124,13 +152,14 @@ export async function syncCoinbaseAccount(opts: {
         newestTransactionId = tx.id;
       }
 
-      const normalized = mapCoinbaseTransaction(tx, wallet, brokerAccountNumber);
-      if (!normalized) {
+      const mapped = mapCoinbaseTransaction(tx, wallet, brokerAccountNumber);
+      if (!mapped) {
         skipped++;
         continue;
       }
 
-      const fingerprint = computeEventFingerprint(normalized);
+      const enriched = convertEventToEur(mapped, rateMap);
+      const fingerprint = computeEventFingerprint(enriched);
       const result = await db
         .insert(transactions)
         .values({
@@ -139,17 +168,17 @@ export async function syncCoinbaseAccount(opts: {
           broker: "COINBASE",
           accountNumber: brokerAccountNumber,
           eventFingerprint: fingerprint,
-          eventType: normalized.type,
-          eventDate: normalized.date,
-          currency: normalized.currency,
-          symbol: normalized.symbol,
-          quantity: normalized.quantity,
-          amount: normalized.amount,
-          amountEur: normalized.amountEur,
-          fxSource: normalized.fxSource ?? null,
-          requiresReview: normalized.requiresReview ?? false,
-          name: normalized.name,
-          description: normalized.description,
+          eventType: enriched.type,
+          eventDate: enriched.date,
+          currency: enriched.currency,
+          symbol: enriched.symbol,
+          quantity: enriched.quantity,
+          amount: enriched.amount,
+          amountEur: enriched.amountEur,
+          fxSource: enriched.fxSource ?? null,
+          requiresReview: enriched.requiresReview ?? false,
+          name: enriched.name,
+          description: enriched.description,
           source: "COINBASE",
           raw: tx as unknown as Record<string, unknown>,
         })
@@ -183,6 +212,10 @@ export async function syncCoinbaseAccount(opts: {
  * Wrap a sync attempt to capture failures into the lastSyncError column.
  * The caller still sees the original error.
  */
+function multiply(a: string, b: string): string {
+  return new Decimal(a).times(b).toFixed(8);
+}
+
 export async function recordSyncFailure(
   ownerUserId: string,
   cryptoAccountId: string,

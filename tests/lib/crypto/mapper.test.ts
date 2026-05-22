@@ -28,17 +28,18 @@ function tx(overrides: Partial<CoinbaseTransaction>): CoinbaseTransaction {
 }
 
 describe("crypto/mapper", () => {
-  it("maps staking_reward → CRYPTO_STAKE_REWARD with EUR fair value at receipt", () => {
+  it("maps staking_reward → CRYPTO_STAKE_REWARD with native value at receipt", () => {
     const ev = mapCoinbaseTransaction(tx({}), ACCOUNT, "ca-1");
     expect(ev?.type).toBe("CRYPTO_STAKE_REWARD");
     expect(ev?.symbol).toBe("ETH");
     expect(ev?.quantity).toBe("0.0012");
-    expect(ev?.amountEur).toBe("3.50");
+    expect(ev?.amount).toBe("3.50");
+    expect(ev?.currency).toBe("EUR");
     expect(ev?.date).toBe("2026-05-15");
-    expect(ev?.fxSource).toBe("BROKER");
-    expect(ev?.requiresReview).toBe(false);
     expect(ev?.broker).toBe("COINBASE");
     expect(ev?.accountNumber).toBe("ca-1");
+    // EUR conversion is downstream (lib/ledger/fx) — mapper just normalizes.
+    expect(ev?.amountEur).toBeUndefined();
   });
 
   it("treats interest and inflation_reward as staking equivalents for Anlage SO", () => {
@@ -76,15 +77,16 @@ describe("crypto/mapper", () => {
     expect(mapCoinbaseTransaction(tx({ status: "failed" }), ACCOUNT, "ca-1")).toBeNull();
   });
 
-  it("flags non-EUR native_amount for manual review", () => {
+  it("passes through non-EUR native_amount unchanged for the converter to handle", () => {
     const ev = mapCoinbaseTransaction(
       tx({ native_amount: { amount: "4.00", currency: "USD" } }),
       ACCOUNT,
       "ca-1",
     );
     expect(ev?.currency).toBe("USD");
+    expect(ev?.amount).toBe("4.00");
     expect(ev?.amountEur).toBeUndefined();
-    expect(ev?.fxSource).toBe("MISSING");
-    expect(ev?.requiresReview).toBe(true);
+    expect(ev?.fxSource).toBeUndefined();
+    expect(ev?.requiresReview).toBeUndefined();
   });
 });

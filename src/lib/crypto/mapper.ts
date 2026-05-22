@@ -27,6 +27,10 @@ export function mapCoinbaseTransaction(
   const date = tx.created_at.slice(0, 10);
   const symbol = account.currency.code;
 
+  // We leave EUR conversion to the downstream FX helper (lib/ledger/fx).
+  // The mapper only normalizes shape; sync looks up the ECB rate by date
+  // and fills amountEur, requiresReview, and fxSource consistently with
+  // the stock brokers.
   return {
     id: tx.id,
     broker: "COINBASE",
@@ -40,9 +44,6 @@ export function mapCoinbaseTransaction(
     description: tx.details?.title ?? tx.description,
     quantity: qty,
     amount: eurValue,
-    amountEur: tx.native_amount.currency === "EUR" ? eurValue : undefined,
-    fxSource: tx.native_amount.currency === "EUR" ? "BROKER" : "MISSING",
-    requiresReview: tx.native_amount.currency !== "EUR",
   };
 }
 
