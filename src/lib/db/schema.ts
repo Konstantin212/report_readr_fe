@@ -388,6 +388,33 @@ export const cryptoAccounts = pgTable(
   }),
 );
 
+/**
+ * Per-wallet balance snapshot captured on each sync. Coinbase returns one
+ * "wallet" per coin (BTC, ETH, SOL, …) plus a few internal/staked sub-
+ * accounts. We persist them so the Dashboard can render balances without
+ * decrypting credentials and hitting Coinbase on every page load. Primary
+ * key (cryptoAccountId, walletId) makes upserts idempotent.
+ */
+export const cryptoWallets = pgTable(
+  "crypto_wallets",
+  {
+    ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    cryptoAccountId: uuid("crypto_account_id").notNull().references(() => cryptoAccounts.id, { onDelete: "cascade" }),
+    walletId: text("wallet_id").notNull(),
+    symbol: text("symbol").notNull(),
+    name: text("name"),
+    quantity: numeric("quantity").notNull(),
+    nativeAmount: numeric("native_amount").notNull(),
+    nativeCurrency: text("native_currency").notNull().default("EUR"),
+    primary: boolean("primary").notNull().default(false),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.cryptoAccountId, table.walletId] }),
+    ownerIdx: index("crypto_wallets_owner_idx").on(table.ownerUserId),
+  }),
+);
+
 export const quoteHistory = pgTable(
   "quote_history",
   {
