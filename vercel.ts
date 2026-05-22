@@ -13,7 +13,11 @@ export const config: VercelConfig = {
   // is one slow RTT, not six.
   regions: ['fra1'],
   crons: [
-    { path: '/api/cron/fx',     schedule: '30 15 * * 1-5' },
-    { path: '/api/cron/quotes', schedule: '0 21 * * 1-5' },
+    { path: '/api/cron/fx',       schedule: '30 15 * * 1-5' },
+    { path: '/api/cron/quotes',   schedule: '0 21 * * 1-5'  },
+    // Daily Coinbase sync at 22:00 UTC, after most market closes. Pulls
+    // /v2/accounts + transactions for every active crypto_accounts row
+    // (incremental — uses last_sync_cursor so re-runs are cheap).
+    { path: '/api/cron/coinbase', schedule: '0 22 * * *'    },
   ],
 };
