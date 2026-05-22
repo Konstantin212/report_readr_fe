@@ -11,7 +11,6 @@ import {
 } from "@/lib/crypto/coinbase";
 import { mapCoinbaseTransaction } from "@/lib/crypto/mapper";
 import { convertEventToEur } from "@/lib/ledger/fx";
-import { computeEventFingerprint } from "@/lib/imports/fingerprint";
 
 export type SyncResult = {
   inserted: number;
@@ -159,7 +158,14 @@ export async function syncCoinbaseAccount(opts: {
       }
 
       const enriched = convertEventToEur(mapped, rateMap);
-      const fingerprint = computeEventFingerprint(enriched);
+      // The Coinbase tx.id is globally unique per economic event — Coinbase
+      // emits the same staking_reward in both the main and staked sub-
+      // wallet's transaction lists, with identical ids. Using the id
+      // directly as the fingerprint makes the unique constraint dedupe
+      // them cleanly regardless of which wallet iteration we hit them
+      // through. The semantic-hash fingerprint is fine for brokers that
+      // give us statement files without per-event ids.
+      const fingerprint = `coinbase:${tx.id}`;
       const result = await db
         .insert(transactions)
         .values({

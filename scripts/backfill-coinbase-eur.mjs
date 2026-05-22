@@ -6,6 +6,7 @@ const sql = neon(process.env.DATABASE_URL);
 // where amount_in_EUR = amount_in_USD / R. (See lib/ledger/fx.ts.)
 console.log("\nBackfilling amount_eur for COINBASE transactions in USD…\n");
 
+// First pass: exact date match.
 const updated = await sql`
   with fx as (
     select date, from_currency, rate
@@ -24,7 +25,35 @@ const updated = await sql`
     and t.amount is not null
   returning t.id
 `;
-console.log(`Updated ${updated.length} rows with EUR amounts.`);
+console.log(`Updated ${updated.length} rows with EUR amounts (exact date match).`);
+
+// Second pass: weekend/holiday lookback — for each row still missing,
+// pick the most-recent fx_rate strictly before the event_date. This is
+// the Finanzamt convention (use the nearest preceding publication).
+const updatedLookback = await sql`
+  with candidates as (
+    select t.id, t.amount, t.currency, t.event_date,
+           (select rate
+            from fx_rates fx
+            where fx.from_currency = t.currency
+              and fx.to_currency = 'EUR'
+              and fx.date < t.event_date
+            order by fx.date desc
+            limit 1) as rate
+    from transactions t
+    where t.broker = 'COINBASE'
+      and t.amount_eur is null
+      and t.amount is not null
+  )
+  update transactions t
+  set amount_eur = round((t.amount::numeric / c.rate::numeric)::numeric, 8),
+      fx_source = 'ECB',
+      requires_review = false
+  from candidates c
+  where t.id = c.id and c.rate is not null
+  returning t.id
+`;
+console.log(`Updated ${updatedLookback.length} rows via nearest-preceding lookback (weekends/holidays).`);
 
 const stillMissing = await sql`
   select event_date, currency, count(*) as count
