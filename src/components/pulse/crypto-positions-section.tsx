@@ -40,6 +40,11 @@ export function CryptoPositionsSection({
           >
             {fmtPnl(rollup.unrealizedPnlEur)} · {fmtPct(rollup.unrealizedPnlPct)}
           </div>
+          {rollup.realizedPnlYtdEur !== 0 && (
+            <div className={`font-mono text-[10px] mt-0.5 ${rollup.realizedPnlYtdEur >= 0 ? "text-mint" : "text-bad"}`}>
+              {fmtPnl(rollup.realizedPnlYtdEur)} realized YTD
+            </div>
+          )}
         </div>
       </div>
 
@@ -80,8 +85,8 @@ export function CryptoPositionsSection({
         </span>
       </div>
       <div className="px-5 py-2 font-mono text-[10px] text-dim border-t border-border">
-        Cost basis sums all Coinbase trade events as buys (no sell/swap distinction yet). Spot prices snapshotted at last
-        sync.
+        Cost basis = buys + staking rewards (at receipt EUR) − sells. Realized YTD = sum of §23 FIFO matches closed this
+        year. Spot prices snapshotted at last sync.
       </div>
     </Card>
   );

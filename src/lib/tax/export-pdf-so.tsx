@@ -84,7 +84,7 @@ export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionH}>Per coin</Text>
+          <Text style={styles.sectionH}>§22 — Staking by coin</Text>
           <View style={styles.tableHead}>
             <Text style={styles.colCoin}>Coin</Text>
             <Text style={styles.colQty}>Total qty</Text>
@@ -100,6 +100,28 @@ export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
             </View>
           ))}
         </View>
+
+        {draft.section23Matches.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionH}>§23 — Private Sale Gains</Text>
+            <View style={styles.kv}>
+              <Text>Short-term taxable gains (held ≤ 365 days)</Text>
+              <Text>{formatEur(draft.total.section23ShortTermGainEur)}</Text>
+            </View>
+            <View style={styles.kv}>
+              <Text>Long-term tax-free gains (held &gt; 365 days)</Text>
+              <Text style={{ color: "#888" }}>{formatEur(draft.total.section23LongTermTaxFreeEur)}</Text>
+            </View>
+            <View style={styles.kv}>
+              <Text>Number of realized matches</Text>
+              <Text>{draft.total.section23MatchCount}</Text>
+            </View>
+            <Text style={styles.sub}>
+              Short-term gains add to §22 staking income against the same €256 Freigrenze. Long-term gains are
+              tax-free under §23 EStG (1-year holding rule) — listed here for completeness only.
+            </Text>
+          </View>
+        )}
 
         <Text style={styles.footer}>
           Generated {new Date(draft.generatedAt).toISOString().slice(0, 16)} UTC. Personal record — not a certified tax
@@ -136,6 +158,38 @@ export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
           </View>
         ))}
       </Page>
+
+      {draft.section23Matches.length > 0 && (
+        <Page size="A4" style={styles.page}>
+          <Text style={styles.h1}>§23 — Realized matches (FIFO)</Text>
+          <Text style={styles.sub}>
+            Each row is a closed lot. Long-term matches (over 365 days) are tax-free; short-term matches contribute
+            to §23 income against the €256 Freigrenze.
+          </Text>
+          <View style={styles.tableHead}>
+            <Text style={styles.colDate}>Opened</Text>
+            <Text style={styles.colDate}>Closed</Text>
+            <Text style={styles.colCoin}>Coin</Text>
+            <Text style={styles.colQty}>Qty</Text>
+            <Text style={styles.colPrice}>Days</Text>
+            <Text style={styles.colEur}>Cost</Text>
+            <Text style={styles.colEur}>Proceeds</Text>
+            <Text style={styles.colEur}>Gain</Text>
+          </View>
+          {draft.section23Matches.map((m, i) => (
+            <View key={i} style={styles.tableRow}>
+              <Text style={styles.colDate}>{m.openedAt}</Text>
+              <Text style={styles.colDate}>{m.closedAt}</Text>
+              <Text style={styles.colCoin}>{m.symbol}</Text>
+              <Text style={styles.colQty}>{m.qty.toFixed(6)}</Text>
+              <Text style={styles.colPrice}>{m.holdingDays}{m.isLongTerm ? " ✓" : ""}</Text>
+              <Text style={styles.colEur}>{m.costEur.toFixed(2)}</Text>
+              <Text style={styles.colEur}>{m.proceedsEur.toFixed(2)}</Text>
+              <Text style={styles.colEur}>{m.gainEur.toFixed(2)}</Text>
+            </View>
+          ))}
+        </Page>
+      )}
     </Document>
   );
   return renderToStream(Doc);

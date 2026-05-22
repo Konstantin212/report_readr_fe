@@ -7,9 +7,19 @@ function draft(overrides: Partial<AnlageSoDraft> = {}): AnlageSoDraft {
   return {
     taxYear: 2026,
     taxpayerName: "K. Prikhodko",
-    total: { stakingIncomeEur: 0, eventCount: 0, freigrenzeEur: 256, freigrenzeReached: false, taxableEur: 0 },
+    total: {
+      stakingIncomeEur: 0,
+      eventCount: 0,
+      section23ShortTermGainEur: 0,
+      section23LongTermTaxFreeEur: 0,
+      section23MatchCount: 0,
+      freigrenzeEur: 256,
+      freigrenzeReached: false,
+      taxableEur: 0,
+    },
     perCoin: [],
     events: [],
+    section23Matches: [],
     generatedAt: "2026-05-22T00:00:00Z",
     ...overrides,
   };

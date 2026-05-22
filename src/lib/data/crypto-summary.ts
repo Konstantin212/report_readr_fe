@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
-import { cryptoAccounts, cryptoWallets, transactions } from "@/lib/db/schema";
+import { brokerAccounts, cryptoAccounts, cryptoWallets, realizedMatches, transactions } from "@/lib/db/schema";
 
 /**
  * The €256 cliff for §22 Nr. 3 EStG (sonstige Leistungen). If a German
@@ -29,6 +29,12 @@ export type CryptoSummary = {
     perCoin: { symbol: string; eurValue: number }[];
     freigrenzeEur: number;
     freigrenzeReached: boolean;
+  };
+  realizedYtd: {
+    year: number;
+    shortTermGainEur: number;
+    longTermTaxFreeEur: number;
+    matchCount: number;
   };
 };
 
@@ -97,6 +103,24 @@ export async function getCryptoSummary(ownerUserId: string): Promise<CryptoSumma
     .map((r) => ({ symbol: r.symbol as string, eurValue: Number(r.total) }));
   const stakingTotal = perCoin.reduce((a, r) => a + r.eurValue, 0);
 
+  const realizedRows = await db
+    .select({
+      shortGain: sql<string>`coalesce(sum(${realizedMatches.gainEur}) filter (where ${realizedMatches.isLongTerm} = false), 0)`,
+      longGain: sql<string>`coalesce(sum(${realizedMatches.gainEur}) filter (where ${realizedMatches.isLongTerm} = true), 0)`,
+      matchCount: sql<number>`count(*)::int`,
+    })
+    .from(realizedMatches)
+    .innerJoin(brokerAccounts, eq(realizedMatches.brokerAccountId, brokerAccounts.id))
+    .where(
+      and(
+        eq(realizedMatches.ownerUserId, ownerUserId),
+        eq(brokerAccounts.broker, "COINBASE"),
+        gte(realizedMatches.closedAt, yearStart),
+      ),
+    );
+  const shortGain = Number(realizedRows[0]?.shortGain ?? 0);
+  const longGain = Number(realizedRows[0]?.longGain ?? 0);
+
   return {
     hasAccounts: true,
     totalValueEur,
@@ -108,12 +132,19 @@ export async function getCryptoSummary(ownerUserId: string): Promise<CryptoSumma
       totalEur: stakingTotal,
       perCoin,
       freigrenzeEur: FREIGRENZE_EUR,
-      freigrenzeReached: stakingTotal >= FREIGRENZE_EUR,
+      freigrenzeReached: stakingTotal + shortGain >= FREIGRENZE_EUR,
+    },
+    realizedYtd: {
+      year,
+      shortTermGainEur: shortGain,
+      longTermTaxFreeEur: longGain,
+      matchCount: realizedRows[0]?.matchCount ?? 0,
     },
   };
 }
 
 function emptySummary(): CryptoSummary {
+  const year = new Date().getUTCFullYear();
   return {
     hasAccounts: false,
     totalValueEur: 0,
@@ -121,11 +152,12 @@ function emptySummary(): CryptoSummary {
     lastSyncAt: null,
     topHoldings: [],
     stakingYtd: {
-      year: new Date().getUTCFullYear(),
+      year,
       totalEur: 0,
       perCoin: [],
       freigrenzeEur: FREIGRENZE_EUR,
       freigrenzeReached: false,
     },
+    realizedYtd: { year, shortTermGainEur: 0, longTermTaxFreeEur: 0, matchCount: 0 },
   };
 }

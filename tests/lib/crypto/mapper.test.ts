@@ -49,11 +49,26 @@ describe("crypto/mapper", () => {
     );
   });
 
-  it("maps buy/sell/trade → TRADE", () => {
-    for (const t of ["buy", "sell", "trade", "advanced_trade_fill"]) {
-      const ev = mapCoinbaseTransaction(tx({ type: t }), ACCOUNT, "ca-1");
-      expect(ev?.type).toBe("TRADE");
-    }
+  it("maps buy → CRYPTO_BUY and sell → CRYPTO_SELL", () => {
+    expect(mapCoinbaseTransaction(tx({ type: "buy" }), ACCOUNT, "ca-1")?.type).toBe("CRYPTO_BUY");
+    expect(mapCoinbaseTransaction(tx({ type: "sell" }), ACCOUNT, "ca-1")?.type).toBe("CRYPTO_SELL");
+  });
+
+  it("derives buy/sell from amount sign for generic 'trade' events (swaps)", () => {
+    // USDC→BTC swap: USDC wallet sees -USDC (sell side), BTC wallet sees +BTC (buy side).
+    const buySide = mapCoinbaseTransaction(
+      tx({ type: "trade", amount: { amount: "0.0012", currency: "BTC" } }),
+      ACCOUNT,
+      "ca-1",
+    );
+    expect(buySide?.type).toBe("CRYPTO_BUY");
+
+    const sellSide = mapCoinbaseTransaction(
+      tx({ type: "trade", amount: { amount: "-100", currency: "USDC" } }),
+      ACCOUNT,
+      "ca-1",
+    );
+    expect(sellSide?.type).toBe("CRYPTO_SELL");
   });
 
   it("strips the minus sign from outgoing amounts so qty/EUR are always positive", () => {

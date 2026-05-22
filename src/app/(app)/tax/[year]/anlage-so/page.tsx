@@ -12,7 +12,8 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
   const fmtEur = (v: number, dec = 2) =>
     `€${v.toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
 
-  const pct = draft.total.freigrenzeEur > 0 ? Math.min(100, (draft.total.stakingIncomeEur / draft.total.freigrenzeEur) * 100) : 0;
+  const combinedBaseEur = draft.total.stakingIncomeEur + draft.total.section23ShortTermGainEur;
+  const pct = draft.total.freigrenzeEur > 0 ? Math.min(100, (combinedBaseEur / draft.total.freigrenzeEur) * 100) : 0;
 
   return (
     <main className="space-y-4">
@@ -39,18 +40,29 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
             <span>Tax year {draft.taxYear} · Germany</span>
             <span className="px-2 py-0.5 rounded-full bg-amber/20 text-amber text-[10px]">DRAFT</span>
           </div>
-          <div className="grid grid-cols-3 gap-6 mt-3 relative">
+          <div className="grid grid-cols-4 gap-6 mt-3 relative">
             <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">Staking income</div>
-              <div className="font-bold text-[36px] num tracking-tight mt-1 text-mint">
+              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">§22 Staking</div>
+              <div className="font-bold text-[32px] num tracking-tight mt-1 text-mint">
                 {fmtEur(draft.total.stakingIncomeEur)}
               </div>
               <div className="font-mono text-[11px] text-muted mt-1">{draft.total.eventCount} payouts</div>
             </div>
             <div>
+              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">§23 Short-term</div>
+              <div className={`font-bold text-[32px] num tracking-tight mt-1 ${draft.total.section23ShortTermGainEur >= 0 ? "text-mint" : "text-bad"}`}>
+                {fmtEur(draft.total.section23ShortTermGainEur)}
+              </div>
+              <div className="font-mono text-[11px] text-muted mt-1">
+                {draft.total.section23MatchCount === 0
+                  ? "no sales"
+                  : `${draft.total.section23MatchCount} match${draft.total.section23MatchCount === 1 ? "" : "es"}`}
+              </div>
+            </div>
+            <div>
               <div className="font-mono text-[11px] text-dim uppercase tracking-widest">Taxable amount</div>
               <div
-                className={`font-bold text-[36px] num tracking-tight mt-1 ${
+                className={`font-bold text-[32px] num tracking-tight mt-1 ${
                   draft.total.freigrenzeReached ? "text-bad" : "text-mint"
                 }`}
               >
@@ -62,9 +74,10 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
             </div>
             <div>
               <div className="font-mono text-[11px] text-dim uppercase tracking-widest">ELSTER box</div>
-              <div className="font-mono text-[20px] mt-2 text-amber tracking-tight">Anlage SO · §22 Nr. 3</div>
+              <div className="font-mono text-[16px] mt-2 text-amber tracking-tight">Anlage SO</div>
+              <div className="font-mono text-[10px] text-muted mt-1">§22 Nr. 3 + §23</div>
               <div className="font-mono text-[11px] text-muted mt-1">
-                {draft.total.freigrenzeReached ? "Enter full sum" : "Skip — record kept for audit"}
+                {draft.total.freigrenzeReached ? "Enter sums above" : "Skip — record kept for audit"}
               </div>
             </div>
           </div>
@@ -147,11 +160,53 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
         )}
       </Card>
 
+      {draft.section23Matches.length > 0 && (
+        <Card className="p-0 overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex justify-between items-center">
+            <div>
+              <div className="font-semibold text-sm">§23 Private sale matches</div>
+              <div className="font-mono text-[10px] text-muted mt-0.5">
+                Long-term (&gt;365d) are tax-free; short-term contribute to taxable §23 income
+              </div>
+            </div>
+            <div className="font-mono text-[11px] text-muted">{draft.section23Matches.length} match{draft.section23Matches.length === 1 ? "" : "es"}</div>
+          </div>
+          <div className="grid grid-cols-[1fr_1fr_0.6fr_0.8fr_0.5fr_0.9fr_0.9fr_0.9fr_0.5fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+            <span>Opened</span>
+            <span>Closed</span>
+            <span>Coin</span>
+            <span className="text-right">Qty</span>
+            <span className="text-right">Days</span>
+            <span className="text-right">Cost EUR</span>
+            <span className="text-right">Proceeds</span>
+            <span className="text-right">Gain</span>
+            <span className="text-right">LT?</span>
+          </div>
+          {draft.section23Matches.map((m, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_0.6fr_0.8fr_0.5fr_0.9fr_0.9fr_0.9fr_0.5fr] gap-0 px-5 py-3 font-mono text-[12px] items-center border-b border-border last:border-0">
+              <span className="text-muted">{m.openedAt}</span>
+              <span>{m.closedAt}</span>
+              <span className="font-semibold">{m.symbol}</span>
+              <span className="text-right text-muted">{m.qty.toFixed(6)}</span>
+              <span className="text-right text-muted">{m.holdingDays}</span>
+              <span className="text-right">{fmtEur(m.costEur)}</span>
+              <span className="text-right">{fmtEur(m.proceedsEur)}</span>
+              <span className={`text-right font-semibold ${m.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
+                {m.gainEur >= 0 ? "+" : ""}{fmtEur(m.gainEur)}
+              </span>
+              <span className="text-right">
+                {m.isLongTerm ? <span className="text-mint">✓</span> : <span className="text-dim">—</span>}
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
+
       <div className="flex gap-2 font-mono text-[11px] text-dim">
         <span>ℹ</span>
         <span>
-          Each payout valued in EUR at receipt using ECB daily reference rates (USD → EUR). §23 EStG private sale gains
-          (held &lt;1 year, then sold) are not included — Phase 2. Confirm with your Steuerberater before filing.
+          §22 staking income valued in EUR at receipt using ECB daily reference rates (USD → EUR). §23 matches use
+          FIFO against opened lots from buys + staking rewards. Confirm with your Steuerberater before filing.
         </span>
       </div>
     </main>

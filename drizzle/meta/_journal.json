@@ -43,6 +43,13 @@
       "when": 1779469818591,
       "tag": "0005_romantic_caretaker",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779476594322,
+      "tag": "0006_volatile_firedrake",
+      "breakpoints": true
     }
   ]
 }
