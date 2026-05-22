@@ -123,12 +123,18 @@ export async function getPositionsData(
     db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId)),
     detailHistoryPromise,
   ]);
+  // Stocks pipeline excludes COINBASE broker_accounts entirely — crypto
+  // has its own page section (CryptoPositionsSection) with a different
+  // schema (no ISIN/sector/dividends, different cost-basis semantics).
+  // Without this filter, crypto lots leak into rowsByKind.other and the
+  // broker badge falls back to "IBKR" for the unknown enum value.
+  const stockAccountRows = accountRows.filter(a => a.broker !== "COINBASE");
   const accountIds = accountFilter
-    ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
-    : accountRows.map(a => a.id);
+    ? stockAccountRows.filter(a => a.broker === accountFilter).map(a => a.id)
+    : stockAccountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
-  const accountBrokerById = new Map(accountRows.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]));
-  const filteredLots = accountFilter ? allLots.filter(l => accountIdsSet.has(l.brokerAccountId)) : allLots;
+  const accountBrokerById = new Map(stockAccountRows.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]));
+  const filteredLots = allLots.filter(l => accountIdsSet.has(l.brokerAccountId));
   const txById = new Map(allTxs.map(t => [t.id, t]));
 
   // Total dividends received per (brokerAccountId, identity = isin ?? symbol),
