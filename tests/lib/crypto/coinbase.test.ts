@@ -58,20 +58,25 @@ describe("crypto/coinbase JWT (CDP keys)", () => {
     expect((payload.exp as number) - (payload.nbf as number)).toBe(120);
   });
 
-  it("binds the JWT uri claim to the full query string", async () => {
+  it("strips the query string from the JWT uri claim while keeping it in the URL", async () => {
+    // Coinbase rejects JWTs whose `uri` claim contains a query string,
+    // so we sign only the path. The fetch URL still carries the query.
     const { privatePem } = makeEcKeypair();
-    let captured: string | undefined;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+    let capturedJwt: string | undefined;
+    let capturedUrl: string | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      capturedUrl = url as string;
       const h = init!.headers as Record<string, string>;
-      captured = h.authorization!.replace(/^Bearer /, "");
+      capturedJwt = h.authorization!.replace(/^Bearer /, "");
       return new Response(JSON.stringify({ pagination: {}, data: [] }), { status: 200 });
     });
 
     await coinbaseFetch({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/accounts", {
       query: { limit: "100" },
     });
-    const claims = decodeJwt(captured!);
-    expect(claims.uri).toBe("GET api.coinbase.com/v2/accounts?limit=100");
+    const claims = decodeJwt(capturedJwt!);
+    expect(claims.uri).toBe("GET api.coinbase.com/v2/accounts");
+    expect(capturedUrl).toBe("https://api.coinbase.com/v2/accounts?limit=100");
   });
 
   it("issues a fresh nonce per signing call", async () => {
