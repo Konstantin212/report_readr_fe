@@ -351,6 +351,53 @@ export const userSettings = pgTable("user_settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+/**
+ * Connected crypto exchange accounts (OAuth-based). Phase 1 supports
+ * Coinbase only. The refresh token is the only long-lived credential and
+ * is stored AES-256-GCM encrypted — see lib/crypto/aes.ts. Access tokens
+ * live in process memory only, never on disk.
+ */
+export const cryptoAccounts = pgTable(
+  "crypto_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    exchange: text("exchange").notNull(),
+    label: text("label"),
+    refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
+    refreshTokenIv: text("refresh_token_iv").notNull(),
+    scopes: text("scopes").notNull(),
+    exchangeUserId: text("exchange_user_id"),
+    status: text("status").notNull().default("active"),
+    lastSyncAt: timestamp("last_sync_at"),
+    lastSyncError: text("last_sync_error"),
+    lastSyncEventCount: integer("last_sync_event_count").notNull().default(0),
+    lastSyncCursor: text("last_sync_cursor"),
+    connectedAt: timestamp("connected_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    ownerExchangeUserUnique: uniqueIndex("crypto_accounts_owner_exchange_user_unique").on(
+      table.ownerUserId,
+      table.exchange,
+      table.exchangeUserId,
+    ),
+  }),
+);
+
+/**
+ * Short-lived rows that hold the CSRF state generated when the user clicks
+ * "Connect Coinbase". Verified once in the OAuth callback and deleted.
+ * TTL ~10 minutes. Rows with expiresAt < now() are stale and rejected.
+ */
+export const cryptoOauthStates = pgTable("crypto_oauth_states", {
+  state: text("state").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  exchange: text("exchange").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
 export const quoteHistory = pgTable(
   "quote_history",
   {
