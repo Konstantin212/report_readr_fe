@@ -27,6 +27,13 @@ export const COINBASE_API_HOST = "api.coinbase.com";
 export const COINBASE_API_BASE = `https://${COINBASE_API_HOST}`;
 export const COINBASE_API_VERSION = "2024-01-01";
 
+/**
+ * The scope the user is instructed to set on their CDP key (View only).
+ * We record this on the cryptoAccounts row purely as an audit hint — the
+ * actual enforcement lives in Coinbase's UI.
+ */
+export const COINBASE_SCOPES_USED = "view";
+
 export type CoinbaseCredentials = {
   /** The "name" field from the CDP key JSON, e.g. "organizations/UUID/apiKeys/UUID". */
   apiKey: string;

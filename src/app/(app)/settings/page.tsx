@@ -4,6 +4,7 @@ import { isAdminEmail } from "@/lib/auth/admin";
 import { getSettings } from "@/lib/data/settings";
 import { getDb } from "@/lib/db/client";
 import { allowedEmails } from "@/lib/db/schema";
+import { listCryptoAccountsForUser } from "@/lib/data/crypto-accounts";
 import { Card } from "@/components/pulse/card";
 import { SettingRow } from "@/components/pulse/setting-row";
 import { ToggleRow } from "@/components/pulse/toggle-row";
@@ -11,6 +12,7 @@ import { SettingsSidebar } from "@/components/pulse/settings-sidebar";
 import { ResetBrokerButton } from "@/components/pulse/reset-broker-button";
 import { BackfillFxButton } from "@/components/pulse/backfill-fx-button";
 import { MembersManager } from "@/components/pulse/members-manager";
+import { CryptoAccountsManager } from "@/components/pulse/crypto-accounts-manager";
 
 type SP = Promise<{ section?: string }>;
 
@@ -23,6 +25,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
   const members = isAdmin && section === "members"
     ? await getDb().select().from(allowedEmails).orderBy(desc(allowedEmails.addedAt))
     : [];
+  const cryptoAccounts = section === "crypto" ? await listCryptoAccountsForUser(user.id) : [];
 
   return (
     <main className="space-y-4">
@@ -81,6 +84,32 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                 ))}
               </Card>
             </>
+          )}
+
+          {section === "crypto" && (
+            <Card>
+              <div className="flex justify-between items-baseline mb-3">
+                <div>
+                  <div className="font-semibold text-base">Crypto exchanges</div>
+                  <div className="font-mono text-[11px] text-muted mt-1">
+                    Connect a read-only Coinbase CDP key. Used for balance display + staking-income tracking (Anlage SO).
+                  </div>
+                </div>
+                <div className="font-mono text-[10px] text-mint tracking-wider">● ENCRYPTED AT REST</div>
+              </div>
+              <CryptoAccountsManager
+                initial={cryptoAccounts.map((a) => ({
+                  id: a.id,
+                  exchange: a.exchange,
+                  label: a.label,
+                  status: a.status,
+                  scopes: a.scopes,
+                  lastSyncAt: a.lastSyncAt ? a.lastSyncAt.toISOString() : null,
+                  lastSyncEventCount: a.lastSyncEventCount,
+                  connectedAt: a.connectedAt.toISOString(),
+                }))}
+              />
+            </Card>
           )}
 
           {section === "members" && isAdmin && (
