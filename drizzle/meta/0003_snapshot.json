@@ -1,5 +1,5 @@
 {
-  "id": "d3d31a5b-1cfc-4620-99da-f4bcb06379a9",
+  "id": "45f26642-058b-47fd-82d9-065920a92994",
   "prevId": "af459aa0-3ba5-4b1a-a994-fdab32f6859f",
   "version": "7",
   "dialect": "postgresql",
@@ -315,14 +315,26 @@
           "primaryKey": false,
           "notNull": false
         },
-        "refresh_token_ciphertext": {
-          "name": "refresh_token_ciphertext",
+        "api_key_ciphertext": {
+          "name": "api_key_ciphertext",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "refresh_token_iv": {
-          "name": "refresh_token_iv",
+        "api_key_iv": {
+          "name": "api_key_iv",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_secret_ciphertext": {
+          "name": "api_secret_ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "api_secret_iv": {
+          "name": "api_secret_iv",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -412,70 +424,6 @@
         "crypto_accounts_owner_user_id_user_id_fk": {
           "name": "crypto_accounts_owner_user_id_user_id_fk",
           "tableFrom": "crypto_accounts",
-          "tableTo": "user",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.crypto_oauth_states": {
-      "name": "crypto_oauth_states",
-      "schema": "",
-      "columns": {
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owner_user_id": {
-          "name": "owner_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "exchange": {
-          "name": "exchange",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "redirect_uri": {
-          "name": "redirect_uri",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "crypto_oauth_states_owner_user_id_user_id_fk": {
-          "name": "crypto_oauth_states_owner_user_id_user_id_fk",
-          "tableFrom": "crypto_oauth_states",
           "tableTo": "user",
           "columnsFrom": [
             "owner_user_id"

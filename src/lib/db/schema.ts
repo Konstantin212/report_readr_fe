@@ -352,10 +352,11 @@ export const userSettings = pgTable("user_settings", {
 });
 
 /**
- * Connected crypto exchange accounts (OAuth-based). Phase 1 supports
- * Coinbase only. The refresh token is the only long-lived credential and
- * is stored AES-256-GCM encrypted — see lib/crypto/aes.ts. Access tokens
- * live in process memory only, never on disk.
+ * Connected crypto exchange accounts. Phase 1 supports Coinbase v2 with
+ * an HMAC-signed API key + secret pair (OAuth self-service is gated to
+ * approved Coinbase partners, so we use the legacy key path instead).
+ * Both halves are stored AES-256-GCM encrypted — see lib/crypto/aes.ts.
+ * The encrypted secret never leaves the server and is never logged.
  */
 export const cryptoAccounts = pgTable(
   "crypto_accounts",
@@ -364,8 +365,10 @@ export const cryptoAccounts = pgTable(
     ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
     exchange: text("exchange").notNull(),
     label: text("label"),
-    refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
-    refreshTokenIv: text("refresh_token_iv").notNull(),
+    apiKeyCiphertext: text("api_key_ciphertext").notNull(),
+    apiKeyIv: text("api_key_iv").notNull(),
+    apiSecretCiphertext: text("api_secret_ciphertext").notNull(),
+    apiSecretIv: text("api_secret_iv").notNull(),
     scopes: text("scopes").notNull(),
     exchangeUserId: text("exchange_user_id"),
     status: text("status").notNull().default("active"),
@@ -383,20 +386,6 @@ export const cryptoAccounts = pgTable(
     ),
   }),
 );
-
-/**
- * Short-lived rows that hold the CSRF state generated when the user clicks
- * "Connect Coinbase". Verified once in the OAuth callback and deleted.
- * TTL ~10 minutes. Rows with expiresAt < now() are stale and rejected.
- */
-export const cryptoOauthStates = pgTable("crypto_oauth_states", {
-  state: text("state").primaryKey(),
-  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  exchange: text("exchange").notNull(),
-  redirectUri: text("redirect_uri").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  expiresAt: timestamp("expires_at").notNull(),
-});
 
 export const quoteHistory = pgTable(
   "quote_history",
