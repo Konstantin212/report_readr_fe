@@ -115,14 +115,22 @@ async function importCdpKey(pem: string): Promise<AlgVariant> {
   throw new Error("Unrecognized private key format (expected EC or PKCS8 PEM)");
 }
 
+/**
+ * Sign a request. The `pathForSigning` MUST be the path only — no query
+ * string. Coinbase validates the JWT uri claim against METHOD + HOST +
+ * PATH (query string stripped), so including a query in the claim causes
+ * the server to return 401/403 even though /v2/user (which has no query)
+ * works fine with the same key. Discovered the hard way.
+ */
 export async function signRequest(
   credentials: CoinbaseCredentials,
   method: string,
-  requestPath: string,
+  pathForSigning: string,
 ): Promise<string> {
   const variant = await importCdpKey(credentials.apiSecret);
   const nonce = randomBytes(16).toString("hex");
-  const uri = `${method.toUpperCase()} ${COINBASE_API_HOST}${requestPath}`;
+  const pathOnly = pathForSigning.split("?")[0];
+  const uri = `${method.toUpperCase()} ${COINBASE_API_HOST}${pathOnly}`;
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ uri })
     .setProtectedHeader({ alg: variant.alg, kid: credentials.apiKey, typ: "JWT", nonce })
