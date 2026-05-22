@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
-import { cryptoWallets, transactions } from "@/lib/db/schema";
+import { brokerAccounts, cryptoWallets, realizedMatches, transactions } from "@/lib/db/schema";
 
 /**
  * Per-coin position view for the Positions page and the Performance tile.
@@ -26,6 +26,7 @@ export type CryptoPosition = {
   currentValueEur: number;
   unrealizedPnlEur: number;
   unrealizedPnlPct: number | null;
+  realizedPnlYtdEur: number;
   walletCount: number;
   walletNames: string[];
 };
@@ -43,16 +44,51 @@ export async function getCryptoPositions(ownerUserId: string): Promise<CryptoPos
     .from(cryptoWallets)
     .where(eq(cryptoWallets.ownerUserId, ownerUserId));
 
+  // Cost basis: BUY events add EUR, SELL events subtract EUR. We also
+  // include CRYPTO_STAKE_REWARD because staked rewards become a lot at
+  // the EUR fair value at receipt — that contributes to the running cost
+  // basis of the holdings if you sell later.
   const costRows = await db
     .select({
       symbol: transactions.symbol,
-      totalCost: sql<string>`coalesce(sum(${transactions.amountEur}), 0)`,
+      eventType: transactions.eventType,
+      totalEur: sql<string>`coalesce(sum(${transactions.amountEur}), 0)`,
     })
     .from(transactions)
-    .where(and(eq(transactions.ownerUserId, ownerUserId), eq(transactions.broker, "COINBASE"), eq(transactions.eventType, "TRADE")))
-    .groupBy(transactions.symbol);
+    .where(and(eq(transactions.ownerUserId, ownerUserId), eq(transactions.broker, "COINBASE")))
+    .groupBy(transactions.symbol, transactions.eventType);
 
-  const costBySymbol = new Map(costRows.filter((r) => r.symbol).map((r) => [r.symbol as string, Number(r.totalCost)]));
+  const costBySymbol = new Map<string, number>();
+  for (const r of costRows) {
+    if (!r.symbol) continue;
+    const sign =
+      r.eventType === "CRYPTO_BUY" || r.eventType === "CRYPTO_STAKE_REWARD"
+        ? 1
+        : r.eventType === "CRYPTO_SELL"
+        ? -1
+        : 0;
+    if (sign === 0) continue;
+    costBySymbol.set(r.symbol, (costBySymbol.get(r.symbol) ?? 0) + sign * Number(r.totalEur));
+  }
+
+  // YTD realized P/L per coin: sum of gain_eur on matches closed this year.
+  const yearStart = `${new Date().getUTCFullYear()}-01-01`;
+  const realizedRows = await db
+    .select({
+      symbol: realizedMatches.symbol,
+      total: sql<string>`coalesce(sum(${realizedMatches.gainEur}), 0)`,
+    })
+    .from(realizedMatches)
+    .innerJoin(brokerAccounts, eq(realizedMatches.brokerAccountId, brokerAccounts.id))
+    .where(
+      and(
+        eq(realizedMatches.ownerUserId, ownerUserId),
+        eq(brokerAccounts.broker, "COINBASE"),
+        gte(realizedMatches.closedAt, yearStart),
+      ),
+    )
+    .groupBy(realizedMatches.symbol);
+  const realizedBySymbol = new Map(realizedRows.map((r) => [r.symbol, Number(r.total)]));
 
   type Agg = {
     symbol: string;
@@ -87,6 +123,7 @@ export async function getCryptoPositions(ownerUserId: string): Promise<CryptoPos
         currentValueEur: p.currentValueEur,
         unrealizedPnlEur,
         unrealizedPnlPct,
+        realizedPnlYtdEur: realizedBySymbol.get(p.symbol) ?? 0,
         walletCount: p.walletNames.length,
         walletNames: p.walletNames,
       };
@@ -101,6 +138,7 @@ export type CryptoPortfolioRollup = {
   totalCostEur: number;
   unrealizedPnlEur: number;
   unrealizedPnlPct: number | null;
+  realizedPnlYtdEur: number;
 };
 
 export function rollUpCryptoPositions(positions: CryptoPosition[]): CryptoPortfolioRollup {
@@ -108,5 +146,6 @@ export function rollUpCryptoPositions(positions: CryptoPosition[]): CryptoPortfo
   const totalCostEur = positions.reduce((s, p) => s + p.costBasisEur, 0);
   const unrealizedPnlEur = totalValueEur - totalCostEur;
   const unrealizedPnlPct = totalCostEur > 0.01 ? (unrealizedPnlEur / totalCostEur) * 100 : null;
-  return { totalValueEur, totalCostEur, unrealizedPnlEur, unrealizedPnlPct };
+  const realizedPnlYtdEur = positions.reduce((s, p) => s + p.realizedPnlYtdEur, 0);
+  return { totalValueEur, totalCostEur, unrealizedPnlEur, unrealizedPnlPct, realizedPnlYtdEur };
 }

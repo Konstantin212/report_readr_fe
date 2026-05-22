@@ -2,7 +2,15 @@ import { and, eq, sql } from "drizzle-orm";
 import Decimal from "decimal.js";
 
 import { getDb } from "@/lib/db/client";
-import { brokerAccounts, cryptoAccounts, cryptoWallets, fxRates, transactions } from "@/lib/db/schema";
+import {
+  brokerAccounts,
+  cryptoAccounts,
+  cryptoWallets,
+  fxRates,
+  lots as lotsTable,
+  realizedMatches,
+  transactions,
+} from "@/lib/db/schema";
 import {
   fetchAccounts,
   fetchSpotPriceEur,
@@ -11,6 +19,8 @@ import {
 } from "@/lib/crypto/coinbase";
 import { mapCoinbaseTransaction } from "@/lib/crypto/mapper";
 import { convertEventToEur } from "@/lib/ledger/fx";
+import { replayCrypto } from "@/lib/ledger/crypto-replay";
+import type { NormalizedEvent } from "@/lib/domain/types";
 
 export type SyncResult = {
   inserted: number;
@@ -198,6 +208,12 @@ export async function syncCoinbaseAccount(opts: {
     }
   }
 
+  // After all new transactions land, rebuild lots + realized matches
+  // for this brokerAccount. Idempotent: we drop the previous state
+  // and recompute from scratch. The volume is small (hundreds of events
+  // even for an active staker), so the simplicity beats incremental.
+  await rebuildCryptoLots(opts.ownerUserId, brokerAccountId);
+
   await db
     .update(cryptoAccounts)
     .set({
@@ -212,6 +228,71 @@ export async function syncCoinbaseAccount(opts: {
     );
 
   return { inserted, skipped, walletsScanned: wallets.length, newestTransactionId };
+}
+
+export async function rebuildCryptoLots(ownerUserId: string, brokerAccountId: string): Promise<void> {
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(transactions)
+    .where(and(eq(transactions.ownerUserId, ownerUserId), eq(transactions.brokerAccountId, brokerAccountId)));
+
+  const events: NormalizedEvent[] = rows
+    .filter((r) => r.eventType === "CRYPTO_BUY" || r.eventType === "CRYPTO_SELL" || r.eventType === "CRYPTO_STAKE_REWARD")
+    .map((r) => ({
+      id: r.eventFingerprint,
+      broker: "COINBASE",
+      accountNumber: r.accountNumber,
+      type: r.eventType as NormalizedEvent["type"],
+      date: r.eventDate,
+      currency: r.currency,
+      symbol: r.symbol ?? undefined,
+      quantity: r.quantity ?? undefined,
+      amount: r.amount ?? undefined,
+      amountEur: r.amountEur ?? undefined,
+    }));
+
+  const { lots, matches } = replayCrypto(events);
+
+  // Wipe prior state for this brokerAccount only — leaves stock data
+  // untouched if any.
+  await db.delete(lotsTable).where(and(eq(lotsTable.ownerUserId, ownerUserId), eq(lotsTable.brokerAccountId, brokerAccountId)));
+  await db
+    .delete(realizedMatches)
+    .where(and(eq(realizedMatches.ownerUserId, ownerUserId), eq(realizedMatches.brokerAccountId, brokerAccountId)));
+
+  if (lots.length > 0) {
+    await db.insert(lotsTable).values(
+      lots.map((l) => ({
+        ownerUserId,
+        brokerAccountId,
+        symbol: l.symbol,
+        openedAt: l.openedAt,
+        remainingQty: l.remainingQty,
+        costEur: l.costEur,
+        sourceEventFingerprint: l.sourceEventId,
+      })),
+    );
+  }
+  if (matches.length > 0) {
+    await db.insert(realizedMatches).values(
+      matches.map((m) => ({
+        ownerUserId,
+        brokerAccountId,
+        symbol: m.symbol,
+        openingFingerprint: m.openingEventId,
+        closingFingerprint: m.closingEventId,
+        qty: m.qty,
+        costEur: m.costEur,
+        proceedsEur: m.proceedsEur,
+        gainEur: m.gainEur,
+        holdingDays: m.holdingDays,
+        isLongTerm: m.isLongTerm,
+        closedAt: m.closedAt,
+      })),
+    );
+  }
 }
 
 /**

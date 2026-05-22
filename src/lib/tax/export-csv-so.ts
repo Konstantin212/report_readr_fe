@@ -36,6 +36,34 @@ export function renderAnlageSoCsv(draft: AnlageSoDraft): string {
       ].join(","),
     );
   }
+
+  // §23 EStG private sale matches appended below the staking events.
+  // Two columns (section + holding flag) make it easy to split in
+  // Excel/Google Sheets if a Steuerberater wants them separately.
+  if (draft.section23Matches.length > 0) {
+    lines.push("");
+    lines.push("# §23 EStG private sale matches");
+    lines.push(
+      ["section", "opened", "closed", "coin", "quantity", "cost_eur", "proceeds_eur", "gain_eur", "holding_days", "is_long_term"].join(","),
+    );
+    for (const m of draft.section23Matches) {
+      lines.push(
+        [
+          "§23",
+          m.openedAt,
+          m.closedAt,
+          csvField(m.symbol),
+          m.qty.toFixed(8),
+          m.costEur.toFixed(4),
+          m.proceedsEur.toFixed(4),
+          m.gainEur.toFixed(4),
+          String(m.holdingDays),
+          m.isLongTerm ? "true" : "false",
+        ].join(","),
+      );
+    }
+  }
+
   return lines.join("\r\n") + "\r\n";
 }
 

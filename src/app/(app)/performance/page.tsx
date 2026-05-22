@@ -101,17 +101,23 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
       </div>
 
       {cryptoSummary.hasAccounts && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <MetricTile
             label="Crypto value"
             value={`€${cryptoRollup.totalValueEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             sublabel="last sync · spot"
           />
           <MetricTile
-            label="Crypto P/L"
+            label="Unrealized P/L"
             value={`${cryptoRollup.unrealizedPnlEur >= 0 ? "+" : "−"}€${Math.abs(cryptoRollup.unrealizedPnlEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             sublabel={cryptoRollup.unrealizedPnlPct === null ? "no cost basis" : `${cryptoRollup.unrealizedPnlPct >= 0 ? "+" : ""}${cryptoRollup.unrealizedPnlPct.toFixed(2)}%`}
             accent={cryptoRollup.unrealizedPnlEur >= 0 ? "mint" : "bad"}
+          />
+          <MetricTile
+            label="Realized YTD"
+            value={`${cryptoRollup.realizedPnlYtdEur >= 0 ? "+" : "−"}€${Math.abs(cryptoRollup.realizedPnlYtdEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sublabel="§23 matches"
+            accent={cryptoRollup.realizedPnlYtdEur >= 0 ? "mint" : "bad"}
           />
           <MetricTile
             label={`Staking ${cryptoSummary.stakingYtd.year}`}

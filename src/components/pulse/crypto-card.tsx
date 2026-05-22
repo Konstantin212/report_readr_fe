@@ -52,10 +52,19 @@ export function CryptoCard({ summary }: { summary: CryptoSummary }) {
         <div className="font-mono text-[10px] text-dim tracking-wider">{summary.walletCount} wallets</div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <div className="font-mono text-[10px] text-muted uppercase tracking-widest">Portfolio value</div>
           <div className="font-bold text-[28px] num tracking-tight mt-1">{fmtEur(summary.totalValueEur)}</div>
+        </div>
+        <div>
+          <div className="font-mono text-[10px] text-muted uppercase tracking-widest">Realized {summary.realizedYtd.year}</div>
+          <div className={`font-bold text-[28px] num tracking-tight mt-1 ${summary.realizedYtd.shortTermGainEur >= 0 ? "text-mint" : "text-bad"}`}>
+            {summary.realizedYtd.shortTermGainEur >= 0 ? "+" : "−"}{fmtEur(Math.abs(summary.realizedYtd.shortTermGainEur))}
+          </div>
+          <div className="font-mono text-[10px] text-muted mt-1">
+            §23 short-term · {summary.realizedYtd.matchCount} match{summary.realizedYtd.matchCount === 1 ? "" : "es"}
+          </div>
         </div>
         <div>
           <div className="flex justify-between items-baseline">

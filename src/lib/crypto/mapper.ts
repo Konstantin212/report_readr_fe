@@ -13,7 +13,7 @@ export function mapCoinbaseTransaction(
   account: CoinbaseAccount,
   brokerAccountNumber: string,
 ): NormalizedEvent | null {
-  const eventType = classify(tx.type);
+  const eventType = classify(tx.type, tx.amount.amount);
   if (!eventType) return null;
   if (tx.status && tx.status !== "completed") return null;
 
@@ -47,24 +47,34 @@ export function mapCoinbaseTransaction(
   };
 }
 
-function classify(coinbaseType: string): NormalizedEvent["type"] | null {
+/**
+ * Classify a Coinbase v2 transaction by economic effect. Buy/sell split
+ * matters for §23 EStG private sale gains — the German 1-year holding
+ * period turns on knowing when each lot was opened. Generic "trade"
+ * events (USDC↔BTC swaps etc.) get classified based on amount sign in
+ * the caller, since the v2 API doesn't always set buy/sell explicitly.
+ */
+function classify(coinbaseType: string, amount: string): NormalizedEvent["type"] | null {
   switch (coinbaseType) {
     case "buy":
+      return "CRYPTO_BUY";
     case "sell":
+      return "CRYPTO_SELL";
     case "trade":
     case "advanced_trade_fill":
-      return "TRADE";
+      // For a generic trade event, the wallet's signed amount tells us
+      // which side this is: positive = receiving (buy), negative = sending
+      // (sell). A USDC→BTC swap emits both: one event in each wallet.
+      return amount.trim().startsWith("-") ? "CRYPTO_SELL" : "CRYPTO_BUY";
     case "staking_reward":
     case "interest":
     case "inflation_reward":
-      // All of these are "income at time of receipt" for German tax —
-      // §22 Nr. 3 EStG, reported on Anlage SO.
+      // §22 Nr. 3 EStG income at time of receipt, reported on Anlage SO.
       return "CRYPTO_STAKE_REWARD";
     default:
       // send / receive / transfer / fiat_deposit / fiat_withdrawal /
-      // exchange_deposit / exchange_withdrawal / etc. — we deliberately
-      // skip these. They don't affect cost basis for a buy-and-hold
-      // wallet, and v2 doesn't always price them.
+      // exchange_deposit / exchange_withdrawal — skipped (no cost-basis
+      // impact for a buy-and-hold wallet, and v2 doesn't always price).
       return null;
   }
 }

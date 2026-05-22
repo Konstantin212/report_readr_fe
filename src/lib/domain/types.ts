@@ -10,7 +10,9 @@ export type EventType =
   | "CASH_TRANSFER"
   | "CORPORATE_ACTION"
   | "POSITION_SNAPSHOT"
-  | "CRYPTO_STAKE_REWARD";
+  | "CRYPTO_STAKE_REWARD"
+  | "CRYPTO_BUY"
+  | "CRYPTO_SELL";
 
 export type NormalizedEvent = {
   id: string;

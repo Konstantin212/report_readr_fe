@@ -1,7 +1,7 @@
 import { and, eq, gte, lt } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
-import { transactions } from "@/lib/db/schema";
+import { brokerAccounts, realizedMatches, transactions } from "@/lib/db/schema";
 
 /**
  * Anlage SO §22 Nr. 3 EStG ("sonstige Leistungen") draft builder.
@@ -29,18 +29,34 @@ export type AnlageSoEvent = {
   fxSource: string | null;
 };
 
+export type Section23Match = {
+  symbol: string;
+  openedAt: string;
+  closedAt: string;
+  qty: number;
+  costEur: number;
+  proceedsEur: number;
+  gainEur: number;
+  holdingDays: number;
+  isLongTerm: boolean;
+};
+
 export type AnlageSoDraft = {
   taxYear: number;
   taxpayerName: string | null;
   total: {
     stakingIncomeEur: number;
     eventCount: number;
+    section23ShortTermGainEur: number;
+    section23LongTermTaxFreeEur: number;
+    section23MatchCount: number;
     freigrenzeEur: number;
     freigrenzeReached: boolean;
     taxableEur: number;
   };
   perCoin: { symbol: string; eventCount: number; quantity: number; totalEur: number }[];
   events: AnlageSoEvent[];
+  section23Matches: Section23Match[];
   generatedAt: string;
 };
 
@@ -83,7 +99,62 @@ export async function buildAnlageSo(ownerUserId: string, taxYear: number, taxpay
   }));
 
   const stakingIncomeEur = events.reduce((s, e) => s + e.eurValue, 0);
-  const freigrenzeReached = stakingIncomeEur >= FREIGRENZE_EUR;
+
+  // §23 EStG short-term private sale gains (held ≤ 365 days). Joins
+  // realized_matches → broker_accounts on broker_account_id to scope
+  // to COINBASE only.
+  const section23Rows = await getDb()
+    .select({
+      symbol: realizedMatches.symbol,
+      qty: realizedMatches.qty,
+      costEur: realizedMatches.costEur,
+      proceedsEur: realizedMatches.proceedsEur,
+      gainEur: realizedMatches.gainEur,
+      holdingDays: realizedMatches.holdingDays,
+      isLongTerm: realizedMatches.isLongTerm,
+      closedAt: realizedMatches.closedAt,
+      brokerName: brokerAccounts.broker,
+    })
+    .from(realizedMatches)
+    .innerJoin(brokerAccounts, eq(realizedMatches.brokerAccountId, brokerAccounts.id))
+    .where(
+      and(
+        eq(realizedMatches.ownerUserId, ownerUserId),
+        eq(brokerAccounts.broker, "COINBASE"),
+        gte(realizedMatches.closedAt, yearStart),
+        lt(realizedMatches.closedAt, yearEnd),
+      ),
+    );
+
+  // openedAt is derivable as closedAt - holdingDays but we don't have it
+  // on the row directly; reconstruct for the report.
+  const section23Matches: Section23Match[] = section23Rows.map((r) => {
+    const closed = new Date(`${r.closedAt}T00:00:00Z`);
+    closed.setUTCDate(closed.getUTCDate() - r.holdingDays);
+    return {
+      symbol: r.symbol,
+      openedAt: closed.toISOString().slice(0, 10),
+      closedAt: r.closedAt,
+      qty: Number(r.qty),
+      costEur: Number(r.costEur),
+      proceedsEur: Number(r.proceedsEur),
+      gainEur: Number(r.gainEur),
+      holdingDays: r.holdingDays,
+      isLongTerm: r.isLongTerm,
+    };
+  });
+
+  const section23ShortTermGainEur = section23Matches
+    .filter((m) => !m.isLongTerm)
+    .reduce((s, m) => s + m.gainEur, 0);
+  const section23LongTermTaxFreeEur = section23Matches
+    .filter((m) => m.isLongTerm)
+    .reduce((s, m) => s + m.gainEur, 0);
+
+  // Combined §22 (staking income) + §23 (short-term sale gains) is
+  // what the €256 Freigrenze applies to in aggregate.
+  const combinedBaseEur = stakingIncomeEur + section23ShortTermGainEur;
+  const freigrenzeReached = combinedBaseEur >= FREIGRENZE_EUR;
 
   const perCoinMap = new Map<string, { eventCount: number; quantity: number; totalEur: number }>();
   for (const e of events) {
@@ -103,12 +174,16 @@ export async function buildAnlageSo(ownerUserId: string, taxYear: number, taxpay
     total: {
       stakingIncomeEur,
       eventCount: events.length,
+      section23ShortTermGainEur,
+      section23LongTermTaxFreeEur,
+      section23MatchCount: section23Matches.length,
       freigrenzeEur: FREIGRENZE_EUR,
       freigrenzeReached,
-      taxableEur: freigrenzeReached ? stakingIncomeEur : 0,
+      taxableEur: freigrenzeReached ? combinedBaseEur : 0,
     },
     perCoin,
     events,
+    section23Matches,
     generatedAt: new Date().toISOString(),
   };
 }

@@ -25,6 +25,8 @@ export const eventTypeEnum = pgEnum("event_type", [
   "CORPORATE_ACTION",
   "POSITION_SNAPSHOT",
   "CRYPTO_STAKE_REWARD",
+  "CRYPTO_BUY",
+  "CRYPTO_SELL",
 ]);
 
 /**
