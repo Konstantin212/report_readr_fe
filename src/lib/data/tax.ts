@@ -136,9 +136,22 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
   ]);
-  const brokerById = new Map(accountRows.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]));
+  // Anlage KAP is §20 EStG (capital income from securities). Crypto sale
+  // gains are §23 EStG (private sales) and belong on Anlage SO; staking
+  // is §22 Nr. 3. Exclude COINBASE broker_account rows so crypto matches
+  // don't double-count into Anlage KAP's netRealized / dividends figures.
+  const stockAccountIds = new Set(
+    accountRows.filter(a => a.broker !== "COINBASE").map(a => a.id),
+  );
+  const brokerById = new Map(
+    accountRows
+      .filter(a => a.broker !== "COINBASE")
+      .map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]),
+  );
 
-  const yrMatches = allMatches.filter(m => m.closedAt.startsWith(yrStr));
+  const yrMatches = allMatches.filter(
+    m => m.closedAt.startsWith(yrStr) && stockAccountIds.has(m.brokerAccountId),
+  );
   const netRealized = yrMatches.reduce((s, m) => s + Number(m.gainEur), 0);
 
   const yrDivs = allTx.filter(t => t.eventType === "DIVIDEND" && t.eventDate.startsWith(yrStr));

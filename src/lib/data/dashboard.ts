@@ -73,15 +73,18 @@ export async function getDashboardData(ownerUserId: string, broker: "all" | "ff"
     db.select().from(quoteHistory),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
   ]);
+  // Stocks dashboard excludes COINBASE — crypto has its own dedicated
+  // CryptoCard. Without this filter, crypto lots leak into the position
+  // count and get rendered with an "IBKR" badge fallback in the Top
+  // Positions list.
+  const stockAccountRows = accountRows.filter(a => a.broker !== "COINBASE");
   const accountIds = accountFilter
-    ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
-    : accountRows.map(a => a.id);
+    ? stockAccountRows.filter(a => a.broker === accountFilter).map(a => a.id)
+    : stockAccountRows.map(a => a.id);
   const accountIdsSet = new Set(accountIds);
   const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
   const instrumentBySymbol = new Map(instrumentRows.filter(i => i.symbol).map(i => [i.symbol!, i]));
-  const filteredLots = accountFilter
-    ? allLots.filter(l => accountIdsSet.has(l.brokerAccountId))
-    : allLots;
+  const filteredLots = allLots.filter(l => accountIdsSet.has(l.brokerAccountId));
   const costEurByAccountSymbol = new Map<string, Decimal>();
   for (const l of filteredLots) {
     const k = `${l.brokerAccountId}|${l.isin ?? l.symbol}`;
