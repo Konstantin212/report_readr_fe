@@ -1,11 +1,13 @@
 import { requireCurrentUser } from "@/lib/auth/server";
 import { getDashboardData } from "@/lib/data/dashboard";
+import { getCryptoSummary } from "@/lib/data/crypto-summary";
 import { Card } from "@/components/pulse/card";
 import { AllocationDonut } from "@/components/pulse/allocation-donut";
 import { CurrencyBars } from "@/components/pulse/currency-bars";
 import { DividendMiniBars } from "@/components/pulse/dividend-mini-bars";
 import { PositionsPreview } from "@/components/pulse/positions-preview";
 import { PerfChart } from "@/components/pulse/perf-chart";
+import { CryptoCard } from "@/components/pulse/crypto-card";
 
 type SP = Promise<{ broker?: string }>;
 
@@ -13,7 +15,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   const user = await requireCurrentUser();
   const params = await searchParams;
   const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
-  const d = await getDashboardData(user.id, broker);
+  const [d, crypto] = await Promise.all([getDashboardData(user.id, broker), getCryptoSummary(user.id)]);
 
   const fmtEur = (v: number, opts: { sign?: boolean; dec?: number } = {}) => {
     const { sign = false, dec = 2 } = opts;
@@ -132,6 +134,12 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           <PositionsPreview rows={d.topPositions} />
         </Card>
       </div>
+
+      {crypto.hasAccounts && (
+        <div className="grid grid-cols-1 gap-4">
+          <CryptoCard summary={crypto} />
+        </div>
+      )}
     </main>
   );
 }

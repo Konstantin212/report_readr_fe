@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db/client";
-import { brokerAccounts, cryptoAccounts, transactions } from "@/lib/db/schema";
+import { brokerAccounts, cryptoAccounts, cryptoWallets, transactions } from "@/lib/db/schema";
 import {
   fetchAccounts,
   fetchTransactionsForAccount,
@@ -71,6 +71,40 @@ export async function syncCoinbaseAccount(opts: {
   if (!brokerAccountId) throw new Error("Failed to ensure broker_account stub for Coinbase");
 
   const wallets = await fetchAccounts(opts.credentials);
+
+  // Snapshot balances per wallet for the Dashboard. native_balance may be
+  // missing on rare account types — skip those rather than fail the sync.
+  for (const wallet of wallets) {
+    const balanceQty = wallet.balance?.amount ?? "0";
+    const nativeAmount = wallet.native_balance?.amount ?? "0";
+    const nativeCurrency = wallet.native_balance?.currency ?? "EUR";
+    await db
+      .insert(cryptoWallets)
+      .values({
+        ownerUserId: opts.ownerUserId,
+        cryptoAccountId: opts.cryptoAccountId,
+        walletId: wallet.id,
+        symbol: wallet.currency?.code ?? "?",
+        name: wallet.name,
+        quantity: balanceQty,
+        nativeAmount,
+        nativeCurrency,
+        primary: wallet.primary ?? false,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [cryptoWallets.cryptoAccountId, cryptoWallets.walletId],
+        set: {
+          symbol: wallet.currency?.code ?? "?",
+          name: wallet.name,
+          quantity: balanceQty,
+          nativeAmount,
+          nativeCurrency,
+          primary: wallet.primary ?? false,
+          updatedAt: new Date(),
+        },
+      });
+  }
 
   let inserted = 0;
   let skipped = 0;
