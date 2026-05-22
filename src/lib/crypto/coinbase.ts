@@ -233,6 +233,24 @@ export async function fetchTransactionsForAccount(
   return out;
 }
 
+/**
+ * Public Coinbase spot price endpoint — no auth required. Used to compute
+ * wallet EUR values because CDP-key access to /v2/accounts returns
+ * native_balance = 0 instead of the actual conversion. Returns the EUR
+ * price per 1 unit of `symbol`, or null on 404 (rare coin not quoted).
+ */
+export async function fetchSpotPriceEur(symbol: string): Promise<string | null> {
+  const res = await fetch(`${COINBASE_API_BASE}/v2/prices/${symbol}-EUR/spot`, {
+    headers: { "CB-VERSION": COINBASE_API_VERSION },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`coinbase spot ${symbol}-EUR → ${res.status}`);
+  }
+  const body = (await res.json()) as { data: { amount: string; currency: string } };
+  return body.data?.amount ?? null;
+}
+
 export async function fetchAccounts(credentials: CoinbaseCredentials): Promise<CoinbaseAccount[]> {
   const out: CoinbaseAccount[] = [];
   let startingAfter: string | undefined;
