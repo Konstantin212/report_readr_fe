@@ -1,31 +1,21 @@
+import { createHmac } from "node:crypto";
+
 /**
- * Coinbase v2 OAuth2 client. Handles authorization URL building, code
- * exchange, refresh-token rotation, and revoke. Pure functions over fetch
- * so they're trivial to mock in tests — the persistence layer wraps these
- * with encryption + DB writes.
+ * Coinbase v2 REST client. Authenticates with the legacy API-key + secret
+ * pair (HMAC-SHA256 signature per request). Self-service OAuth is gated
+ * to approved partners, so this is the realistic path for personal apps.
  *
- * Scopes intentionally read-only: wallet:user:read, wallet:accounts:read,
- * wallet:transactions:read. Trade/send scopes are never requested.
+ * Signature inputs: timestamp(seconds) + method(uppercase) + requestPath
+ * + body(raw). The path includes the query string when present.
+ *
+ * The secret is held in memory only for the duration of a single signed
+ * request — the persistence layer decrypts it on demand and never logs.
  */
 
-export const COINBASE_AUTHORIZE_URL = "https://www.coinbase.com/oauth/authorize";
-export const COINBASE_TOKEN_URL = "https://api.coinbase.com/oauth/token";
-export const COINBASE_REVOKE_URL = "https://api.coinbase.com/oauth/revoke";
-export const COINBASE_API_BASE = "https://api.coinbase.com/v2";
+export const COINBASE_API_BASE = "https://api.coinbase.com";
+export const COINBASE_API_VERSION = "2024-01-01";
 
-export const COINBASE_SCOPES = [
-  "wallet:user:read",
-  "wallet:accounts:read",
-  "wallet:transactions:read",
-] as const;
-
-export type CoinbaseTokenResponse = {
-  access_token: string;
-  refresh_token: string;
-  expires_in: number;
-  scope: string;
-  token_type: string;
-};
+export type CoinbaseCredentials = { apiKey: string; apiSecret: string };
 
 export type CoinbaseUser = {
   id: string;
@@ -33,102 +23,116 @@ export type CoinbaseUser = {
   name?: string;
 };
 
-export type CoinbaseConfig = {
-  clientId: string;
-  clientSecret: string;
-  redirectUri: string;
+export type CoinbaseAccount = {
+  id: string;
+  name: string;
+  primary: boolean;
+  type: string;
+  currency: { code: string; name: string };
+  balance: { amount: string; currency: string };
+  native_balance?: { amount: string; currency: string };
+  created_at: string;
+  updated_at: string;
 };
 
-function readConfig(): CoinbaseConfig {
-  const clientId = process.env.COINBASE_CLIENT_ID;
-  const clientSecret = process.env.COINBASE_CLIENT_SECRET;
-  const redirectUri = process.env.COINBASE_REDIRECT_URI;
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error("COINBASE_CLIENT_ID / COINBASE_CLIENT_SECRET / COINBASE_REDIRECT_URI are required");
+export type CoinbasePagination = {
+  ending_before?: string | null;
+  starting_after?: string | null;
+  next_uri?: string | null;
+  next_starting_after?: string | null;
+};
+
+export type CoinbasePaged<T> = { pagination: CoinbasePagination; data: T[] };
+
+/**
+ * Sign a v2 API request. Exposed for tests; production callers go
+ * through `coinbaseFetch` which assembles headers + parses JSON.
+ */
+export function signRequest(
+  credentials: CoinbaseCredentials,
+  method: string,
+  requestPath: string,
+  body: string,
+  timestampSeconds: number,
+): { signature: string; timestamp: string } {
+  const ts = String(timestampSeconds);
+  const prehash = ts + method.toUpperCase() + requestPath + body;
+  const signature = createHmac("sha256", credentials.apiSecret).update(prehash).digest("hex");
+  return { signature, timestamp: ts };
+}
+
+export class CoinbaseAuthError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "CoinbaseAuthError";
   }
-  return { clientId, clientSecret, redirectUri };
 }
 
-export function buildAuthorizationUrl(state: string, config: CoinbaseConfig = readConfig()): string {
-  const params = new URLSearchParams({
-    response_type: "code",
-    client_id: config.clientId,
-    redirect_uri: config.redirectUri,
-    state,
-    scope: COINBASE_SCOPES.join(","),
-    account: "all",
-  });
-  return `${COINBASE_AUTHORIZE_URL}?${params.toString()}`;
-}
+export async function coinbaseFetch<T>(
+  credentials: CoinbaseCredentials,
+  method: "GET" | "POST",
+  path: string,
+  init: { body?: unknown; query?: Record<string, string> } = {},
+): Promise<T> {
+  const query = init.query ? `?${new URLSearchParams(init.query).toString()}` : "";
+  const requestPath = `${path}${query}`;
+  const body = init.body ? JSON.stringify(init.body) : "";
+  const { signature, timestamp } = signRequest(credentials, method, requestPath, body, Math.floor(Date.now() / 1000));
 
-async function postForm(url: string, body: Record<string, string>): Promise<unknown> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body).toString(),
+  const res = await fetch(`${COINBASE_API_BASE}${requestPath}`, {
+    method,
+    headers: {
+      "CB-ACCESS-KEY": credentials.apiKey,
+      "CB-ACCESS-SIGN": signature,
+      "CB-ACCESS-TIMESTAMP": timestamp,
+      "CB-VERSION": COINBASE_API_VERSION,
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body || undefined,
   });
+
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`coinbase ${url} → ${res.status}: ${redactTokens(text)}`);
+    if (res.status === 401 || res.status === 403) {
+      throw new CoinbaseAuthError(res.status, "Coinbase rejected the API key (invalid or revoked)");
+    }
+    throw new Error(`coinbase ${method} ${path} → ${res.status}: ${redactSensitive(text)}`);
   }
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as T;
   } catch {
-    throw new Error(`coinbase ${url} returned non-JSON body`);
+    throw new Error(`coinbase ${method} ${path} returned non-JSON body`);
   }
 }
 
-export async function exchangeCodeForTokens(
-  code: string,
-  config: CoinbaseConfig = readConfig(),
-): Promise<CoinbaseTokenResponse> {
-  return (await postForm(COINBASE_TOKEN_URL, {
-    grant_type: "authorization_code",
-    code,
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    redirect_uri: config.redirectUri,
-  })) as CoinbaseTokenResponse;
-}
-
-export async function refreshAccessToken(
-  refreshToken: string,
-  config: CoinbaseConfig = readConfig(),
-): Promise<CoinbaseTokenResponse> {
-  return (await postForm(COINBASE_TOKEN_URL, {
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-  })) as CoinbaseTokenResponse;
-}
-
-export async function revokeRefreshToken(refreshToken: string): Promise<void> {
-  await postForm(COINBASE_REVOKE_URL, { token: refreshToken });
-}
-
-export async function fetchCurrentUser(accessToken: string): Promise<CoinbaseUser> {
-  const res = await fetch(`${COINBASE_API_BASE}/user`, {
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "CB-VERSION": "2024-01-01",
-    },
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`coinbase /user → ${res.status}: ${redactTokens(t)}`);
-  }
-  const body = (await res.json()) as { data: CoinbaseUser };
+export async function fetchCurrentUser(credentials: CoinbaseCredentials): Promise<CoinbaseUser> {
+  const body = await coinbaseFetch<{ data: CoinbaseUser }>(credentials, "GET", "/v2/user");
   return body.data;
 }
 
+export async function fetchAccounts(credentials: CoinbaseCredentials): Promise<CoinbaseAccount[]> {
+  const out: CoinbaseAccount[] = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const body = await coinbaseFetch<CoinbasePaged<CoinbaseAccount>>(credentials, "GET", "/v2/accounts", {
+      query: { limit: "100", ...(startingAfter ? { starting_after: startingAfter } : {}) },
+    });
+    out.push(...body.data);
+    const next = body.pagination.next_starting_after;
+    if (!next) break;
+    startingAfter = next;
+  }
+  return out;
+}
+
 /**
- * Strip access_token / refresh_token values out of an error body before
- * we surface it in logs. Coinbase error payloads occasionally echo tokens
- * back; we never want them in the runtime logs.
+ * Redact API keys, signatures, and secret-like strings from any payload
+ * we might surface in logs or error messages. We do not log API
+ * responses today, but this guards future callers.
  */
-function redactTokens(s: string): string {
+function redactSensitive(s: string): string {
   return s
-    .replace(/"access_token":\s*"[^"]*"/g, '"access_token":"[redacted]"')
-    .replace(/"refresh_token":\s*"[^"]*"/g, '"refresh_token":"[redacted]"');
+    .replace(/"api[_-]?key":\s*"[^"]*"/gi, '"api_key":"[redacted]"')
+    .replace(/"api[_-]?secret":\s*"[^"]*"/gi, '"api_secret":"[redacted]"')
+    .replace(/"signature":\s*"[^"]*"/gi, '"signature":"[redacted]"');
 }
