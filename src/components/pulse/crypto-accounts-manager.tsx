@@ -72,6 +72,25 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
     }
   }
 
+  async function sync(id: string) {
+    setPending(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/crypto/coinbase/${id}/sync`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setSuccess(
+        `Synced · ${body.inserted} new event(s) across ${body.walletsScanned} wallet(s) (${body.skipped} skipped)`,
+      );
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <div>
       <form onSubmit={connect} className="mb-4 space-y-2">
@@ -141,13 +160,22 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
                     : " · not yet synced"}
                 </div>
               </div>
-              <button
-                onClick={() => disconnect(r.id)}
-                disabled={pending}
-                className="border border-bad/40 text-bad font-mono text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md hover:bg-bad/10 disabled:opacity-50"
-              >
-                Disconnect
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => sync(r.id)}
+                  disabled={pending || r.status !== "active"}
+                  className="border border-mint/40 text-mint font-mono text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md hover:bg-mint/10 disabled:opacity-50"
+                >
+                  Sync now
+                </button>
+                <button
+                  onClick={() => disconnect(r.id)}
+                  disabled={pending}
+                  className="border border-bad/40 text-bad font-mono text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md hover:bg-bad/10 disabled:opacity-50"
+                >
+                  Disconnect
+                </button>
+              </div>
             </div>
           ))}
           <div className="pt-3 text-[11px] text-muted">

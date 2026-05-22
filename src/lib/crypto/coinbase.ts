@@ -180,6 +180,51 @@ export async function fetchCurrentUser(credentials: CoinbaseCredentials): Promis
   return body.data;
 }
 
+export type CoinbaseTransaction = {
+  id: string;
+  type: string;
+  status: string;
+  amount: { amount: string; currency: string };
+  native_amount: { amount: string; currency: string };
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  details?: { title?: string; subtitle?: string; header?: string; payment_method_name?: string };
+};
+
+/**
+ * Fetch every transaction newer than `endingBefore` (id) for one wallet,
+ * walking pagination back to the cursor. On first sync (no cursor) we
+ * walk all the way back through the wallet's history.
+ *
+ * Coinbase returns transactions in descending date order; ending_before
+ * means "newer than this id", starting_after means "older than this id".
+ */
+export async function fetchTransactionsForAccount(
+  credentials: CoinbaseCredentials,
+  accountId: string,
+  endingBefore?: string,
+): Promise<CoinbaseTransaction[]> {
+  const out: CoinbaseTransaction[] = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 100; page++) {
+    const query: Record<string, string> = { limit: "100" };
+    if (endingBefore) query.ending_before = endingBefore;
+    if (startingAfter) query.starting_after = startingAfter;
+    const body = await coinbaseFetch<CoinbasePaged<CoinbaseTransaction>>(
+      credentials,
+      "GET",
+      `/v2/accounts/${accountId}/transactions`,
+      { query },
+    );
+    out.push(...body.data);
+    const next = body.pagination.next_starting_after;
+    if (!next) break;
+    startingAfter = next;
+  }
+  return out;
+}
+
 export async function fetchAccounts(credentials: CoinbaseCredentials): Promise<CoinbaseAccount[]> {
   const out: CoinbaseAccount[] = [];
   let startingAfter: string | undefined;

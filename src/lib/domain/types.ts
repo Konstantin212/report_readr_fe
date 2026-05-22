@@ -1,4 +1,4 @@
-export type Broker = "INTERACTIVE_BROKERS" | "FREEDOM_FINANCE";
+export type Broker = "INTERACTIVE_BROKERS" | "FREEDOM_FINANCE" | "COINBASE";
 
 export type EventType =
   | "TRADE"
@@ -9,7 +9,8 @@ export type EventType =
   | "FX_CONVERSION"
   | "CASH_TRANSFER"
   | "CORPORATE_ACTION"
-  | "POSITION_SNAPSHOT";
+  | "POSITION_SNAPSHOT"
+  | "CRYPTO_STAKE_REWARD";
 
 export type NormalizedEvent = {
   id: string;

@@ -11,6 +11,7 @@ import { saveImportSummary } from "@/lib/imports/local-import-store";
 const brokerLabels = {
   INTERACTIVE_BROKERS: "Interactive Brokers",
   FREEDOM_FINANCE: "Freedom Finance",
+  COINBASE: "Coinbase",
 } as const;
 
 export function ImportForm() {

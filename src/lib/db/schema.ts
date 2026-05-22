@@ -13,7 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const brokerEnum = pgEnum("broker", ["INTERACTIVE_BROKERS", "FREEDOM_FINANCE"]);
+export const brokerEnum = pgEnum("broker", ["INTERACTIVE_BROKERS", "FREEDOM_FINANCE", "COINBASE"]);
 export const eventTypeEnum = pgEnum("event_type", [
   "TRADE",
   "DIVIDEND",
@@ -24,6 +24,7 @@ export const eventTypeEnum = pgEnum("event_type", [
   "CASH_TRANSFER",
   "CORPORATE_ACTION",
   "POSITION_SNAPSHOT",
+  "CRYPTO_STAKE_REWARD",
 ]);
 
 /**
