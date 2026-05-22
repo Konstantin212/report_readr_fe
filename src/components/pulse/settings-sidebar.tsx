@@ -4,6 +4,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 export const SETTINGS_SECTIONS = [
   { key: "account",       label: "Account",        icon: "◔" },
   { key: "brokers",       label: "Brokers & data", icon: "◐" },
+  { key: "crypto",        label: "Crypto",         icon: "◈" },
   { key: "tax",           label: "Tax & currency", icon: "◑" },
   { key: "members",       label: "Members",        icon: "◕", adminOnly: true },
   { key: "notifications", label: "Notifications",  icon: "◓" },
