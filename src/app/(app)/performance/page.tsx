@@ -2,6 +2,7 @@ import { requireCurrentUser } from "@/lib/auth/server";
 import { getPerformanceData, type Range } from "@/lib/data/performance";
 import { getCryptoPositions, rollUpCryptoPositions } from "@/lib/data/crypto-positions";
 import { getCryptoSummary } from "@/lib/data/crypto-summary";
+import { getCryptoEquityCurve, type Range as CryptoRange } from "@/lib/data/crypto-equity-curve";
 import { Card } from "@/components/pulse/card";
 import { MetricTile } from "@/components/pulse/metric-tile";
 import { PerfChart } from "@/components/pulse/perf-chart";
@@ -19,10 +20,11 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
   const range = (RANGES.has(params.range ?? "") ? params.range : "2Y") as Range;
 
-  const [d, cryptoPositions, cryptoSummary] = await Promise.all([
+  const [d, cryptoPositions, cryptoSummary, cryptoCurve] = await Promise.all([
     getPerformanceData(user.id, broker, range),
     getCryptoPositions(user.id),
     getCryptoSummary(user.id),
+    getCryptoEquityCurve(user.id, range as CryptoRange),
   ]);
   const cryptoRollup = rollUpCryptoPositions(cryptoPositions);
 
@@ -131,6 +133,29 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             sublabel={`${cryptoPositions.length} coin${cryptoPositions.length === 1 ? "" : "s"} · DCA`}
           />
         </div>
+      )}
+
+      {cryptoSummary.hasAccounts && cryptoCurve.length > 1 && (
+        <Card>
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <div className="font-semibold text-[15px]">Crypto value</div>
+              <div className="font-mono text-[11px] text-muted mt-1">EUR · last sync at end</div>
+            </div>
+            <div className="text-right">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Current</div>
+              <div className="font-bold text-[24px] num">
+                €{cryptoCurve[cryptoCurve.length - 1].valueEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+          <div className="h-[200px]">
+            <PerfChart values={cryptoCurve.map((p) => p.valueEur)} style="area" />
+          </div>
+          <div className="mt-2 font-mono text-[10px] text-dim">
+            {cryptoCurve.length} day{cryptoCurve.length === 1 ? "" : "s"} · CoinGecko close in EUR · cost basis not shown
+          </div>
+        </Card>
       )}
 
       {/* Heatmap + sector contribution */}

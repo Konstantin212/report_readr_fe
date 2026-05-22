@@ -417,6 +417,29 @@ export const cryptoWallets = pgTable(
   }),
 );
 
+/**
+ * Daily portfolio value snapshots per (owner, date, symbol). Populated
+ * by the backfill script and updated incrementally on each sync. Lets
+ * the Performance page render a crypto equity curve with one cheap
+ * SELECT instead of replaying transactions on every page load.
+ */
+export const cryptoDailyValues = pgTable(
+  "crypto_daily_values",
+  {
+    ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    date: text("date").notNull(),
+    symbol: text("symbol").notNull(),
+    quantity: numeric("quantity").notNull(),
+    priceEur: numeric("price_eur").notNull(),
+    valueEur: numeric("value_eur").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.ownerUserId, table.date, table.symbol] }),
+    ownerDateIdx: index("crypto_daily_values_owner_date_idx").on(table.ownerUserId, table.date),
+  }),
+);
+
 export const quoteHistory = pgTable(
   "quote_history",
   {
