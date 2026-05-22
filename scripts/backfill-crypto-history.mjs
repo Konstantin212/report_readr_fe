@@ -49,11 +49,20 @@ const ownerScopes = await sql`
 
 const today = new Date().toISOString().slice(0, 10);
 
+// CoinGecko Demo tier limits historical data to the last 365 days. Clamp
+// the start of each fetch to that window so the call doesn't 401. Older
+// activity simply produces no equity-curve data points (acceptable —
+// the chart just starts at the cap).
+const earliestAllowed = new Date();
+earliestAllowed.setUTCDate(earliestAllowed.getUTCDate() - 360);
+const minDate = earliestAllowed.toISOString().slice(0, 10);
+
 for (const scope of ownerScopes) {
   const sym = scope.symbol;
-  console.log(`\n=== ${sym} for ${scope.owner_user_id.slice(0, 8)}… (${scope.first_date} → ${today}) ===`);
+  const start = scope.first_date < minDate ? minDate : scope.first_date;
+  console.log(`\n=== ${sym} for ${scope.owner_user_id.slice(0, 8)}… (${start} → ${today}) ===`);
 
-  const prices = await fetchDailyEur(sym, scope.first_date, today);
+  const prices = await fetchDailyEur(sym, start, today);
   if (prices.size === 0) {
     console.log(`  skipped (no prices)`);
     continue;
