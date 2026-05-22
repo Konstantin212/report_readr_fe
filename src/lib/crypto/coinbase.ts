@@ -1,21 +1,38 @@
-import { createHmac } from "node:crypto";
+import { createPrivateKey, randomBytes } from "node:crypto";
+import { SignJWT, importPKCS8 } from "jose";
+
+type CdpKey = Awaited<ReturnType<typeof importPKCS8>>;
 
 /**
- * Coinbase v2 REST client. Authenticates with the legacy API-key + secret
- * pair (HMAC-SHA256 signature per request). Self-service OAuth is gated
- * to approved partners, so this is the realistic path for personal apps.
+ * Coinbase Developer Platform (CDP) REST client.
  *
- * Signature inputs: timestamp(seconds) + method(uppercase) + requestPath
- * + body(raw). The path includes the query string when present.
+ * CDP API keys come as a {name, privateKey} pair from
+ * portal.cdp.coinbase.com. Authentication is JWT-based: each request is
+ * signed as an ES256 (ECDSA P-256) or EdDSA (Ed25519) JWT containing a
+ * uri claim that binds the token to a specific METHOD + host + path. The
+ * server rejects the JWT if the uri or expiry don't match.
  *
- * The secret is held in memory only for the duration of a single signed
- * request — the persistence layer decrypts it on demand and never logs.
+ * CDP keys are accepted on both the v3 brokerage endpoints and the
+ * legacy /v2 wallet endpoints — we use /v2 because that's where staking
+ * rewards surface as discrete `staking_reward` transactions, which is
+ * exactly what Anlage SO needs.
+ *
+ * Read-only scope is configured on the key itself in Coinbase's UI
+ * (View=on, Trade/Transfer/Receive=off). The client never sends
+ * mutating verbs; if the key were misconfigured the worst case is a
+ * Coinbase-side rejection, not silent state change.
  */
 
-export const COINBASE_API_BASE = "https://api.coinbase.com";
+export const COINBASE_API_HOST = "api.coinbase.com";
+export const COINBASE_API_BASE = `https://${COINBASE_API_HOST}`;
 export const COINBASE_API_VERSION = "2024-01-01";
 
-export type CoinbaseCredentials = { apiKey: string; apiSecret: string };
+export type CoinbaseCredentials = {
+  /** The "name" field from the CDP key JSON, e.g. "organizations/UUID/apiKeys/UUID". */
+  apiKey: string;
+  /** The "privateKey" field from the CDP key JSON. EC PEM (ECDSA) or raw Ed25519 PKCS8 PEM. */
+  apiSecret: string;
+};
 
 export type CoinbaseUser = {
   id: string;
@@ -45,20 +62,68 @@ export type CoinbasePagination = {
 export type CoinbasePaged<T> = { pagination: CoinbasePagination; data: T[] };
 
 /**
- * Sign a v2 API request. Exposed for tests; production callers go
- * through `coinbaseFetch` which assembles headers + parses JSON.
+ * Parse the {name, privateKey} JSON the user pastes from Coinbase. Accepts
+ * the raw JSON string or an already-parsed object; rejects anything that
+ * doesn't have both fields populated.
  */
-export function signRequest(
+export function parseCredentialsBlob(input: string): CoinbaseCredentials {
+  const trimmed = input.trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("Expected a JSON object with `name` and `privateKey` fields");
+  }
+  if (!parsed || typeof parsed !== "object") throw new Error("Credentials blob must be a JSON object");
+  const obj = parsed as { name?: unknown; privateKey?: unknown };
+  if (typeof obj.name !== "string" || !obj.name.startsWith("organizations/")) {
+    throw new Error("`name` must look like organizations/UUID/apiKeys/UUID");
+  }
+  if (typeof obj.privateKey !== "string" || !obj.privateKey.includes("PRIVATE KEY")) {
+    throw new Error("`privateKey` must be a PEM-encoded private key");
+  }
+  return { apiKey: obj.name, apiSecret: obj.privateKey };
+}
+
+type AlgVariant = { alg: "ES256" | "EdDSA"; key: CdpKey };
+
+async function importCdpKey(pem: string): Promise<AlgVariant> {
+  const normalized = pem.replace(/\\n/g, "\n");
+  // ECDSA keys ship as "EC PRIVATE KEY"; CDP also issues Ed25519 keys as
+  // raw PKCS8. importPKCS8 handles both as long as we feed the right alg.
+  if (normalized.includes("BEGIN EC PRIVATE KEY")) {
+    const pkcs8 = createPrivateKey(normalized).export({ format: "pem", type: "pkcs8" }).toString();
+    const key = await importPKCS8(pkcs8, "ES256");
+    return { alg: "ES256", key };
+  }
+  if (normalized.includes("BEGIN PRIVATE KEY")) {
+    try {
+      const key = await importPKCS8(normalized, "EdDSA");
+      return { alg: "EdDSA", key };
+    } catch {
+      const key = await importPKCS8(normalized, "ES256");
+      return { alg: "ES256", key };
+    }
+  }
+  throw new Error("Unrecognized private key format (expected EC or PKCS8 PEM)");
+}
+
+export async function signRequest(
   credentials: CoinbaseCredentials,
   method: string,
   requestPath: string,
-  body: string,
-  timestampSeconds: number,
-): { signature: string; timestamp: string } {
-  const ts = String(timestampSeconds);
-  const prehash = ts + method.toUpperCase() + requestPath + body;
-  const signature = createHmac("sha256", credentials.apiSecret).update(prehash).digest("hex");
-  return { signature, timestamp: ts };
+): Promise<string> {
+  const variant = await importCdpKey(credentials.apiSecret);
+  const nonce = randomBytes(16).toString("hex");
+  const uri = `${method.toUpperCase()} ${COINBASE_API_HOST}${requestPath}`;
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({ uri })
+    .setProtectedHeader({ alg: variant.alg, kid: credentials.apiKey, typ: "JWT", nonce })
+    .setIssuer("cdp")
+    .setSubject(credentials.apiKey)
+    .setNotBefore(now)
+    .setExpirationTime(now + 120)
+    .sign(variant.key);
 }
 
 export class CoinbaseAuthError extends Error {
@@ -76,25 +141,23 @@ export async function coinbaseFetch<T>(
 ): Promise<T> {
   const query = init.query ? `?${new URLSearchParams(init.query).toString()}` : "";
   const requestPath = `${path}${query}`;
-  const body = init.body ? JSON.stringify(init.body) : "";
-  const { signature, timestamp } = signRequest(credentials, method, requestPath, body, Math.floor(Date.now() / 1000));
+  const jwt = await signRequest(credentials, method, requestPath);
+  const body = init.body ? JSON.stringify(init.body) : undefined;
 
   const res = await fetch(`${COINBASE_API_BASE}${requestPath}`, {
     method,
     headers: {
-      "CB-ACCESS-KEY": credentials.apiKey,
-      "CB-ACCESS-SIGN": signature,
-      "CB-ACCESS-TIMESTAMP": timestamp,
+      authorization: `Bearer ${jwt}`,
       "CB-VERSION": COINBASE_API_VERSION,
       ...(body ? { "content-type": "application/json" } : {}),
     },
-    body: body || undefined,
+    body,
   });
 
   const text = await res.text();
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      throw new CoinbaseAuthError(res.status, "Coinbase rejected the API key (invalid or revoked)");
+      throw new CoinbaseAuthError(res.status, "Coinbase rejected the API key (invalid, revoked, or wrong scope)");
     }
     throw new Error(`coinbase ${method} ${path} → ${res.status}: ${redactSensitive(text)}`);
   }
@@ -125,14 +188,9 @@ export async function fetchAccounts(credentials: CoinbaseCredentials): Promise<C
   return out;
 }
 
-/**
- * Redact API keys, signatures, and secret-like strings from any payload
- * we might surface in logs or error messages. We do not log API
- * responses today, but this guards future callers.
- */
 function redactSensitive(s: string): string {
   return s
-    .replace(/"api[_-]?key":\s*"[^"]*"/gi, '"api_key":"[redacted]"')
-    .replace(/"api[_-]?secret":\s*"[^"]*"/gi, '"api_secret":"[redacted]"')
-    .replace(/"signature":\s*"[^"]*"/gi, '"signature":"[redacted]"');
+    .replace(/-----BEGIN [^-]+ PRIVATE KEY-----[^-]+-----END [^-]+ PRIVATE KEY-----/g, "[redacted-private-key]")
+    .replace(/"(privateKey|api[_-]?key|api[_-]?secret|authorization)":\s*"[^"]*"/gi, '"$1":"[redacted]"');
 }
+

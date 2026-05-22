@@ -1,4 +1,5 @@
-import { createHmac } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
+import { decodeJwt, decodeProtectedHeader, importSPKI, jwtVerify } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -6,10 +7,19 @@ import {
   coinbaseFetch,
   fetchAccounts,
   fetchCurrentUser,
+  parseCredentialsBlob,
   signRequest,
 } from "@/lib/crypto/coinbase";
 
-const CREDS = { apiKey: "key-public", apiSecret: "secret-server-only" };
+function makeEcKeypair() {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  return {
+    privatePem: privateKey.export({ format: "pem", type: "sec1" }).toString(),
+    publicPem: publicKey.export({ format: "pem", type: "spki" }).toString(),
+  };
+}
+
+const KEY_NAME = "organizations/abc-123/apiKeys/def-456";
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -19,103 +29,118 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("crypto/coinbase HMAC", () => {
-  it("signs a request with hex HMAC-SHA256 over timestamp+method+path+body", () => {
-    const { signature, timestamp } = signRequest(CREDS, "GET", "/v2/user", "", 1700000000);
-    const expected = createHmac("sha256", CREDS.apiSecret).update("1700000000GET/v2/user").digest("hex");
-    expect(signature).toBe(expected);
-    expect(timestamp).toBe("1700000000");
+describe("crypto/coinbase JWT (CDP keys)", () => {
+  it("parses the {name, privateKey} JSON blob", () => {
+    const { privatePem } = makeEcKeypair();
+    const blob = JSON.stringify({ name: KEY_NAME, privateKey: privatePem });
+    const out = parseCredentialsBlob(blob);
+    expect(out.apiKey).toBe(KEY_NAME);
+    expect(out.apiSecret).toBe(privatePem);
   });
 
-  it("normalizes method to uppercase in the prehash", () => {
-    const a = signRequest(CREDS, "get", "/v2/user", "", 1700000000).signature;
-    const b = signRequest(CREDS, "GET", "/v2/user", "", 1700000000).signature;
-    expect(a).toBe(b);
+  it("rejects malformed blobs", () => {
+    expect(() => parseCredentialsBlob("not-json")).toThrow();
+    expect(() => parseCredentialsBlob(JSON.stringify({ name: KEY_NAME }))).toThrow(/privateKey/);
+    expect(() => parseCredentialsBlob(JSON.stringify({ name: "wrong-shape", privateKey: "x" }))).toThrow(/organizations/);
+    expect(() => parseCredentialsBlob(JSON.stringify({ name: KEY_NAME, privateKey: "no-pem" }))).toThrow(/PEM/);
   });
 
-  it("includes the JSON body in the prehash for POST", () => {
-    const body = JSON.stringify({ foo: "bar" });
-    const { signature } = signRequest(CREDS, "POST", "/v2/some/path", body, 1700000000);
-    const expected = createHmac("sha256", CREDS.apiSecret)
-      .update("1700000000POST/v2/some/path" + body)
-      .digest("hex");
-    expect(signature).toBe(expected);
+  it("signs a verifiable ES256 JWT bound to METHOD + host + path", async () => {
+    const { privatePem, publicPem } = makeEcKeypair();
+    const jwt = await signRequest({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/user");
+    const verifyKey = await importSPKI(publicPem, "ES256");
+    const { payload, protectedHeader } = await jwtVerify(jwt, verifyKey, { issuer: "cdp", subject: KEY_NAME });
+    expect(protectedHeader.alg).toBe("ES256");
+    expect(protectedHeader.kid).toBe(KEY_NAME);
+    expect(protectedHeader.nonce).toMatch(/^[0-9a-f]{32}$/);
+    expect(payload.uri).toBe("GET api.coinbase.com/v2/user");
+    expect(typeof payload.exp).toBe("number");
+    expect((payload.exp as number) - (payload.nbf as number)).toBe(120);
   });
 
-  it("sends CB-ACCESS-* headers on a GET", async () => {
+  it("binds the JWT uri claim to the full query string", async () => {
+    const { privatePem } = makeEcKeypair();
+    let captured: string | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const h = init!.headers as Record<string, string>;
+      captured = h.authorization!.replace(/^Bearer /, "");
+      return new Response(JSON.stringify({ pagination: {}, data: [] }), { status: 200 });
+    });
+
+    await coinbaseFetch({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/accounts", {
+      query: { limit: "100" },
+    });
+    const claims = decodeJwt(captured!);
+    expect(claims.uri).toBe("GET api.coinbase.com/v2/accounts?limit=100");
+  });
+
+  it("issues a fresh nonce per signing call", async () => {
+    const { privatePem } = makeEcKeypair();
+    const a = await signRequest({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/user");
+    const b = await signRequest({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/user");
+    expect(decodeProtectedHeader(a).nonce).not.toBe(decodeProtectedHeader(b).nonce);
+  });
+
+  it("sends an Authorization: Bearer header and CB-VERSION", async () => {
+    const { privatePem } = makeEcKeypair();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(JSON.stringify({ data: { id: "u1" } }), { status: 200 }));
-    await fetchCurrentUser(CREDS);
+    await fetchCurrentUser({ apiKey: KEY_NAME, apiSecret: privatePem });
     const [url, init] = fetchSpy.mock.calls[0]!;
     expect(url).toBe("https://api.coinbase.com/v2/user");
     const headers = init!.headers as Record<string, string>;
-    expect(headers["CB-ACCESS-KEY"]).toBe(CREDS.apiKey);
-    expect(headers["CB-ACCESS-SIGN"]).toMatch(/^[0-9a-f]{64}$/);
-    expect(headers["CB-ACCESS-TIMESTAMP"]).toMatch(/^\d+$/);
+    expect(headers.authorization).toMatch(/^Bearer ey/);
     expect(headers["CB-VERSION"]).toBe("2024-01-01");
   });
 
   it("throws CoinbaseAuthError on 401 and 403", async () => {
+    const { privatePem } = makeEcKeypair();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 401 }));
-    await expect(fetchCurrentUser(CREDS)).rejects.toBeInstanceOf(CoinbaseAuthError);
+    await expect(fetchCurrentUser({ apiKey: KEY_NAME, apiSecret: privatePem })).rejects.toBeInstanceOf(
+      CoinbaseAuthError,
+    );
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 403 }));
-    await expect(fetchCurrentUser(CREDS)).rejects.toBeInstanceOf(CoinbaseAuthError);
+    await expect(fetchCurrentUser({ apiKey: KEY_NAME, apiSecret: privatePem })).rejects.toBeInstanceOf(
+      CoinbaseAuthError,
+    );
   });
 
-  it("redacts api_key / api_secret / signature from error bodies", async () => {
+  it("redacts private-key blocks and credential fields from error bodies", async () => {
+    const { privatePem } = makeEcKeypair();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
-        JSON.stringify({
-          error: "rate_limited",
-          api_key: "leaked-key",
-          api_secret: "leaked-secret",
-          signature: "leaked-sig",
-        }),
+        JSON.stringify({ error: "rate_limited", privateKey: "leaked-key-string", api_secret: "leaked-secret" }),
         { status: 429 },
       ),
     );
-    await expect(coinbaseFetch(CREDS, "GET", "/v2/anything")).rejects.toThrow(/\[redacted\]/);
-    await expect(coinbaseFetch(CREDS, "GET", "/v2/anything")).rejects.not.toThrow(/leaked-(key|secret|sig)/);
+    await expect(coinbaseFetch({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/x")).rejects.toThrow(
+      /\[redacted\]/,
+    );
+    await expect(coinbaseFetch({ apiKey: KEY_NAME, apiSecret: privatePem }, "GET", "/v2/x")).rejects.not.toThrow(
+      /leaked-(key-string|secret)/,
+    );
   });
 
   it("paginates fetchAccounts using next_starting_after", async () => {
+    const { privatePem } = makeEcKeypair();
     const page1 = {
-      pagination: { next_starting_after: "cursor-page-2" },
-      data: [{ id: "btc", name: "BTC Wallet" }, { id: "eth", name: "ETH Wallet" }],
+      pagination: { next_starting_after: "cursor-2" },
+      data: [{ id: "btc" }, { id: "eth" }],
     };
     const page2 = {
       pagination: { next_starting_after: null },
-      data: [{ id: "sol", name: "SOL Wallet" }],
+      data: [{ id: "sol" }],
     };
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify(page1), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(page2), { status: 200 }));
 
-    const accounts = await fetchAccounts(CREDS);
+    const accounts = await fetchAccounts({ apiKey: KEY_NAME, apiSecret: privatePem });
     expect(accounts.map((a) => a.id)).toEqual(["btc", "eth", "sol"]);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const secondUrl = fetchSpy.mock.calls[1]![0] as string;
-    expect(secondUrl).toContain("starting_after=cursor-page-2");
-  });
-
-  it("query string is included in the signed path", async () => {
-    let capturedSig: string | undefined;
-    let capturedTs: string | undefined;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      const h = init!.headers as Record<string, string>;
-      capturedSig = h["CB-ACCESS-SIGN"];
-      capturedTs = h["CB-ACCESS-TIMESTAMP"];
-      return new Response(JSON.stringify({ pagination: {}, data: [] }), { status: 200 });
-    });
-
-    await coinbaseFetch(CREDS, "GET", "/v2/accounts", { query: { limit: "100" } });
-
-    const expected = createHmac("sha256", CREDS.apiSecret)
-      .update(capturedTs! + "GET/v2/accounts?limit=100")
-      .digest("hex");
-    expect(capturedSig).toBe(expected);
+    expect(fetchSpy.mock.calls[1]![0]).toContain("starting_after=cursor-2");
   });
 });
