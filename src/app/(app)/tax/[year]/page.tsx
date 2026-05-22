@@ -159,6 +159,16 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
             <a className="flex-1 bg-mint text-bg font-mono text-[11px] uppercase tracking-widest text-center px-3 py-2.5 rounded-md font-semibold" href={`/tax/${year}/export?format=pdf`}>Export PDF · Anlage KAP</a>
             <a className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold" href={`/tax/${year}/export?format=csv`}>CSV</a>
           </div>
+          <a
+            href={`/tax/${year}/anlage-so`}
+            className="mt-3 block bg-panel2 border border-mint/30 rounded-md px-3 py-2.5 hover:border-mint/60 transition-colors"
+          >
+            <div className="flex justify-between items-baseline">
+              <div className="font-mono text-[11px] uppercase tracking-widest text-mint">Anlage SO →</div>
+              <div className="font-mono text-[10px] text-muted">§22 Nr. 3 EStG · Krypto-Staking</div>
+            </div>
+            <div className="font-mono text-[10px] text-dim mt-1">Separate report for Coinbase staking income</div>
+          </a>
         </Card>
       </div>
 

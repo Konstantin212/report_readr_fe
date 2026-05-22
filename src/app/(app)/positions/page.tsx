@@ -1,11 +1,13 @@
 import { requireCurrentUser } from "@/lib/auth/server";
 import { getPositionsData } from "@/lib/data/positions";
+import { getCryptoPositions, rollUpCryptoPositions } from "@/lib/data/crypto-positions";
 import { Card } from "@/components/pulse/card";
 import { BrokerFilter } from "@/components/pulse/broker-filter";
 import { SectorFilter } from "@/components/pulse/sector-filter";
 import { PositionDetailPanel } from "@/components/pulse/position-detail-panel";
 import { PositionsSection } from "@/components/pulse/positions-section";
 import { CashCard } from "@/components/pulse/cash-card";
+import { CryptoPositionsSection } from "@/components/pulse/crypto-positions-section";
 
 type SP = Promise<{ broker?: string; sector?: string; symbol?: string }>;
 
@@ -16,7 +18,11 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
   const sector = params.sector ?? null;
   const symbol = params.symbol ?? null;
 
-  const d = await getPositionsData(user.id, { broker, sector, symbol });
+  const [d, cryptoPositions] = await Promise.all([
+    getPositionsData(user.id, { broker, sector, symbol }),
+    broker === "all" ? getCryptoPositions(user.id) : Promise.resolve([]),
+  ]);
+  const cryptoRollup = rollUpCryptoPositions(cryptoPositions);
   // Plain serialisable shape for the client-side PositionsSection — broker
   // and sector filters carry across when the user clicks a row, the
   // component appends `symbol` on its own.
@@ -79,6 +85,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
             selectedSymbol={symbol}
           />
           <CashCard balances={d.cash} />
+          <CryptoPositionsSection positions={cryptoPositions} rollup={cryptoRollup} />
           {hasNoPositions && (
             <Card>
               <div className="text-muted text-sm">No positions match the current filter.</div>
