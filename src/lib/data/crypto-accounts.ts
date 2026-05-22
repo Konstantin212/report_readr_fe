@@ -105,6 +105,31 @@ export async function getDecryptedCredentials(
   };
 }
 
+/**
+ * Fetch a single account row plus its decrypted credentials. Used by
+ * the sync orchestrator which needs both the cursor and the credentials.
+ * Credentials should be discarded as soon as the signed request completes.
+ */
+export async function getAccountWithCredentials(
+  ownerUserId: string,
+  accountId: string,
+): Promise<{ account: CryptoAccountPublic; credentials: CoinbaseCredentials; previousCursor: string | null } | null> {
+  const [row] = await getDb()
+    .select()
+    .from(cryptoAccounts)
+    .where(and(eq(cryptoAccounts.id, accountId), eq(cryptoAccounts.ownerUserId, ownerUserId)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    account: toPublic(row),
+    credentials: {
+      apiKey: decryptString({ ciphertext: row.apiKeyCiphertext, iv: row.apiKeyIv }),
+      apiSecret: decryptString({ ciphertext: row.apiSecretCiphertext, iv: row.apiSecretIv }),
+    },
+    previousCursor: row.lastSyncCursor,
+  };
+}
+
 export async function deleteCryptoAccount(ownerUserId: string, accountId: string): Promise<number> {
   const deleted = await getDb()
     .delete(cryptoAccounts)
