@@ -1,5 +1,7 @@
 import { requireCurrentUser } from "@/lib/auth/server";
 import { getPerformanceData, type Range } from "@/lib/data/performance";
+import { getCryptoPositions, rollUpCryptoPositions } from "@/lib/data/crypto-positions";
+import { getCryptoSummary } from "@/lib/data/crypto-summary";
 import { Card } from "@/components/pulse/card";
 import { MetricTile } from "@/components/pulse/metric-tile";
 import { PerfChart } from "@/components/pulse/perf-chart";
@@ -17,7 +19,12 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
   const range = (RANGES.has(params.range ?? "") ? params.range : "2Y") as Range;
 
-  const d = await getPerformanceData(user.id, broker, range);
+  const [d, cryptoPositions, cryptoSummary] = await Promise.all([
+    getPerformanceData(user.id, broker, range),
+    getCryptoPositions(user.id),
+    getCryptoSummary(user.id),
+  ]);
+  const cryptoRollup = rollUpCryptoPositions(cryptoPositions);
 
   const fmtPct = (v: number | null, dec = 1) => {
     if (v === null) return "—";
@@ -92,6 +99,33 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         <MetricTile label="Sharpe" value={fmtVal(d.metrics.sharpe)} sublabel="risk-adjusted" accent="amber" />
         <MetricTile label="Beta" value={fmtVal(d.metrics.beta)} sublabel="vs S&P 500" />
       </div>
+
+      {cryptoSummary.hasAccounts && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <MetricTile
+            label="Crypto value"
+            value={`€${cryptoRollup.totalValueEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sublabel="last sync · spot"
+          />
+          <MetricTile
+            label="Crypto P/L"
+            value={`${cryptoRollup.unrealizedPnlEur >= 0 ? "+" : "−"}€${Math.abs(cryptoRollup.unrealizedPnlEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sublabel={cryptoRollup.unrealizedPnlPct === null ? "no cost basis" : `${cryptoRollup.unrealizedPnlPct >= 0 ? "+" : ""}${cryptoRollup.unrealizedPnlPct.toFixed(2)}%`}
+            accent={cryptoRollup.unrealizedPnlEur >= 0 ? "mint" : "bad"}
+          />
+          <MetricTile
+            label={`Staking ${cryptoSummary.stakingYtd.year}`}
+            value={`€${cryptoSummary.stakingYtd.totalEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sublabel={cryptoSummary.stakingYtd.freigrenzeReached ? "above Freigrenze" : `of €${cryptoSummary.stakingYtd.freigrenzeEur} Freigrenze`}
+            accent={cryptoSummary.stakingYtd.freigrenzeReached ? "bad" : "amber"}
+          />
+          <MetricTile
+            label="Cost basis"
+            value={`€${cryptoRollup.totalCostEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sublabel={`${cryptoPositions.length} coin${cryptoPositions.length === 1 ? "" : "s"} · DCA`}
+          />
+        </div>
+      )}
 
       {/* Heatmap + sector contribution */}
       <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
