@@ -163,7 +163,7 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
               <div className="flex gap-2">
                 <button
                   onClick={() => sync(r.id)}
-                  disabled={pending || r.status !== "active"}
+                  disabled={pending}
                   className="border border-mint/40 text-mint font-mono text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md hover:bg-mint/10 disabled:opacity-50"
                 >
                   Sync now

@@ -217,8 +217,14 @@ export async function fetchTransactionsForAccount(
   let startingAfter: string | undefined;
   for (let page = 0; page < 100; page++) {
     const query: Record<string, string> = { limit: "100" };
-    if (endingBefore) query.ending_before = endingBefore;
+    // Coinbase v2 rejects requests that carry BOTH ending_before and
+    // starting_after. Use ending_before on the first page (incremental
+    // sync cutoff) and drop it once pagination switches to starting_after.
+    // If pagination overruns the cutoff into older history, the
+    // unique-fingerprint constraint dedupes those rows on insert.
     if (startingAfter) query.starting_after = startingAfter;
+    else if (endingBefore) query.ending_before = endingBefore;
+
     const body = await coinbaseFetch<CoinbasePaged<CoinbaseTransaction>>(
       credentials,
       "GET",
