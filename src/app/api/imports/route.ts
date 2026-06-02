@@ -52,7 +52,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Import failed.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    // Same reasoning as /api/imports/ingest: raw DB / parser errors
+    // leak schema details. Log internally, return a generic message.
+    console.error("imports failed", error);
+    return NextResponse.json({ error: "Import failed. Check the file and try again." }, { status: 400 });
   }
 }

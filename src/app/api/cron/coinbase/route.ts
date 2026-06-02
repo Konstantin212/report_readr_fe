@@ -6,6 +6,7 @@ import { cryptoAccounts } from "@/lib/db/schema";
 import { decryptString } from "@/lib/crypto/aes";
 import { CoinbaseAuthError } from "@/lib/crypto/coinbase";
 import { recordSyncFailure, syncCoinbaseAccount } from "@/lib/crypto/sync";
+import { hasValidCronSecret } from "@/lib/auth/cron";
 
 /**
  * Daily Coinbase sync. Iterates every `crypto_accounts` row with
@@ -20,7 +21,7 @@ import { recordSyncFailure, syncCoinbaseAccount } from "@/lib/crypto/sync";
 export const maxDuration = 60;
 
 export async function GET(req: Request) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!hasValidCronSecret(req)) {
     return new Response("unauthorized", { status: 401 });
   }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
 import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
+import { hasValidCronSecret } from "@/lib/auth/cron";
 
 /**
  * Lists every held symbol across all users that the local refresh script
@@ -19,7 +20,7 @@ import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
  * Auth: Bearer CRON_SECRET.
  */
 export async function GET(req: Request) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!hasValidCronSecret(req)) {
     return new Response("unauthorized", { status: 401 });
   }
   const db = getDb();

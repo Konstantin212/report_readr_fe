@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { and, eq, ne, isNotNull } from "drizzle-orm";
 import Decimal from "decimal.js";
 import { getCurrentUser } from "@/lib/auth/server";
+import { isAdminEmail } from "@/lib/auth/admin";
 import { getDb } from "@/lib/db/client";
 import { fxRates, transactions, brokerAccounts } from "@/lib/db/schema";
 import { fetchEcbHistorical } from "@/lib/quotes/ecb";
 import { runReplayForAccount } from "@/lib/imports/ingest";
+import { hasValidCronSecret } from "@/lib/auth/cron";
 
 export const maxDuration = 60;
 
@@ -32,11 +34,14 @@ const AMOUNT_FIELDS = [
  * Auth: cron secret OR logged-in user.
  */
 export async function POST(req: Request) {
-  const authedByCron = req.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
+  // Admin OR cron. Previously any logged-in user could trigger the
+  // global ECB historical pull + per-user recompute — an allowlisted
+  // non-admin could burn ECB request budget and force replays.
   let ownerUserId: string | null = null;
-  if (!authedByCron) {
+  if (!hasValidCronSecret(req)) {
     const user = await getCurrentUser();
     if (!user) return new Response("unauthorized", { status: 401 });
+    if (!isAdminEmail(user.email)) return new Response("forbidden", { status: 403 });
     ownerUserId = user.id;
   }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { quoteHistory } from "@/lib/db/schema";
+import { hasValidCronSecret } from "@/lib/auth/cron";
 
 /**
  * Bulk upload of historical daily closes from the local refresh script
@@ -20,15 +21,19 @@ import { quoteHistory } from "@/lib/db/schema";
 export const maxDuration = 60;
 
 const RowSchema = z.object({
-  symbol: z.string().min(1),
+  symbol: z.string().min(1).max(32),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  close: z.union([z.string(), z.number()]).transform((v) => String(v)),
-  currency: z.string().min(1),
+  close: z
+    .union([z.string(), z.number()])
+    .transform((v) => Number(v))
+    .refine((n) => Number.isFinite(n) && n > 0, { message: "close must be a positive number" })
+    .transform((n) => String(n)),
+  currency: z.string().min(1).max(8),
 });
-const BodySchema = z.object({ rows: z.array(RowSchema) });
+const BodySchema = z.object({ rows: z.array(RowSchema).max(100_000) });
 
 export async function POST(req: Request) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!hasValidCronSecret(req)) {
     return new Response("unauthorized", { status: 401 });
   }
   let body: z.infer<typeof BodySchema>;
