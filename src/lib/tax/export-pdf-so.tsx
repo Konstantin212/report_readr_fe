@@ -76,7 +76,7 @@ export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
             <View style={styles.warn}>
               <Text style={styles.warnText}>
                 Above €{draft.total.freigrenzeEur}: enter the full €{draft.total.stakingIncomeEur.toFixed(2)} on ELSTER →
-                Anlage SO → Section "Andere Leistungen" (§22 Nr. 3). The €256 Freigrenze applies once across all such
+                Anlage SO → Section &quot;Andere Leistungen&quot; (§22 Nr. 3). The €256 Freigrenze applies once across all such
                 income (other 22 Nr. 3 sources combine).
               </Text>
             </View>

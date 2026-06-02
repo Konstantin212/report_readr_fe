@@ -1,10 +1,20 @@
-import nextVitals from "eslint-config-next/core-web-vitals.js";
-import nextTypescript from "eslint-config-next/typescript.js";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { FlatCompat } from "@eslint/eslintrc";
+
+// eslint-config-next 15.5.18 still ships legacy (eslintrc) format —
+// `core-web-vitals.js` exports `{ extends: [...] }`, not a flat-config
+// array — so spreading it directly throws "nextVitals is not iterable"
+// during `next build` on Vercel. FlatCompat bridges the two formats.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const compat = new FlatCompat({ baseDirectory: __dirname });
 
 export default [
   {
     ignores: [
       ".next/**",
+      ".claude/**",       // tooling (Claude Code hooks) — legitimately CJS
+      "scripts/**",       // one-off DB scripts run via `node`, not bundled
       "node_modules/**",
       "coverage/**",
       "playwright-report/**",
@@ -13,6 +23,5 @@ export default [
       "next-env.d.ts",
     ],
   },
-  ...nextVitals,
-  ...nextTypescript,
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
 ];
