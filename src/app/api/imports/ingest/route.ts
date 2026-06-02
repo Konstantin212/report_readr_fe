@@ -29,6 +29,14 @@ export async function POST(req: Request) {
 
     return NextResponse.json(summary);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    // Log the underlying cause server-side (visible in Vercel function
+    // logs) but never reflect raw DB / Drizzle errors to the client —
+    // they leak table names, constraint identifiers, and sometimes
+    // values.
+    console.error("imports/ingest failed", err);
+    const message = err instanceof Error && err.message.startsWith("INVALID_PAYLOAD")
+      ? "Invalid import payload."
+      : "Could not save the import.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

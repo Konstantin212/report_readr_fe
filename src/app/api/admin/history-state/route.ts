@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { quoteHistory, positions } from "@/lib/db/schema";
+import { hasValidCronSecret } from "@/lib/auth/cron";
 
 /**
  * Inventory of what `quote_history` has versus what the user holds.
@@ -15,7 +16,7 @@ import { quoteHistory, positions } from "@/lib/db/schema";
  * the admin API).
  */
 export async function GET(req: Request) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!hasValidCronSecret(req)) {
     return new Response("unauthorized", { status: 401 });
   }
   const db = getDb();

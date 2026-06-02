@@ -1,15 +1,33 @@
 /**
- * Single source of truth for "who can manage Members on the Settings
- * page". Hard-coded to the workspace owner's email so a compromised
- * member account can't add their friends to the allowlist.
+ * Source of truth for "who can manage Members + run admin backfills".
+ * Read from ADMIN_EMAILS env var (comma-separated, lowercased) instead
+ * of hard-coding in source — hard-coded list is committed to a public
+ * git repo and gives phishing/social-engineering targets the admin's
+ * exact email. Env var keeps the value off GitHub.
  *
- * To transfer ownership later, edit this list. There's no UI for it —
- * intentional. If we ever go multi-workspace this becomes a per-row
- * flag on the user table; not now.
+ * A baked-in fallback is intentionally NOT provided. If the env var is
+ * unset, NO user is admin — failing closed is safer than a code
+ * fallback that quietly opens the door.
  */
-export const ADMIN_EMAILS: readonly string[] = ["prikhodko99@gmail.com"];
+function loadAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+let cached: string[] | null = null;
+export function getAdminEmails(): string[] {
+  if (cached === null) cached = loadAdminEmails();
+  return cached;
+}
 
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  return ADMIN_EMAILS.includes(email.trim().toLowerCase());
+  return getAdminEmails().includes(email.trim().toLowerCase());
+}
+
+// Test-only. Reset the cache after mutating process.env in a test.
+export function _resetAdminCacheForTests(): void {
+  cached = null;
 }

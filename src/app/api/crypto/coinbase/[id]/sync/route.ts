@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/server";
 import { CoinbaseAuthError } from "@/lib/crypto/coinbase";
 import { recordSyncFailure, syncCoinbaseAccount } from "@/lib/crypto/sync";
 import { getAccountWithCredentials } from "@/lib/data/crypto-accounts";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // 14 Coinbase wallets × paginated /v2/accounts/:id/transactions + per-row
 // DB upserts + lots rebuild — comfortably fits within Vercel's 300s
@@ -20,11 +21,27 @@ export const maxDuration = 120;
  * status=invalid and surface the error to the UI; subsequent syncs are
  * skipped until the user reconnects.
  */
+// 6 syncs per minute per (user, account). A typical full sync takes
+// ~5-30s, so this lets a user retry a few times in a row but blocks a
+// runaway client / compromised session from spamming Coinbase quota
+// and Vercel function budget.
+const SYNC_MAX_HITS = 6;
+const SYNC_WINDOW_MS = 60_000;
+
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const u = await getCurrentUser();
   if (!u) return new NextResponse("unauthorized", { status: 401 });
 
   const { id } = await ctx.params;
+
+  const limit = checkRateLimit(`crypto-sync:${u.id}:${id}`, SYNC_MAX_HITS, SYNC_WINDOW_MS);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: `Rate limit hit; try again in ${limit.retryAfterSeconds}s.` },
+      { status: 429, headers: { "retry-after": String(limit.retryAfterSeconds) } },
+    );
+  }
+
   const fetched = await getAccountWithCredentials(u.id, id);
   if (!fetched) return new NextResponse("not found", { status: 404 });
 

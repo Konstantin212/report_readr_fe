@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
 import { fetchStooqQuotes } from "@/lib/quotes/stooq";
 import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
+import { hasValidCronSecret } from "@/lib/auth/cron";
 
 // Daily spot-quotes cron. Stooq covers most symbols at zero cost and no
 // rate limit. Symbols Yahoo blocks for our IP range — and Stooq lacks the
@@ -12,7 +13,7 @@ import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
 export const maxDuration = 60;
 
 export async function GET(req: Request) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!hasValidCronSecret(req)) {
     return new Response("unauthorized", { status: 401 });
   }
   const db = getDb();

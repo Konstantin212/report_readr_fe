@@ -21,6 +21,14 @@ function getBaseUrl(): string {
     return process.env.BETTER_AUTH_URL;
   }
 
+  // Falling back to VERCEL_URL on production is a footgun: VERCEL_URL is
+  // the canonical *.vercel.app deployment URL, not whatever custom
+  // domain Better Auth's trustedOrigins / cookie scope should match.
+  // Require the env var explicitly.
+  if (process.env.VERCEL === "1") {
+    throw new Error("BETTER_AUTH_URL is required on Vercel (must match your live domain).");
+  }
+
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
