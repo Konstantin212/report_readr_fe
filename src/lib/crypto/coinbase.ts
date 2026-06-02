@@ -218,10 +218,11 @@ export async function fetchTransactionsForAccount(
   for (let page = 0; page < 100; page++) {
     const query: Record<string, string> = { limit: "100" };
     // Coinbase v2 rejects requests that carry BOTH ending_before and
-    // starting_after. Use ending_before on the first page (incremental
-    // sync cutoff) and drop it once pagination switches to starting_after.
-    // If pagination overruns the cutoff into older history, the
-    // unique-fingerprint constraint dedupes those rows on insert.
+    // starting_after. Use ending_before on the first page only; for
+    // page 2+ switch to starting_after-only. We then short-circuit
+    // pagination as soon as a page contains the cursor row (everything
+    // older has already been synced), so dropping ending_before doesn't
+    // cause us to walk the full history every time.
     if (startingAfter) query.starting_after = startingAfter;
     else if (endingBefore) query.ending_before = endingBefore;
 
@@ -231,7 +232,18 @@ export async function fetchTransactionsForAccount(
       `/v2/accounts/${accountId}/transactions`,
       { query },
     );
+
+    if (endingBefore) {
+      // Items are returned newest-first. If the cursor id appears in this
+      // page, take everything strictly newer than it and stop.
+      const cutoffIdx = body.data.findIndex((t) => t.id === endingBefore);
+      if (cutoffIdx >= 0) {
+        out.push(...body.data.slice(0, cutoffIdx));
+        break;
+      }
+    }
     out.push(...body.data);
+
     const next = body.pagination.next_starting_after;
     if (!next) break;
     startingAfter = next;
