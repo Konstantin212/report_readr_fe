@@ -6,11 +6,11 @@ import { recordSyncFailure, syncCoinbaseAccount } from "@/lib/crypto/sync";
 import { getAccountWithCredentials } from "@/lib/data/crypto-accounts";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-// 14 Coinbase wallets × paginated /v2/accounts/:id/transactions + per-row
-// DB upserts + lots rebuild — comfortably fits within Vercel's 300s
-// Fluid-Compute ceiling but well above the 10-15s defaults that would
-// otherwise time out on a first or recovery sync.
-export const maxDuration = 120;
+// Vercel Hobby plan caps maxDuration at 60s — anything higher fails
+// the deploy with no useful build-log message. The cursor short-circuit
+// in fetchTransactionsForAccount keeps incremental syncs under 30s, and
+// first syncs are bounded by Coinbase rate limits anyway.
+export const maxDuration = 60;
 
 /**
  * Manual sync trigger for one Coinbase account. Owner-scoped: the
