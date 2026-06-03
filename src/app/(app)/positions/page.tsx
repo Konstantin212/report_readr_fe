@@ -2,7 +2,6 @@ import { requireCurrentUser } from "@/lib/auth/server";
 import { getPositionsData } from "@/lib/data/positions";
 import { getCryptoPositions, rollUpCryptoPositions } from "@/lib/data/crypto-positions";
 import { Card } from "@/components/pulse/card";
-import { BrokerFilter } from "@/components/pulse/broker-filter";
 import { SectorFilter } from "@/components/pulse/sector-filter";
 import { PositionDetailPanel } from "@/components/pulse/position-detail-panel";
 import { PositionsSection } from "@/components/pulse/positions-section";
@@ -45,7 +44,9 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
           <span className="font-mono text-sm text-muted ml-1 tracking-wider">{d.rows.length} of {d.total}</span>
         </h1>
         <div className="flex-1" />
-        <BrokerFilter active={broker} />
+        {/* Broker filter lives in the global topbar — duplicating it here
+            confused users (two identical chip groups visible). Sector
+            filter stays page-local because it's positions-specific. */}
         <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
       </div>
 

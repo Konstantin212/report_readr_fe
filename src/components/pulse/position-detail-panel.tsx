@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { Card } from "./card";
 import { Sparkline } from "./sparkline";
 import { usePnlMode } from "./pnl-mode";
@@ -43,8 +44,21 @@ export function PositionDetailPanel({ d }: { d: DetailData }) {
   const v = d.views[mode];
   const fmtEur = (v: number, dec = 2) => `€${Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
   const palette = ["var(--accent-mint, #7CFFB2)", "var(--accent-amber, #FFD24A)", "var(--accent-pink, #FF5DA2)"];
+
+  // On mobile the panel renders at the bottom of /positions, hidden far
+  // below the stocks/ETFs/cash/crypto sections — users tap a row and
+  // think nothing happened. Scroll the panel into view on selection
+  // change. Desktop renders the panel as a side column at lg:, where
+  // scroll-into-view is a no-op (panel is already visible).
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+    if (!isMobile) return;
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [d.symbol]);
+
   return (
-    <Card>
+    <Card ref={ref} className="scroll-mt-4">
       <div className="flex items-start gap-3 mb-4">
         <div className="w-14 h-14 rounded-[14px] bg-mint/20 text-mint font-mono font-bold text-[16px] flex items-center justify-center">{d.symbol.slice(0,3)}</div>
         <div className="flex-1">

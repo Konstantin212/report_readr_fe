@@ -3,6 +3,9 @@ import { getTaxData, getAvailableTaxYears } from "@/lib/data/tax";
 import { Card } from "@/components/pulse/card";
 import { ProgressBar } from "@/components/pulse/progress-bar";
 import { TaxYearSelector } from "@/components/pulse/tax-year-selector";
+import { MetricsGrid } from "@/components/pulse/metrics-grid";
+import { RealizedLotsTable } from "@/components/pulse/realized-lots-table";
+import { fmtEur } from "@/lib/format";
 
 export default async function TaxPage({ params }: { params: Promise<{ year: string }> }) {
   const user = await requireCurrentUser();
@@ -12,13 +15,6 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
     getTaxData(user.id, yearNum),
     getAvailableTaxYears(user.id),
   ]);
-
-  const fmtEur = (v: number, opts: { sign?: boolean; dec?: number } = {}) => {
-    const { sign = false, dec = 2 } = opts;
-    const abs = Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec });
-    const pre = sign ? (v >= 0 ? "+€" : "−€") : (v < 0 ? "−€" : "€");
-    return `${pre}${abs}`;
-  };
 
   // How much of the saver's allowance is left in the selected year, in EUR.
   const allowanceRemainingEur = Math.max(0, d.allowance.totalEur - d.allowance.usedEur);
@@ -43,24 +39,30 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
             <span>Tax year {d.year} · Germany</span>
             <span className="px-2 py-0.5 rounded-full bg-amber/20 text-amber text-[10px]">DRAFT</span>
           </div>
-          <div className="grid grid-cols-3 gap-6 mt-3 relative">
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">Net realized</div>
-              <div className={`font-bold text-[36px] num tracking-tight mt-1 ${d.hero.netRealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {fmtEur(d.hero.netRealizedEur, { sign: true })}
-              </div>
-              <div className="font-mono text-[11px] text-muted mt-1">{d.realizedLots.length} matches</div>
-            </div>
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">Taxable base</div>
-              <div className="font-bold text-[36px] num tracking-tight mt-1">{fmtEur(d.hero.taxableBaseEur)}</div>
-              <div className="font-mono text-[11px] text-muted mt-1">after €{d.allowance.totalEur} Pauschbetrag</div>
-            </div>
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">Estimated tax</div>
-              <div className="font-bold text-[36px] num tracking-tight text-amber mt-1">{fmtEur(d.hero.estTaxEur)}</div>
-              <div className="font-mono text-[11px] text-muted mt-1">~26.4% AbgSt + SolZ</div>
-            </div>
+          <div className="mt-4 relative">
+            <MetricsGrid
+              columns={3}
+              metrics={[
+                {
+                  label: "Net realized",
+                  value: fmtEur(d.hero.netRealizedEur, { sign: true }),
+                  subline: `${d.realizedLots.length} matches`,
+                  accent: "auto",
+                  sign: d.hero.netRealizedEur,
+                },
+                {
+                  label: "Taxable base",
+                  value: fmtEur(d.hero.taxableBaseEur),
+                  subline: `after €${d.allowance.totalEur} Pauschbetrag`,
+                },
+                {
+                  label: "Estimated tax",
+                  value: fmtEur(d.hero.estTaxEur),
+                  subline: "~26.4% AbgSt + SolZ",
+                  accent: "amber",
+                },
+              ]}
+            />
           </div>
         </Card>
 
@@ -172,41 +174,13 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
         </Card>
       </div>
 
-      <Card className="p-0 overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex justify-between items-center">
-          <div className="font-semibold text-sm">Realized lots · FIFO matched</div>
-          <div className="font-mono text-[11px] text-muted">{d.realizedLots.length} lots · ECB FX on trade date</div>
-        </div>
-        <div className="grid grid-cols-[0.9fr_0.7fr_0.5fr_1fr_1fr_0.6fr_1fr_1fr_1fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
-          <span>Ticker</span><span>Broker</span><span>Method</span><span>Opened</span><span>Closed</span><span className="text-right">Qty</span><span className="text-right">Cost EUR</span><span className="text-right">Proceeds</span><span className="text-right">Gain/Loss</span>
-        </div>
-        {d.realizedLots.length === 0 && <div className="p-6 text-muted text-sm">No realized lots for {year}.</div>}
-        {d.realizedLots.map((l, i) => (
-          <div key={i} className="grid grid-cols-[0.9fr_0.7fr_0.5fr_1fr_1fr_0.6fr_1fr_1fr_1fr] gap-0 px-5 py-3 font-mono text-[13px] items-center border-b border-border last:border-0">
-            <span className="font-semibold">{l.ticker}</span>
-            <span className="text-muted">{l.broker}</span>
-            <span className="text-muted text-[10px] tracking-wider">{l.method}</span>
-            <span className="text-muted">{l.opened}</span>
-            <span>{l.closed}</span>
-            <span className="text-right text-muted">{l.qty.toFixed(l.qty % 1 === 0 ? 0 : 4)}</span>
-            <span className="text-right">{l.costEur.toLocaleString("de-DE", { minimumFractionDigits: 2 })}</span>
-            <span className="text-right">{l.proceedsEur.toLocaleString("de-DE", { minimumFractionDigits: 2 })}</span>
-            <span className={`text-right font-semibold ${l.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {l.gainEur >= 0 ? "+" : "−"}{Math.abs(l.gainEur).toLocaleString("de-DE", { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-        ))}
-        {d.realizedLots.length > 0 && (
-          <div className="grid grid-cols-[0.9fr_0.7fr_0.5fr_1fr_1fr_0.6fr_1fr_1fr_1fr] gap-0 px-5 py-3 bg-panel2 font-mono text-[13px] font-semibold border-t border-borderHard">
-            <span className="col-span-6 font-mono text-[10px] text-muted uppercase tracking-widest">Σ Net realized</span>
-            <span className="text-right">{d.realizedLots.reduce((s, l) => s + l.costEur, 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}</span>
-            <span className="text-right">{d.realizedLots.reduce((s, l) => s + l.proceedsEur, 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })}</span>
-            <span className={`text-right ${d.hero.netRealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {d.hero.netRealizedEur >= 0 ? "+" : "−"}{Math.abs(d.hero.netRealizedEur).toLocaleString("de-DE", { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-        )}
-      </Card>
+      <RealizedLotsTable
+        lots={d.realizedLots}
+        year={yearNum}
+        totalCostEur={d.realizedLots.reduce((s, l) => s + l.costEur, 0)}
+        totalProceedsEur={d.realizedLots.reduce((s, l) => s + l.proceedsEur, 0)}
+        netRealizedEur={d.hero.netRealizedEur}
+      />
 
       <div className="flex gap-2 font-mono text-[11px] text-dim">
         <span>ℹ</span>

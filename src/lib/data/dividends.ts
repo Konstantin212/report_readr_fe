@@ -13,13 +13,21 @@ export type DividendsData = {
   yield: { pct: number; targetPct: number };
   projection: { yearEur: number; next30DaysEur: number; next30Count: number };
   monthly: { values: number[]; labels: string[]; highlightIdx: number };
+  /** Paginated slice of the user's dividend distributions (DESC by date). */
   rows: DividendRow[];
+  /** Total rows across all pages — feeds the Pagination component. */
+  rowsTotal: number;
+  page: number;
+  pageSize: number;
   topPayers: { ticker: string; totalEur: number; count: number; yieldPct?: number }[];
 };
+
+export const DIVIDENDS_PAGE_SIZE = 25;
 
 export async function getDividendsData(
   ownerUserId: string,
   broker: "all" | "ff" | "ibkr" = "all",
+  page = 1,
 ): Promise<DividendsData> {
   const db = getDb();
   const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
@@ -80,7 +88,9 @@ export async function getDividendsData(
     new Date(),
   );
 
-  const rows: DividendRow[] = divs.sort((a, b) => b.eventDate.localeCompare(a.eventDate)).map(d => ({
+  // Sort once, then paginate. For ~hundreds of dividends sorting in JS
+  // is fine; we can move to SQL OFFSET/LIMIT if a user ever has 10k+ rows.
+  const allRows: DividendRow[] = divs.sort((a, b) => b.eventDate.localeCompare(a.eventDate)).map(d => ({
     date: d.eventDate,
     ticker: d.symbol ?? "—",
     broker: brokerById.get(d.brokerAccountId ?? "") ?? "?",
@@ -89,6 +99,11 @@ export async function getDividendsData(
     amountEur: Number(d.amountEur ?? 0),
     whtEur: Number(d.withholdingTaxEur ?? 0),
   }));
+  const rowsTotal = allRows.length;
+  const pageSize = DIVIDENDS_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(rowsTotal / pageSize));
+  const clampedPage = Math.max(1, Math.min(page, totalPages));
+  const rows = allRows.slice((clampedPage - 1) * pageSize, clampedPage * pageSize);
 
   // Top payers TTM
   const top = topDividendPayers(
@@ -102,6 +117,9 @@ export async function getDividendsData(
     projection,
     monthly: { values, labels, highlightIdx },
     rows,
+    rowsTotal,
+    page: clampedPage,
+    pageSize,
     topPayers: top,
   };
 }

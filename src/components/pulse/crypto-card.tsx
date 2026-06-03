@@ -52,7 +52,7 @@ export function CryptoCard({ summary }: { summary: CryptoSummary }) {
         <div className="font-mono text-[10px] text-dim tracking-wider">{summary.walletCount} wallets</div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <div>
           <div className="font-mono text-[10px] text-muted uppercase tracking-widest">Portfolio value</div>
           <div className="font-bold text-[28px] num tracking-tight mt-1">{fmtEur(summary.totalValueEur)}</div>

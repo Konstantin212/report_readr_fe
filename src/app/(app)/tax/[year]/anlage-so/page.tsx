@@ -2,6 +2,10 @@ import { requireCurrentUser } from "@/lib/auth/server";
 import { buildAnlageSo } from "@/lib/tax/anlage-so";
 import { Card } from "@/components/pulse/card";
 import { ProgressBar } from "@/components/pulse/progress-bar";
+import { MetricsGrid } from "@/components/pulse/metrics-grid";
+import { Section23Table } from "@/components/pulse/section23-table";
+import { StakingPerCoinTable } from "@/components/pulse/staking-per-coin-table";
+import { fmtEur } from "@/lib/format";
 
 export default async function AnlageSoPage({ params }: { params: Promise<{ year: string }> }) {
   const user = await requireCurrentUser();
@@ -9,25 +13,21 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
   const yearNum = Number(year);
   const draft = await buildAnlageSo(user.id, yearNum, user.name ?? null);
 
-  const fmtEur = (v: number, dec = 2) =>
-    `€${v.toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec })}`;
-
   const combinedBaseEur = draft.total.stakingIncomeEur + draft.total.section23ShortTermGainEur;
   const pct = draft.total.freigrenzeEur > 0 ? Math.min(100, (combinedBaseEur / draft.total.freigrenzeEur) * 100) : 0;
 
   return (
     <main className="space-y-4">
-      <div className="flex flex-wrap items-baseline gap-3">
+      <div className="space-y-2">
+        <a href={`/tax/${yearNum}`} className="font-mono text-[11px] text-muted hover:text-ink inline-block">
+          ← Back to Anlage KAP
+        </a>
         <h1 className="text-2xl font-bold tracking-tight">
           Anlage SO{" "}
-          <span className="font-mono text-sm text-muted ml-1 tracking-wider">
+          <span className="font-mono text-sm text-muted ml-1 tracking-wider block lg:inline">
             {yearNum} · §22 Nr. 3 EStG · Krypto-Staking
           </span>
         </h1>
-        <div className="flex-1" />
-        <a href={`/tax/${yearNum}`} className="font-mono text-[11px] text-muted hover:text-ink">
-          ← Back to Anlage KAP
-        </a>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
@@ -40,46 +40,47 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
             <span>Tax year {draft.taxYear} · Germany</span>
             <span className="px-2 py-0.5 rounded-full bg-amber/20 text-amber text-[10px]">DRAFT</span>
           </div>
-          <div className="grid grid-cols-4 gap-6 mt-3 relative">
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">§22 Staking</div>
-              <div className="font-bold text-[32px] num tracking-tight mt-1 text-mint">
-                {fmtEur(draft.total.stakingIncomeEur)}
-              </div>
-              <div className="font-mono text-[11px] text-muted mt-1">{draft.total.eventCount} payouts</div>
-            </div>
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">§23 Short-term</div>
-              <div className={`font-bold text-[32px] num tracking-tight mt-1 ${draft.total.section23ShortTermGainEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {fmtEur(draft.total.section23ShortTermGainEur)}
-              </div>
-              <div className="font-mono text-[11px] text-muted mt-1">
-                {draft.total.section23MatchCount === 0
-                  ? "no sales"
-                  : `${draft.total.section23MatchCount} match${draft.total.section23MatchCount === 1 ? "" : "es"}`}
-              </div>
-            </div>
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">Taxable amount</div>
-              <div
-                className={`font-bold text-[32px] num tracking-tight mt-1 ${
-                  draft.total.freigrenzeReached ? "text-bad" : "text-mint"
-                }`}
-              >
-                {fmtEur(draft.total.taxableEur)}
-              </div>
-              <div className="font-mono text-[11px] text-muted mt-1">
-                {draft.total.freigrenzeReached ? "Above €256 — full sum taxable" : "Below €256 — €0 tax owed"}
-              </div>
-            </div>
-            <div>
-              <div className="font-mono text-[11px] text-dim uppercase tracking-widest">ELSTER box</div>
-              <div className="font-mono text-[16px] mt-2 text-amber tracking-tight">Anlage SO</div>
-              <div className="font-mono text-[10px] text-muted mt-1">§22 Nr. 3 + §23</div>
-              <div className="font-mono text-[11px] text-muted mt-1">
-                {draft.total.freigrenzeReached ? "Enter sums above" : "Skip — record kept for audit"}
-              </div>
-            </div>
+          <div className="mt-4 relative">
+            <MetricsGrid
+              columns={4}
+              metrics={[
+                {
+                  label: "§22 Staking",
+                  value: fmtEur(draft.total.stakingIncomeEur),
+                  subline: `${draft.total.eventCount} payouts`,
+                  accent: "mint",
+                  valueSize: "lg",
+                },
+                {
+                  label: "§23 Short-term",
+                  value: fmtEur(draft.total.section23ShortTermGainEur, { sign: draft.total.section23ShortTermGainEur !== 0 }),
+                  subline: draft.total.section23MatchCount === 0
+                    ? "no sales"
+                    : `${draft.total.section23MatchCount} match${draft.total.section23MatchCount === 1 ? "" : "es"}`,
+                  accent: "auto",
+                  sign: draft.total.section23ShortTermGainEur,
+                  valueSize: "lg",
+                },
+                {
+                  label: "Taxable amount",
+                  value: fmtEur(draft.total.taxableEur),
+                  subline: draft.total.freigrenzeReached
+                    ? "Above €256 — full sum taxable"
+                    : "Below €256 — €0 tax owed",
+                  accent: draft.total.freigrenzeReached ? "bad" : "mint",
+                  valueSize: "lg",
+                },
+                {
+                  label: "ELSTER box",
+                  value: "Anlage SO",
+                  subline: draft.total.freigrenzeReached
+                    ? "Enter sums above · §22 Nr. 3 + §23"
+                    : "Skip — record kept for audit",
+                  accent: "amber",
+                  valueSize: "lg",
+                },
+              ]}
+            />
           </div>
         </Card>
 
@@ -91,7 +92,7 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
           <div className="mt-4 font-mono text-[11px] text-muted flex justify-between">
             <span>Used</span>
             <span>
-              <span className="text-ink font-semibold">{fmtEur(draft.total.stakingIncomeEur, 0)}</span> of €{draft.total.freigrenzeEur}
+              <span className="text-ink font-semibold">{fmtEur(combinedBaseEur, { dec: 0 })}</span> of €{draft.total.freigrenzeEur}
             </span>
           </div>
           <div className="mt-2">
@@ -103,19 +104,19 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
           </div>
           <div className={`mt-2 font-mono text-[11px] ${draft.total.freigrenzeReached ? "text-bad" : "text-mint"}`}>
             {draft.total.freigrenzeReached
-              ? `Above threshold — file Anlage SO with the full ${fmtEur(draft.total.stakingIncomeEur, 0)}`
-              : `${fmtEur(draft.total.freigrenzeEur - draft.total.stakingIncomeEur, 0)} of tax-free room remaining`}
+              ? `Above threshold — file Anlage SO with the full ${fmtEur(combinedBaseEur, { dec: 0 })}`
+              : `${fmtEur(draft.total.freigrenzeEur - combinedBaseEur, { dec: 0 })} of tax-free room remaining`}
           </div>
           <div className="mt-3 font-mono text-[10px] text-dim leading-relaxed">
             Note: the Freigrenze is shared across all §22 Nr. 3 income — staking + occasional Kleinanzeigen sales over the
             threshold + freelance gigs &lt; €256, etc. If you have any, add them before deciding.
           </div>
-          <div className="flex gap-2 mt-3">
+          <div className="flex gap-2 mt-3 flex-wrap">
             <a
-              className="bg-mint text-bg font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold"
+              className="bg-mint text-bg font-mono text-[11px] uppercase tracking-widest px-4 py-2.5 rounded-md font-semibold"
               href={`/tax/${yearNum}/anlage-so/export?format=pdf`}
             >
-              PDF
+              Export PDF · Anlage SO
             </a>
             <a
               className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold"
@@ -127,80 +128,13 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
         </Card>
       </div>
 
-      <Card className="p-0 overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex justify-between items-center">
-          <div className="font-semibold text-sm">Staking by coin</div>
-          <div className="font-mono text-[11px] text-muted">{draft.perCoin.length} coins · {draft.total.eventCount} payouts</div>
-        </div>
-        <div className="grid grid-cols-[1fr_1.4fr_0.8fr_1fr_1fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
-          <span>Coin</span>
-          <span className="text-right">Quantity</span>
-          <span className="text-right">Payouts</span>
-          <span className="text-right">Avg EUR/event</span>
-          <span className="text-right">Total EUR</span>
-        </div>
-        {draft.perCoin.length === 0 && <div className="p-6 text-muted text-sm">No staking events for {yearNum}.</div>}
-        {draft.perCoin.map((c) => (
-          <div
-            key={c.symbol}
-            className="grid grid-cols-[1fr_1.4fr_0.8fr_1fr_1fr] gap-0 px-5 py-3 font-mono text-[13px] items-center border-b border-border last:border-0"
-          >
-            <span className="font-semibold">{c.symbol}</span>
-            <span className="text-right text-muted">{c.quantity.toFixed(6)}</span>
-            <span className="text-right text-muted">{c.eventCount}</span>
-            <span className="text-right text-muted">{fmtEur(c.eventCount > 0 ? c.totalEur / c.eventCount : 0, 4)}</span>
-            <span className="text-right font-semibold text-mint">{fmtEur(c.totalEur)}</span>
-          </div>
-        ))}
-        {draft.perCoin.length > 0 && (
-          <div className="grid grid-cols-[1fr_1.4fr_0.8fr_1fr_1fr] gap-0 px-5 py-3 bg-panel2 font-mono text-[13px] font-semibold border-t border-borderHard">
-            <span className="col-span-4 font-mono text-[10px] text-muted uppercase tracking-widest">Σ Total</span>
-            <span className="text-right text-mint">{fmtEur(draft.total.stakingIncomeEur)}</span>
-          </div>
-        )}
-      </Card>
+      <StakingPerCoinTable
+        rows={draft.perCoin}
+        year={yearNum}
+        totalEur={draft.total.stakingIncomeEur}
+      />
 
-      {draft.section23Matches.length > 0 && (
-        <Card className="p-0 overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex justify-between items-center">
-            <div>
-              <div className="font-semibold text-sm">§23 Private sale matches</div>
-              <div className="font-mono text-[10px] text-muted mt-0.5">
-                Long-term (&gt;365d) are tax-free; short-term contribute to taxable §23 income
-              </div>
-            </div>
-            <div className="font-mono text-[11px] text-muted">{draft.section23Matches.length} match{draft.section23Matches.length === 1 ? "" : "es"}</div>
-          </div>
-          <div className="grid grid-cols-[1fr_1fr_0.6fr_0.8fr_0.5fr_0.9fr_0.9fr_0.9fr_0.5fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
-            <span>Opened</span>
-            <span>Closed</span>
-            <span>Coin</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Days</span>
-            <span className="text-right">Cost EUR</span>
-            <span className="text-right">Proceeds</span>
-            <span className="text-right">Gain</span>
-            <span className="text-right">LT?</span>
-          </div>
-          {draft.section23Matches.map((m, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_0.6fr_0.8fr_0.5fr_0.9fr_0.9fr_0.9fr_0.5fr] gap-0 px-5 py-3 font-mono text-[12px] items-center border-b border-border last:border-0">
-              <span className="text-muted">{m.openedAt}</span>
-              <span>{m.closedAt}</span>
-              <span className="font-semibold">{m.symbol}</span>
-              <span className="text-right text-muted">{m.qty.toFixed(6)}</span>
-              <span className="text-right text-muted">{m.holdingDays}</span>
-              <span className="text-right">{fmtEur(m.costEur)}</span>
-              <span className="text-right">{fmtEur(m.proceedsEur)}</span>
-              <span className={`text-right font-semibold ${m.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {m.gainEur >= 0 ? "+" : ""}{fmtEur(m.gainEur)}
-              </span>
-              <span className="text-right">
-                {m.isLongTerm ? <span className="text-mint">✓</span> : <span className="text-dim">—</span>}
-              </span>
-            </div>
-          ))}
-        </Card>
-      )}
+      <Section23Table matches={draft.section23Matches} />
 
       <div className="flex gap-2 font-mono text-[11px] text-dim">
         <span>ℹ</span>
