@@ -30,6 +30,23 @@ const CCY_SYMBOL: Record<string, string> = {
   EUR: "€", USD: "$", GBP: "£", CHF: "₣", JPY: "¥", SEK: "kr", HKD: "HK$", CAD: "C$",
 };
 
+/**
+ * Avatar label for the position row's circle. For tickers with 2+
+ * characters, use the first two letters. For single-letter tickers like
+ * `C` (Citigroup) or `O` (Realty Income), the avatar would duplicate
+ * the ticker — derive the initials from the company name instead so the
+ * circle adds information rather than repeats it.
+ */
+function avatarLabel(symbol: string, name?: string): string {
+  if (symbol.length >= 2) return symbol.slice(0, 2);
+  if (name) {
+    const parts = name.replace(/[^A-Za-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts[0]?.length >= 2) return parts[0].slice(0, 2).toUpperCase();
+  }
+  return symbol;
+}
+
 // Broker-level color cue. Green for Freedom, red for IBKR — applied as
 // a pill on the broker label and a 2 px left-border tint on the row when
 // the row is not currently selected (selection uses solid mint, which
@@ -99,12 +116,13 @@ export function PositionsSection({
           <div className="font-mono text-[11px] text-muted tracking-wider">{count} holdings</div>
         </div>
       </div>
-      <div className="hidden lg:grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+      <div className="hidden lg:grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
         <span>Holding</span>
         <span>Broker</span>
         <span className="text-right">Qty</span>
         <span className="text-right">Avg €</span>
         <span className="text-right">Price €</span>
+        <span className="text-right">Cost €</span>
         <span className="text-right">Value €</span>
         <span className="text-right">P/L €</span>
         <span className="text-right">P/L ccy</span>
@@ -121,7 +139,7 @@ export function PositionsSection({
           <Link
             key={r.symbol}
             href={hrefFor(r.symbol) as never}
-            className={`flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
+            className={`flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
               isSelected ? "bg-panel2 border-l-mint" : bk.borderLeft
             } border-b border-border last:border-b-0`}
           >
@@ -129,7 +147,7 @@ export function PositionsSection({
             <div className="flex items-center gap-2.5">
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold shrink-0 ${
                 isSelected ? "bg-mint/20 text-mint" : "bg-panel2 text-muted"
-              }`}>{r.symbol.slice(0,2)}</div>
+              }`}>{avatarLabel(r.symbol, r.name)}</div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-[13px]">
                   {r.symbol}{" "}
@@ -173,6 +191,10 @@ export function PositionsSection({
             <span className="hidden lg:block text-right font-mono text-xs text-muted">{r.qty}</span>
             <span className="hidden lg:block text-right font-mono text-xs text-muted">{v.avgCostEur.toFixed(2)}</span>
             <span className="hidden lg:block text-right font-mono text-xs">{r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}</span>
+            {/* Cost basis €. Uses the user's selected view (broker excludes
+                commissions, net includes them). This is the actual
+                Anschaffungskosten figure that maps to Anlage KAP. */}
+            <span className="hidden lg:block text-right font-mono text-xs text-muted">{fmtEur(v.costEur)}</span>
             <span className="hidden lg:block text-right font-mono font-semibold text-xs">{r.marketEur === null ? "—" : fmtEur(r.marketEur)}</span>
             <span className={`hidden lg:block text-right font-mono font-semibold text-xs ${plEurColor}`}>
               {v.plEur === null ? "—" : (v.plEur >= 0 ? "+" : "−") + fmtEur(v.plEur)}

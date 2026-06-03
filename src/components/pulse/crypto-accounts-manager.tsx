@@ -148,19 +148,27 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
       ) : (
         <div className="divide-y divide-border">
           {rows.map((r) => (
-            <div key={r.id} className="flex items-center gap-3 py-3">
+            <div key={r.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-start">
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold">{r.label ?? r.exchange}</div>
-                <div className="font-mono text-[10px] text-muted">
-                  <span className={r.status === "active" ? "text-mint" : "text-bad"}>● {r.status}</span>
-                  {" · "}scopes: {r.scopes}
-                  {" · "}connected {new Date(r.connectedAt).toISOString().slice(0, 10)}
-                  {r.lastSyncAt
-                    ? ` · last sync ${new Date(r.lastSyncAt).toISOString().slice(0, 10)} (${r.lastSyncEventCount} events)`
-                    : " · not yet synced"}
-                </div>
+                {/* Vertical key/value list scales to mobile without
+                    wrapping the metadata into a 4-line blob. */}
+                <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                  <dt className="text-dim">status</dt>
+                  <dd className={r.status === "active" ? "text-mint" : "text-bad"}>● {r.status}</dd>
+                  <dt className="text-dim">scopes</dt>
+                  <dd className="text-muted">{r.scopes}</dd>
+                  <dt className="text-dim">connected</dt>
+                  <dd className="text-muted">{new Date(r.connectedAt).toISOString().slice(0, 10)}</dd>
+                  <dt className="text-dim">last sync</dt>
+                  <dd className="text-muted">
+                    {r.lastSyncAt
+                      ? `${new Date(r.lastSyncAt).toISOString().slice(0, 10)} · ${r.lastSyncEventCount} events`
+                      : "not yet synced"}
+                  </dd>
+                </dl>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 self-end sm:self-start">
                 <button
                   onClick={() => sync(r.id)}
                   disabled={pending}

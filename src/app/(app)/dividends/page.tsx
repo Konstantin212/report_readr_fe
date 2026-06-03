@@ -1,27 +1,31 @@
 import { requireCurrentUser } from "@/lib/auth/server";
 import { getDividendsData } from "@/lib/data/dividends";
 import { Card } from "@/components/pulse/card";
-import { BrokerFilter } from "@/components/pulse/broker-filter";
 import { ProgressBar } from "@/components/pulse/progress-bar";
 import { DividendMonthlyBars } from "@/components/pulse/dividend-monthly-bars";
 import { UpcomingList } from "@/components/pulse/upcoming-list";
 import { TopPayersList } from "@/components/pulse/top-payers-list";
+import { DividendsTable } from "@/components/pulse/dividends-table";
+import { fmtEur } from "@/lib/format";
 
-type SP = Promise<{ broker?: string }>;
+type SP = Promise<{ broker?: string; page?: string }>;
 
 export default async function DividendsPage({ searchParams }: { searchParams: SP }) {
   const user = await requireCurrentUser();
   const params = await searchParams;
   const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
-  const d = await getDividendsData(user.id, broker);
+  const page = Math.max(1, Number(params.page ?? "1") || 1);
+  const d = await getDividendsData(user.id, broker, page);
 
-  const fmtEur = (v: number, dec = 2) => "€" + v.toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const preservedQuery: Record<string, string> = {};
+  if (broker !== "all") preservedQuery.broker = broker;
 
   return (
     <main className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Dividends</h1>
-        <BrokerFilter active={broker} />
+        {/* Broker filter lives in the global topbar; removed the
+            duplicate that previously confused users. */}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr] gap-4">
@@ -60,10 +64,10 @@ export default async function DividendsPage({ searchParams }: { searchParams: SP
 
         <Card>
           <div className="font-mono text-[11px] text-muted uppercase tracking-widest">Projection {new Date().getFullYear()}</div>
-          <div className="font-bold text-[36px] num tracking-tight mt-2">{fmtEur(d.projection.yearEur, 0)}</div>
+          <div className="font-bold text-[36px] num tracking-tight mt-2">{fmtEur(d.projection.yearEur, { dec: 0 })}</div>
           <div className="font-mono text-[11px] text-dim mt-1">based on TTM rate</div>
           <div className="mt-4 px-3 py-2 bg-panel2 rounded-md font-mono text-xs text-muted">
-            Next 30 days · <span className="text-amber font-semibold">{fmtEur(d.projection.next30DaysEur, 0)}</span>
+            Next 30 days · <span className="text-amber font-semibold">{fmtEur(d.projection.next30DaysEur, { dec: 0 })}</span>
             {d.projection.next30Count > 0 && <> from {d.projection.next30Count} holdings</>}
           </div>
         </Card>
@@ -87,29 +91,16 @@ export default async function DividendsPage({ searchParams }: { searchParams: SP
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
-        <Card className="p-0 overflow-hidden">
-          <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-            <div className="font-semibold text-[14px]">All distributions · {new Date().getFullYear()}</div>
-            <a href={`/api/dividends/export.csv`} className="font-mono text-[11px] text-muted hover:text-ink">export csv →</a>
-          </div>
-          <div className="grid grid-cols-[0.9fr_0.7fr_0.6fr_0.9fr_0.8fr] gap-0 px-5 py-2.5 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
-            <span>Date</span>
-            <span>Ticker</span>
-            <span>Broker</span>
-            <span className="text-right">Gross</span>
-            <span className="text-right">WHT</span>
-          </div>
-          {d.rows.length === 0 && <div className="p-6 text-muted text-sm">No dividends recorded.</div>}
-          {d.rows.map((r, i) => (
-            <div key={i} className="grid grid-cols-[0.9fr_0.7fr_0.6fr_0.9fr_0.8fr] gap-0 px-5 py-2.5 font-mono text-xs border-b border-border last:border-0">
-              <span className="text-muted">{r.date}</span>
-              <span className="text-ink font-semibold">{r.ticker}</span>
-              <span className="text-muted">{r.broker}</span>
-              <span className="text-right text-amber">{r.ccy} {r.amount.toFixed(2)}</span>
-              <span className="text-right text-muted">−{r.ccy} {r.whtEur.toFixed(2)}</span>
-            </div>
-          ))}
-        </Card>
+        <DividendsTable
+          rows={d.rows}
+          total={d.rowsTotal}
+          page={d.page}
+          pageSize={d.pageSize}
+          year={new Date().getFullYear()}
+          exportHref="/api/dividends/export.csv"
+          basePath="/dividends"
+          preservedQuery={preservedQuery}
+        />
         <Card>
           <div className="font-semibold text-[14px] mb-3">Top payers · TTM</div>
           <TopPayersList items={d.topPayers} />

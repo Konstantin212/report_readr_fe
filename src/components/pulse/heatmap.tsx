@@ -41,7 +41,10 @@ export function Heatmap({ rows, hideEmpty = true }: { rows: HeatmapRow[]; hideEm
           <span>+5%</span>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      {/* The mask-image fade on the right edge tells the user there is
+          more content offscreen on mobile. The fade disappears at lg:
+          where the grid fits without scrolling. */}
+      <div className="overflow-x-auto relative [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)] lg:[mask-image:none] -mx-1 px-1">
         <div className="space-y-1.5 min-w-[600px]">
         <div className="grid grid-cols-[40px_repeat(12,1fr)] gap-1 font-mono text-[9px] text-dim tracking-wide">
           <span />

@@ -88,14 +88,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
 
           {section === "crypto" && (
             <Card>
-              <div className="flex justify-between items-baseline mb-3">
-                <div>
-                  <div className="font-semibold text-base">Crypto exchanges</div>
+              <div className="flex flex-wrap gap-3 justify-between items-start mb-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="font-semibold text-base">Crypto exchanges</div>
+                    <span className="font-mono text-[9px] text-mint bg-mint/10 px-1.5 py-0.5 rounded tracking-wider whitespace-nowrap">● ENCRYPTED</span>
+                  </div>
                   <div className="font-mono text-[11px] text-muted mt-1">
                     Connect a read-only Coinbase CDP key. Used for balance display + staking-income tracking (Anlage SO).
                   </div>
                 </div>
-                <div className="font-mono text-[10px] text-mint tracking-wider">● ENCRYPTED AT REST</div>
               </div>
               <CryptoAccountsManager
                 initial={cryptoAccounts.map((a) => ({
@@ -139,7 +141,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
           )}
 
           {section === "tax" && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <Card>
                 <div className="font-semibold text-base mb-3">Tax &amp; jurisdiction</div>
                 <SettingRow label="Jurisdiction" value="🇩🇪 Germany" />
@@ -163,7 +165,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
           {section === "notifications" && (
             <Card>
               <div className="font-semibold text-base mb-3">Notifications</div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <ToggleRow label="Daily summary email" sub="One mail per day, 9:00" on={settings?.notifyDailySummary ?? false} />
                 <ToggleRow label="Tax draft updates" sub="When realized lots change" on={false} />
               </div>
@@ -177,7 +179,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                 <div className="font-semibold text-base">Appearance &amp; privacy</div>
                 <div className="font-mono text-[11px] text-mint tracking-wider">● 100% LOCAL PARSING</div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <ToggleRow label="Hide values" sub="Tap eye icon to reveal" on={settings?.hideValues ?? false} />
                 <ToggleRow label="Auto-redact tickers" sub="Useful in screen shares" on={settings?.autoRedactTickers ?? false} />
                 <ToggleRow label="Daily summary email" sub="One mail per day, 9:00" on={settings?.notifyDailySummary ?? false} />
