@@ -38,6 +38,13 @@ export type NormalizedEvent = {
   realizedPnlEur?: string;
   fee?: string;
   feeEur?: string;
+  /**
+   * Currency of the `fee` field when it differs from `currency`.
+   * Freedom Finance reports commissions in the account base currency
+   * (EUR) while the trade itself is in USD — without this, FX would
+   * mis-convert an already-EUR fee. Absent → fee uses `currency`.
+   */
+  feeCurrency?: string;
   withholdingTax?: string;
   withholdingTaxEur?: string;
   fxSource?: "BROKER" | "ECB" | "MANUAL_REVIEW" | "MISSING";

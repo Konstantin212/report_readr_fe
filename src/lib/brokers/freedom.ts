@@ -174,6 +174,21 @@ export function parseFreedomFinanceStatement(
     ...parseCorporateActions(statement.corporate_actions?.detailed ?? [], accountNumber),
   ];
 
+  // Freedom stamps ISIN on TRADE rows but leaves it off DIVIDEND and
+  // WITHHOLDING_TAX rows. Backfill the missing ISINs from the symbol→ISIN
+  // map built off TRADEs so downstream joins (tax evidence CSV, position
+  // grouping) don't have to special-case it.
+  const symbolToIsin = new Map<string, string>();
+  for (const ev of events) {
+    if (ev.type === "TRADE" && ev.symbol && ev.isin) symbolToIsin.set(ev.symbol, ev.isin);
+  }
+  for (const ev of events) {
+    if (ev.isin || !ev.symbol) continue;
+    if (ev.type !== "DIVIDEND" && ev.type !== "WITHHOLDING_TAX") continue;
+    const isin = symbolToIsin.get(ev.symbol);
+    if (isin) ev.isin = isin;
+  }
+
   return { account, events };
 }
 
@@ -227,6 +242,16 @@ function parseTrades(rows: FreedomTrade[], accountNumber: string): NormalizedEve
       const quantity = signedQuantity(row.q, operation);
       const fee = absoluteNumber(row.commission);
       const signedAmount = signTradeAmount(cleanNumber(row.summ), operation);
+      const tradeCurrency = cleanString(row.curr_c) ?? "UNKNOWN";
+      const feeCurrency = cleanString(row.commission_currency);
+      // The fee can be in a different currency than the trade (Freedom
+      // bills commissions in the account base currency, usually EUR,
+      // while the trade is USD). When the two differ, rolling fee into
+      // cashAmount would mix currencies in a single native field —
+      // keep cashAmount = signedAmount and let the FX layer derive the
+      // combined cashAmountEur from amountEur + feeEur.
+      const sameCurrencyFee = !feeCurrency || feeCurrency === tradeCurrency;
+      const cashAmount = sameCurrencyFee ? subtractNumbers(signedAmount, fee) : signedAmount;
 
       return [withTaxReview(compactEvent<NormalizedEvent>({
         id: cleanString(row.id) ?? `freedom-trade-${index + 1}`,
@@ -234,17 +259,18 @@ function parseTrades(rows: FreedomTrade[], accountNumber: string): NormalizedEve
         accountNumber,
         type: "TRADE",
         date,
-        currency: cleanString(row.curr_c) ?? "UNKNOWN",
+        currency: tradeCurrency,
         symbol,
         isin: cleanString(row.isin),
         description: operation,
         quantity,
         price: cleanNumber(row.p),
         amount: signedAmount,
-        cashAmount: subtractNumbers(signedAmount, fee),
+        cashAmount,
         proceeds: signedAmount,
         realizedPnl: cleanNumber(row.profit),
         fee,
+        feeCurrency: sameCurrencyFee ? undefined : feeCurrency,
         source: "trades.detailed",
       }))];
     });

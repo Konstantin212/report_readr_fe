@@ -26,7 +26,8 @@ function lookupRate(rates: Map<string, string>, currency: string, date: string):
 }
 
 export function convertEventToEur(event: NormalizedEvent, rates: Map<string, string>): NormalizedEvent {
-  if (event.currency === "EUR") {
+  // Fast path: everything is already in EUR. Copy native amounts to EUR.
+  if (event.currency === "EUR" && (!event.feeCurrency || event.feeCurrency === "EUR")) {
     const out: NormalizedEvent = { ...event, fxSource: "BROKER" };
     for (const f of AMOUNT_FIELDS) {
       const v = event[f];
@@ -35,15 +36,50 @@ export function convertEventToEur(event: NormalizedEvent, rates: Map<string, str
     return out;
   }
 
-  const rate = lookupRate(rates, event.currency, event.date);
-  if (!rate) return { ...event, fxSource: "MISSING", requiresReview: true };
+  // Convert the main amount via the trade currency's rate. EUR-denominated
+  // trades skip the lookup (rate == 1).
+  let amountRate: Decimal | null = null;
+  if (event.currency === "EUR") {
+    amountRate = new Decimal(1);
+  } else {
+    const r = lookupRate(rates, event.currency, event.date);
+    if (!r) return { ...event, fxSource: "MISSING", requiresReview: true };
+    amountRate = new Decimal(r);
+  }
+
+  // If the fee lives in a different currency, look up its rate
+  // separately. Missing fee rate → flag for review.
+  const feeCurrency = event.feeCurrency;
+  let feeRate: Decimal | null = null;
+  if (feeCurrency && feeCurrency !== event.currency) {
+    if (feeCurrency === "EUR") {
+      feeRate = new Decimal(1);
+    } else {
+      const r = lookupRate(rates, feeCurrency, event.date);
+      if (!r) return { ...event, fxSource: "MISSING", requiresReview: true };
+      feeRate = new Decimal(r);
+    }
+  }
 
   const out: NormalizedEvent = { ...event, fxSource: "ECB" };
-  const r = new Decimal(rate);
   for (const f of AMOUNT_FIELDS) {
     const v = event[f];
     if (v === undefined) continue;
-    (out as Record<string, unknown>)[`${f}Eur`] = new Decimal(v).div(r).toFixed(2);
+    const rate = f === "fee" && feeRate !== null ? feeRate : amountRate;
+    (out as Record<string, unknown>)[`${f}Eur`] = new Decimal(v).div(rate).toFixed(2);
   }
+
+  // When fee uses its own currency, the native cashAmount intentionally
+  // omits the fee (mixing currencies in one field would be meaningless).
+  // Reconstruct cashAmountEur from the EUR components so the cost basis
+  // reflects the full out-of-pocket cost.
+  if (feeRate !== null) {
+    const amountEur = out.amountEur ? new Decimal(out.amountEur) : new Decimal(0);
+    const feeEur = out.feeEur ? new Decimal(out.feeEur) : new Decimal(0);
+    // amount is signed (negative for a buy); fee is positive; out-of-pocket
+    // is amount - fee (so a buy of -1789.81 with fee 10.56 → -1800.37).
+    out.cashAmountEur = amountEur.minus(feeEur).toFixed(2);
+  }
+
   return out;
 }
