@@ -11,6 +11,7 @@ export function TopbarNav() {
     { href: "/", label: "Dashboard", match: (p: string) => p === "/" },
     { href: "/performance", label: "Performance", match: (p: string) => p.startsWith("/performance") },
     { href: "/positions", label: "Positions", match: (p: string) => p.startsWith("/positions") },
+    { href: "/crypto", label: "Crypto", match: (p: string) => p.startsWith("/crypto") },
     { href: "/dividends", label: "Dividends", match: (p: string) => p.startsWith("/dividends") },
     { href: `/tax/${currentYear}`, label: "Tax", match: (p: string) => p.startsWith("/tax") },
     { href: "/upload", label: "Upload", match: (p: string) => p.startsWith("/upload") },
