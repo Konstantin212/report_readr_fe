@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BrokerFilter } from "@/components/pulse/broker-filter";
 import { TopbarNav } from "@/components/pulse/topbar-nav";
 import { UserMenu } from "@/components/pulse/user-menu";
+import { TourTrigger } from "@/components/onboarding/tour-host";
 
 export function Topbar({
   user,
@@ -19,6 +20,7 @@ export function Topbar({
       </div>
       <div className="ml-auto flex items-center gap-2">
         <BrokerFilter />
+        <TourTrigger />
         <UserMenu name={user?.name} email={user?.email} />
       </div>
     </header>

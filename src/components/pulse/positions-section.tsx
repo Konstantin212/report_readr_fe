@@ -47,22 +47,31 @@ function avatarLabel(symbol: string, name?: string): string {
   return symbol;
 }
 
-// Broker-level color cue. Green for Freedom, red for IBKR — applied as
-// a pill on the broker label and a 2 px left-border tint on the row when
-// the row is not currently selected (selection uses solid mint, which
-// takes precedence so the selected state still pops).
+// Broker-level color cue. Uses each broker's actual brand color rather
+// than the semantic `mint` / `bad` tokens — `mint` belongs to positive
+// numbers and `bad` to losses/errors. A position from IBKR isn't "bad",
+// and a Freedom position isn't "good". Applied as a pill on the broker
+// label and a 2 px left-border tint on the row when the row is not
+// currently selected (selection uses solid mint, which takes precedence
+// so the selected state still pops).
 function brokerStyle(broker: string): { chip: string; borderLeft: string } {
   const norm = broker.toUpperCase();
   if (norm === "FF" || norm.startsWith("FREEDOM")) {
     return {
-      chip: "bg-mint/15 text-mint border border-mint/30",
-      borderLeft: "border-l-mint/40",
+      chip: "bg-brand-freedom/15 text-brand-freedom border border-brand-freedom/30",
+      borderLeft: "border-l-brand-freedom/40",
     };
   }
   if (norm === "IBKR") {
     return {
-      chip: "bg-bad/15 text-bad border border-bad/30",
-      borderLeft: "border-l-bad/40",
+      chip: "bg-brand-ibkr/15 text-brand-ibkr border border-brand-ibkr/30",
+      borderLeft: "border-l-brand-ibkr/40",
+    };
+  }
+  if (norm === "CB" || norm.startsWith("COINBASE")) {
+    return {
+      chip: "bg-brand-coinbase/15 text-brand-coinbase border border-brand-coinbase/30",
+      borderLeft: "border-l-brand-coinbase/40",
     };
   }
   return { chip: "bg-panel2 text-muted", borderLeft: "border-l-transparent" };
