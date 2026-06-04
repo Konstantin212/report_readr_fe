@@ -1,4 +1,6 @@
-import type { Broker, EventType } from "@/lib/domain/types";
+import type { Broker, EventType, NormalizedEvent } from "@/lib/domain/types";
+
+export type { NormalizedEvent };
 
 export const brokerIds = ["INTERACTIVE_BROKERS", "FREEDOM_FINANCE"] as const;
 
@@ -25,39 +27,6 @@ export type BrokerAccountMetadata = {
   statementEndDate?: string;
   fileName: string;
   taxYear: number;
-};
-
-export type NormalizedEvent = {
-  id: string;
-  broker: BrokerId;
-  accountNumber: string;
-  type: NormalizedEventType;
-  date: string;
-  currency: string;
-  symbol?: string;
-  isin?: string;
-  name?: string;
-  description?: string;
-  quantity?: string;
-  price?: string;
-  amount?: string;
-  amountEur?: string;
-  cashAmount?: string;
-  cashAmountEur?: string;
-  proceeds?: string;
-  proceedsEur?: string;
-  fee?: string;
-  feeEur?: string;
-  realizedPnl?: string;
-  realizedPnlEur?: string;
-  withholdingTax?: string;
-  withholdingTaxEur?: string;
-  fxSource?: "BROKER" | "MANUAL_REVIEW" | "MISSING";
-  requiresReview?: boolean;
-  reviewedAt?: string;
-  reviewedByUserId?: string;
-  reviewNote?: string;
-  source?: string;
 };
 
 export type ParsedBrokerStatement = {
