@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, TrendingUp, Wallet, Coins, Receipt, Upload } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Wallet, Coins, Receipt, Upload, Bitcoin } from "lucide-react";
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -10,6 +10,7 @@ export function BottomNav() {
     { href: "/", label: "Dash", Icon: LayoutDashboard, match: (p: string) => p === "/" },
     { href: "/performance", label: "Perf", Icon: TrendingUp, match: (p: string) => p.startsWith("/performance") },
     { href: "/positions", label: "Pos", Icon: Wallet, match: (p: string) => p.startsWith("/positions") },
+    { href: "/crypto", label: "Crypto", Icon: Bitcoin, match: (p: string) => p.startsWith("/crypto") },
     { href: "/dividends", label: "Div", Icon: Coins, match: (p: string) => p.startsWith("/dividends") },
     { href: `/tax/${currentYear}`, label: "Tax", Icon: Receipt, match: (p: string) => p.startsWith("/tax") },
     { href: "/upload", label: "Up", Icon: Upload, match: (p: string) => p.startsWith("/upload") },
