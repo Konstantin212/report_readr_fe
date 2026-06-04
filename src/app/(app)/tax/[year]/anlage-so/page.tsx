@@ -7,10 +7,20 @@ import { Section23Table } from "@/components/pulse/section23-table";
 import { StakingPerCoinTable } from "@/components/pulse/staking-per-coin-table";
 import { fmtEur } from "@/lib/format";
 
-export default async function AnlageSoPage({ params }: { params: Promise<{ year: string }> }) {
+type SP = Promise<{ page?: string }>;
+
+export default async function AnlageSoPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ year: string }>;
+  searchParams: SP;
+}) {
   const user = await requireCurrentUser();
   const { year } = await params;
   const yearNum = Number(year);
+  const sp = await searchParams;
+  const page = Math.max(1, Number(sp.page ?? "1") || 1);
   const draft = await buildAnlageSo(user.id, yearNum, user.name ?? null);
 
   const combinedBaseEur = draft.total.stakingIncomeEur + draft.total.section23ShortTermGainEur;
@@ -134,7 +144,11 @@ export default async function AnlageSoPage({ params }: { params: Promise<{ year:
         totalEur={draft.total.stakingIncomeEur}
       />
 
-      <Section23Table matches={draft.section23Matches} />
+      <Section23Table
+        matches={draft.section23Matches}
+        page={page}
+        basePath={`/tax/${yearNum}/anlage-so`}
+      />
 
       <div className="flex gap-2 font-mono text-[11px] text-dim">
         <span>ℹ</span>

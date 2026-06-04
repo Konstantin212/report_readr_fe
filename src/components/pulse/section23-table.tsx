@@ -1,13 +1,35 @@
 import { DataTable, type Column } from "./data-table";
+import { Pagination } from "./pagination";
 import { fmtEur, fmtQty } from "@/lib/format";
 import type { Section23Match } from "@/lib/tax/anlage-so";
+
+export const SECTION23_PAGE_SIZE = 25;
 
 /**
  * Anlage SO §23 private-sale matches table. Crypto-specific FIFO closes
  * with the long-term (>365d) tax-free flag.
+ *
+ * Slices `matches` for the requested page in-component (the full array is
+ * cheap to ship — Anlage SO already loads all matches to compute totals,
+ * paginating on the data layer would just duplicate the work).
  */
-export function Section23Table({ matches }: { matches: Section23Match[] }) {
+export function Section23Table({
+  matches,
+  page = 1,
+  pageSize = SECTION23_PAGE_SIZE,
+  basePath,
+  preservedQuery,
+}: {
+  matches: Section23Match[];
+  page?: number;
+  pageSize?: number;
+  /** When provided, enables pagination footer linking back to this path. */
+  basePath?: string;
+  preservedQuery?: Record<string, string>;
+}) {
   if (matches.length === 0) return null;
+  const total = matches.length;
+  const sliced = basePath ? matches.slice((page - 1) * pageSize, page * pageSize) : matches;
 
   const columns: Column<Section23Match>[] = [
     { key: "opened",   label: "Opened",   gridCol: "1fr",
@@ -40,9 +62,9 @@ export function Section23Table({ matches }: { matches: Section23Match[] }) {
     <DataTable<Section23Match>
       title="§23 Private sale matches"
       meta="Long-term (>365d) are tax-free; short-term contribute to taxable §23 income"
-      trailingHeader={<span className="font-mono text-[11px] text-muted">{matches.length} match{matches.length === 1 ? "" : "es"}</span>}
+      trailingHeader={<span className="font-mono text-[11px] text-muted">{total} match{total === 1 ? "" : "es"}</span>}
       columns={columns}
-      rows={matches}
+      rows={sliced}
       rowKey={(m, i) => `${m.openedAt}-${m.closedAt}-${m.symbol}-${i}`}
       renderMobileCard={(m) => (
         <div className="flex flex-col gap-2">
@@ -76,6 +98,16 @@ export function Section23Table({ matches }: { matches: Section23Match[] }) {
           </div>
         </div>
       )}
+      afterRows={basePath ? (
+        <Pagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          basePath={basePath}
+          preservedQuery={preservedQuery}
+          itemLabel={{ singular: "match", plural: "matches" }}
+        />
+      ) : undefined}
     />
   );
 }
