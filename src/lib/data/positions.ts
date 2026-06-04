@@ -137,23 +137,40 @@ export async function getPositionsData(
   const filteredLots = allLots.filter(l => accountIdsSet.has(l.brokerAccountId));
   const txById = new Map(allTxs.map(t => [t.id, t]));
 
-  // Total dividends received per (brokerAccountId, identity = isin ?? symbol),
-  // keyed in EUR (cash_amount_eur is post-WHT — the cash that actually
-  // arrived on the account). Used to layer dividend return into the `net`
-  // view's P/L. Held positions get credited the dividends paid while they
-  // were open; closed positions don't surface here because the row group
-  // only exists when remainingQty > 0.
+  // For each (brokerAccountId, symbol) with an open lot, the earliest
+  // opened_at among those lots. Dividends paid before this date belong to
+  // a previously-closed lot and should NOT be attributed to the current
+  // position. Without this, e.g. a user who held O in 2022-2024, sold,
+  // then reopened in 2025-09 would see 2022-2024 dividends credited
+  // against the new lot — wrong.
+  const earliestOpenBySymbol = new Map<string, string>();
+  for (const l of filteredLots) {
+    const k = `${l.brokerAccountId}|${l.symbol}`;
+    const prior = earliestOpenBySymbol.get(k);
+    if (!prior || l.openedAt < prior) earliestOpenBySymbol.set(k, l.openedAt);
+  }
+
+  // Net dividends received per (brokerAccountId, symbol), keyed in EUR.
+  //
+  // Each broker distribution lands as two atomic rows in our ledger: the
+  // gross DIVIDEND, and a negative WITHHOLDING_TAX (so Anlage KAP can use
+  // gross in Z19 and WHT in Z51 separately). For the position-level
+  // "dividends received" footnote and the net P/L view, we want the
+  // user-facing *net cash that arrived* = sum(div.cash) + sum(wht.cash).
+  //
+  // Join by symbol — Freedom stamps ISIN on TRADE rows but not on
+  // DIVIDEND/WHT rows, so an isin-first join would miss every match.
   const dividendsByKey = new Map<string, { eur: Decimal; native: Decimal; currency: string | null }>();
   for (const t of allTxs) {
-    if (t.eventType !== "DIVIDEND") continue;
-    if (!t.brokerAccountId) continue;
-    const identity = t.isin ?? t.symbol;
-    if (!identity) continue;
-    const k = `${t.brokerAccountId}|${identity}`;
+    if (t.eventType !== "DIVIDEND" && t.eventType !== "WITHHOLDING_TAX") continue;
+    if (!t.brokerAccountId || !t.symbol) continue;
+    const k = `${t.brokerAccountId}|${t.symbol}`;
+    const earliest = earliestOpenBySymbol.get(k);
+    if (earliest && t.eventDate < earliest) continue;
     const slot = dividendsByKey.get(k) ?? { eur: new Decimal(0), native: new Decimal(0), currency: null };
     if (t.cashAmountEur) slot.eur = slot.eur.plus(t.cashAmountEur);
     if (t.cashAmount) slot.native = slot.native.plus(t.cashAmount);
-    if (!slot.currency && t.currency) slot.currency = t.currency;
+    if (!slot.currency && t.currency && t.eventType === "DIVIDEND") slot.currency = t.currency;
     dividendsByKey.set(k, slot);
   }
 
@@ -301,11 +318,9 @@ export async function getPositionsData(
     const brokerCostEur = Math.max(0, netCostEur - feesEur);
 
     // Dividends received on this position (post-WHT, what cash arrived).
-    // Layered into the `net` view's P/L. The accessor groups by
-    // (brokerAccountId, isin ?? symbol) so dividends naturally follow the
-    // position even when the ticker has been canonicalized.
-    const divKey = `${g.brokerAccountId}|${g.isin ?? g.symbol}`;
-    const divSlot = dividendsByKey.get(divKey);
+    // Layered into the `net` view's P/L. Joined by symbol — see
+    // dividendsByKey above for why we don't key by ISIN here.
+    const divSlot = g.symbol ? dividendsByKey.get(`${g.brokerAccountId}|${g.symbol}`) : undefined;
     const dividendsEur = divSlot ? Number(divSlot.eur) : 0;
     const dividendsNative = divSlot && divSlot.currency === nativeCcy ? Number(divSlot.native) : 0;
 
@@ -397,17 +412,28 @@ export async function getPositionsData(
 
       // Dividends YTD / TTM for this symbol — reuse the already-loaded
       // transactions instead of re-querying.
+      //
+      // Net of WHT (gross DIVIDEND + negative WITHHOLDING_TAX rows), and
+      // scoped to the earliest currently-open lot's opened_at — otherwise
+      // dividends from a prior closed-and-reopened position would leak in.
       const yr = String(new Date().getFullYear());
-      const symDivs = allTxs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate.startsWith(yr));
-      const dividendsYtdEur = symDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
+      const earliestOpen = matching.reduce((min, l) => l.openedAt < min ? l.openedAt : min, matching[0]?.openedAt ?? new Date().toISOString().slice(0,10));
+      const isDivOrWht = (t: typeof allTxs[number]) =>
+        (t.eventType === "DIVIDEND" || t.eventType === "WITHHOLDING_TAX")
+        && t.symbol === sel.symbol
+        && t.eventDate >= earliestOpen;
+      const symRows = allTxs.filter(isDivOrWht);
+      const dividendsYtdEur = symRows
+        .filter(t => t.eventDate.startsWith(yr))
+        .reduce((s, t) => s + Number(t.cashAmountEur ?? 0), 0);
 
       // TTM dividends for yield on cost
       const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-      const ttmDivs = allTxs.filter(t => t.eventType === "DIVIDEND" && t.symbol === sel.symbol && t.eventDate >= cutoff);
-      const ttmEur = ttmDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
+      const ttmEur = symRows
+        .filter(t => t.eventDate >= cutoff)
+        .reduce((s, t) => s + Number(t.cashAmountEur ?? 0), 0);
       const yieldOnCostPct = yieldOnCost(ttmEur, sel.views.net.costEur) * 100;
 
-      const earliestOpen = matching.reduce((min, l) => l.openedAt < min ? l.openedAt : min, matching[0]?.openedAt ?? new Date().toISOString().slice(0,10));
       const daysHeld = Math.floor((Date.now() - Date.parse(earliestOpen)) / 86400000);
 
       selected = { ...sel, sparkline, sparkPctChange, lots: detailLots, dividendsYtdEur, yieldOnCostPct, daysHeld };
