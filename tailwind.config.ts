@@ -18,6 +18,15 @@ export default {
         amber:    "var(--accent-amber, #FFD24A)",
         pink:     "var(--accent-pink, #FF5DA2)",
         bad:      "#FF6F6F",
+        // Broker brand colors. Used wherever we *identify* a broker
+        // (chip pills, the tour selector). Kept separate from semantic
+        // tokens like `mint` (positive numbers) and `bad` (loss/error)
+        // so the brand doesn't read as "good" or "bad".
+        brand: {
+          ibkr:     "#B91C1C", // IBKR red diamond
+          freedom:  "#2EA245", // Freedom Holding shield green
+          coinbase: "#0052FF", // Coinbase blue
+        },
       },
       fontFamily: {
         sans: ["var(--font-geist-sans)", "Inter Tight", "system-ui", "sans-serif"],
