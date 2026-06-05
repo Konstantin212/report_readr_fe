@@ -11,7 +11,14 @@ import { hasValidCronSecret } from "@/lib/auth/cron";
 
 export const maxDuration = 60;
 
-const BACKFILL_SINCE = "2023-01-01";
+// ECB publishes the historical series from 1999 onwards (~5 MB XML).
+// Pre-2020 currencies become more sparse and we don't expect anyone to
+// import statements that old, but the cost of bringing the window
+// forward to 2020-01-01 is negligible — a few hundred extra rows — and
+// it covers pre-2023 Freedom24 and IBKR history that would otherwise
+// land with fx_source = MISSING and silently fall back to native
+// amounts as if they were EUR (severely inflating cost basis).
+const BACKFILL_SINCE = "2020-01-01";
 const AMOUNT_FIELDS = [
   "amount",
   "cashAmount",
