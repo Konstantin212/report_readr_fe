@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { Card } from "./card";
 import { Sparkline } from "./sparkline";
 import { usePnlMode } from "./pnl-mode";
+import { classifyQuoteFreshness } from "@/lib/quotes/freshness";
 
 export type Lot = {
   openedAt: string;
@@ -37,6 +38,12 @@ export type DetailData = {
   feesEur: number;
   yieldOnCostPct: number;
   daysHeld: number;
+  /** ISO date of the cached spot price (latest entry in quote_cache) —
+   *  null if we never priced this symbol. Surfaced as a small "as of …"
+   *  chip below the value; turns amber/red when the quote falls behind
+   *  so silent cron failures are visible in the UI instead of just
+   *  skewing the P/L number. */
+  priceAsOf?: string | null;
 };
 
 export function PositionDetailPanel({ d }: { d: DetailData }) {
@@ -78,6 +85,7 @@ export function PositionDetailPanel({ d }: { d: DetailData }) {
           <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Position value</div>
           <div className="font-bold text-[28px] num mt-1 tracking-tight">{fmtEur(d.marketEur)}</div>
           <div className="font-mono text-[11px] text-muted mt-1">{d.qty} × {fmtEur(d.pricePerUnitEur, 2)}</div>
+          {d.priceAsOf !== undefined && <QuoteFreshnessChip asOf={d.priceAsOf} />}
         </div>
         <div>
           <div className="font-mono text-[10px] text-dim uppercase tracking-widest flex items-center gap-1.5">
@@ -157,5 +165,28 @@ export function PositionDetailPanel({ d }: { d: DetailData }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+/** "as of YYYY-MM-DD" chip under the position value. Colour cue when
+ *  the cached spot price has fallen behind — so a broken quote cron
+ *  shows up in the UI instead of silently skewing P/L. */
+function QuoteFreshnessChip({ asOf }: { asOf: string | null | undefined }) {
+  if (!asOf) {
+    return (
+      <div className="font-mono text-[10px] text-dim mt-1.5 inline-flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-dim" /> no recent quote
+      </div>
+    );
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const level = classifyQuoteFreshness(asOf, today);
+  const cls = level === "stale" ? "text-bad" : level === "ok" ? "text-amber" : "text-dim";
+  const dot = level === "stale" ? "bg-bad" : level === "ok" ? "bg-amber" : "bg-mint";
+  return (
+    <div className={`font-mono text-[10px] mt-1.5 inline-flex items-center gap-1 ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      as of {asOf}{level === "stale" && " · stale"}
+    </div>
   );
 }

@@ -116,6 +116,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
           feesEur: d.selected.feesEur,
           yieldOnCostPct: d.selected.yieldOnCostPct,
           daysHeld: d.selected.daysHeld,
+          priceAsOf: d.selected.asOf,
         }} />}
       </div>
     </main>
