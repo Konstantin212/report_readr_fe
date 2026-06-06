@@ -8,6 +8,7 @@ type Result = {
   unpriced?: string[];
   skipped?: number;
   bySource?: Record<string, number>;
+  twelveDataConfigured?: boolean;
 };
 
 /**
@@ -59,6 +60,13 @@ export function RefreshQuotesButton() {
               {(result.bySource.none ?? 0) > 0 && <> · <span className="text-bad">none {result.bySource.none}</span></>}
             </span>
           ) : null}
+          {result.twelveDataConfigured === false && (
+            <div className="mt-1 text-amber text-[10px]">
+              TWELVE_DATA_API_KEY not set in this environment — Twelve Data was skipped.
+              Add the key in Vercel → Settings → Environment Variables, scope it to
+              Production, then redeploy.
+            </div>
+          )}
         </div>
       )}
       {error && <div className="font-mono text-[11px] text-bad">{error}</div>}
