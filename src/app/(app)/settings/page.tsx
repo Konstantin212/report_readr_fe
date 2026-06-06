@@ -12,6 +12,8 @@ import { SettingsSidebar } from "@/components/pulse/settings-sidebar";
 import { ResetBrokerButton } from "@/components/pulse/reset-broker-button";
 import { BackfillFxButton } from "@/components/pulse/backfill-fx-button";
 import { RefreshQuotesButton } from "@/components/pulse/refresh-quotes-button";
+import { QuoteStatusTable } from "@/components/pulse/quote-status-table";
+import { getQuoteStatus } from "@/lib/data/quote-status";
 import { MembersManager } from "@/components/pulse/members-manager";
 import { CryptoAccountsManager } from "@/components/pulse/crypto-accounts-manager";
 
@@ -27,6 +29,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
     ? await getDb().select().from(allowedEmails).orderBy(desc(allowedEmails.addedAt))
     : [];
   const cryptoAccounts = section === "crypto" ? await listCryptoAccountsForUser(user.id) : [];
+  const quoteStatus = section === "tax" ? await getQuoteStatus(user.id) : [];
 
   return (
     <main className="space-y-4">
@@ -142,25 +145,28 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
           )}
 
           {section === "tax" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <Card>
-                <div className="font-semibold text-base mb-3">Tax &amp; jurisdiction</div>
-                <SettingRow label="Jurisdiction" value="🇩🇪 Germany" />
-                <SettingRow label="Filing status" value={settings?.filingStatus ?? "SINGLE"} />
-                <SettingRow label="Sparer-Pauschbetrag" value={`€${settings?.saverAllowance ?? "1000"} / year`} />
-                <SettingRow label="Lot matching" value={settings?.lotMethod ?? "FIFO"} highlight />
-                <SettingRow label="Loss carry-forward" value="—" last />
-              </Card>
-              <Card>
-                <div className="font-semibold text-base mb-3">Currency &amp; FX</div>
-                <SettingRow label="Reporting currency" value="EUR (€)" />
-                <SettingRow label="FX rate source" value={settings?.fxSource ?? "ECB"} highlight />
-                <SettingRow label="Conversion basis" value="Trade date" />
-                <SettingRow label="FX gains in tax" value="Separate report" />
-                <SettingRow label="Round to" value="2 decimals" last />
-                <BackfillFxButton />
-                <RefreshQuotesButton />
-              </Card>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <Card>
+                  <div className="font-semibold text-base mb-3">Tax &amp; jurisdiction</div>
+                  <SettingRow label="Jurisdiction" value="🇩🇪 Germany" />
+                  <SettingRow label="Filing status" value={settings?.filingStatus ?? "SINGLE"} />
+                  <SettingRow label="Sparer-Pauschbetrag" value={`€${settings?.saverAllowance ?? "1000"} / year`} />
+                  <SettingRow label="Lot matching" value={settings?.lotMethod ?? "FIFO"} highlight />
+                  <SettingRow label="Loss carry-forward" value="—" last />
+                </Card>
+                <Card>
+                  <div className="font-semibold text-base mb-3">Currency &amp; FX</div>
+                  <SettingRow label="Reporting currency" value="EUR (€)" />
+                  <SettingRow label="FX rate source" value={settings?.fxSource ?? "ECB"} highlight />
+                  <SettingRow label="Conversion basis" value="Trade date" />
+                  <SettingRow label="FX gains in tax" value="Separate report" />
+                  <SettingRow label="Round to" value="2 decimals" last />
+                  <BackfillFxButton />
+                  <RefreshQuotesButton />
+                </Card>
+              </div>
+              <QuoteStatusTable rows={quoteStatus} />
             </div>
           )}
 
