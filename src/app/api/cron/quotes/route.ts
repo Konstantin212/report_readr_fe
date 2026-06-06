@@ -1,38 +1,44 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { positions, quoteCache } from "@/lib/db/schema";
+import { quoteCache } from "@/lib/db/schema";
 import { refreshQuotes } from "@/lib/quotes/refresh";
-import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
+import { getStaleHeldSymbols } from "@/lib/quotes/stale-symbols";
 import { hasValidCronSecret } from "@/lib/auth/cron";
 
-// Daily spot-quotes cron. Provider priority lives in lib/quotes/refresh:
-//   1. Twelve Data (when TWELVE_DATA_API_KEY is set) — works from
-//      data-center IPs, free tier, batched (8 symbols/call).
-//   2. Yahoo v8 chart — works locally; data-center IPs often get
-//      "Unauthorized".
-//   3. Stooq — silently bot-challenged mid-2026; kept around in case
-//      they revert.
-// The orchestrator is shared with /api/admin/refresh-quotes so the
-// behavior of the daily run and the manual button stays identical.
+/**
+ * Spot-quotes cron. Refreshes the N most-stale held symbols each run.
+ *
+ * On free tiers TD's 8/min cap and FMP's per-symbol paywall make
+ * "fetch everything in one shot" unreliable (we get back ~13/20 and
+ * the rest silently stay on yesterday's close). Instead, run hourly
+ * during market hours and ask for the 8 oldest-cached symbols each
+ * pass — over a market day every symbol gets refreshed 3-4 times even
+ * for portfolios of 20+ holdings.
+ *
+ * Provider priority (in lib/quotes/refresh.ts):
+ *   1. FMP per-symbol (US tickers FMP free knows)
+ *   2. Twelve Data batched (international + FMP misses)
+ *   3. Yahoo / Stooq fallbacks (blocked from Vercel IPs but kept for
+ *      local dev parity)
+ */
 export const maxDuration = 60;
+
+const PAGE_SIZE = 8;
 
 export async function GET(req: Request) {
   if (!hasValidCronSecret(req)) {
     return new Response("unauthorized", { status: 401 });
   }
-  const db = getDb();
-  const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
-  const allHeld = heldRows.map((x) => x.s).filter(Boolean) as string[];
-  if (!allHeld.length) {
-    return NextResponse.json({ requested: [], inserted: [], unpriced: [], skipped: [], writeError: null, bySource: {} });
+
+  const targets = await getStaleHeldSymbols(PAGE_SIZE);
+  if (!targets.length) {
+    return NextResponse.json({ requested: [], inserted: [], unpriced: [], bySource: {} });
   }
 
-  const skipped = allHeld.filter((s) => EXTERNALLY_PRICED_SYMBOLS.has(s));
-  const requested = allHeld.filter((s) => !EXTERNALLY_PRICED_SYMBOLS.has(s));
+  const { quotes, bySource, unpriced, fmpConfigured, twelveDataConfigured } = await refreshQuotes(targets);
 
-  const { quotes, bySource, unpriced } = await refreshQuotes(requested);
-
+  const db = getDb();
   let writeError: string | null = null;
   if (quotes.length) {
     try {
@@ -52,11 +58,12 @@ export async function GET(req: Request) {
     }
   }
   return NextResponse.json({
-    requested,
+    requested: targets,
     inserted: quotes.map((q) => q.symbol),
     unpriced,
-    skipped,
     bySource,
+    fmpConfigured,
+    twelveDataConfigured,
     writeError,
   });
 }
