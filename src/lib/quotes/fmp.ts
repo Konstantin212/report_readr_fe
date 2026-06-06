@@ -1,21 +1,25 @@
 /**
  * Financial Modeling Prep (FMP) quote source.
  *
- * Free tier: 250 requests/day, no per-minute cap, *unlimited symbols
- * per batched request*. US stocks (NYSE/NASDAQ/AMEX) only on free —
- * European exchanges (LSE/Xetra/AS) require a paid plan and silently
- * return nothing on free, so we let the orchestrator fall back to
- * Twelve Data for those.
+ * As of late 2025 FMP deprecated their /api/v3 namespace. The new
+ * /stable/quote endpoint is single-symbol only on the free tier
+ * (batch quotes, international tickers, and the legacy /api/v3 paths
+ * all require a paid plan).
  *
- * Sits ahead of Twelve Data in the priority chain because one batched
- * call can carry the whole US portfolio (typically 10-15 of 20
- * holdings) for the cost of 1 request, leaving Twelve Data's 8/min cap
- * unspent for the international tickers that *only* TD can serve.
+ * Free tier: 250 requests/day. For our ~14 US holdings that's 14
+ * requests per refresh; the daily cron + an occasional manual click
+ * stays comfortably under 250. Calls fan out in parallel — FMP free
+ * doesn't publish a per-minute cap and the per-call latency is
+ * ~200-300 ms, so 14 parallel requests resolve in well under 1 s.
+ *
+ * International tickers fall through to Twelve Data, which is the
+ * only free provider that prices LSE / Xetra / Amsterdam without
+ * upgrading.
  */
 
 export type Quote = { symbol: string; date: string; close: string; currency: string };
 
-const BASE = "https://financialmodelingprep.com/api/v3";
+const BASE = "https://financialmodelingprep.com/stable";
 
 const HEADERS = {
   "User-Agent":
@@ -24,52 +28,52 @@ const HEADERS = {
 };
 
 /**
- * Pure parser for FMP's /quote/{tickers} response. Defensive against:
+ * Pure parser for FMP's /stable/quote response (one symbol per call,
+ * returns a one-element array). Defensive against:
  *  - error envelopes ({"Error Message": "..."} or {"message": "..."})
- *    served when the API key is invalid or the daily limit is hit
- *  - entries with null price or timestamp (very rare, but cleaner to
- *    drop than to write zero-priced rows)
- *  - symbols FMP echoes back that weren't in the request (defensive —
- *    never write into the cache for a ticker we didn't ask for)
+ *    served when the key is bad, the daily limit is hit, or the
+ *    endpoint requires a higher plan ("Legacy Endpoint", "Premium
+ *    only", etc.)
+ *  - empty array (symbol unknown to FMP — e.g. an international
+ *    ticker on the free tier, or a Freedom24 alias like RY4C)
+ *  - missing price / timestamp
+ *  - symbol mismatch (defensive — don't smuggle a stray response into
+ *    the cache under the wrong ticker)
  */
-export function parseFmpBatch(json: unknown, requestedSymbols: string[]): Quote[] {
-  if (!Array.isArray(json)) return [];
-  const requested = new Set(requestedSymbols);
-  const out: Quote[] = [];
-  for (const entry of json) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const e = entry as any;
-    if (!e || typeof e !== "object") continue;
-    const symbol = typeof e.symbol === "string" ? e.symbol : null;
-    if (!symbol || !requested.has(symbol)) continue;
-    const price = typeof e.price === "number" ? e.price : null;
-    const ts = typeof e.timestamp === "number" ? e.timestamp : null;
-    if (price === null || ts === null) continue;
-    if (!Number.isFinite(price) || !Number.isFinite(ts)) continue;
-    const date = new Date(ts * 1000).toISOString().slice(0, 10);
-    out.push({ symbol, date, close: price.toFixed(2), currency: "USD" });
-  }
-  return out;
+export function parseFmpQuoteResponse(json: unknown, requestedSymbol: string): Quote | null {
+  if (!Array.isArray(json) || json.length === 0) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = json[0] as any;
+  if (!e || typeof e !== "object") return null;
+  if (e.symbol !== requestedSymbol) return null;
+  const price = typeof e.price === "number" ? e.price : null;
+  const ts = typeof e.timestamp === "number" ? e.timestamp : null;
+  if (price === null || ts === null) return null;
+  if (!Number.isFinite(price) || !Number.isFinite(ts)) return null;
+  const date = new Date(ts * 1000).toISOString().slice(0, 10);
+  return { symbol: requestedSymbol, date, close: price.toFixed(2), currency: "USD" };
+}
+
+async function fetchOneFmpQuote(symbol: string, apiKey: string): Promise<Quote | null> {
+  const url =
+    `${BASE}/quote?symbol=${encodeURIComponent(symbol)}` +
+    `&apikey=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return parseFmpQuoteResponse(json, symbol);
 }
 
 export async function fetchFmpQuotes(symbols: string[]): Promise<Quote[]> {
   const apiKey = process.env.FMP_API_KEY;
   if (!apiKey || !symbols.length) return [];
 
-  // FMP accepts an unlimited list of comma-separated tickers in a
-  // single batched /quote call. One HTTP call = 1 of our 250 daily
-  // requests, regardless of N.
-  //
-  // Encode each ticker individually but keep the separating commas
-  // RAW — FMP's router doesn't recognise %2C and silently returns
-  // nothing if you encode the whole path segment, which is what bit
-  // us the first time the combo went live. Tickers themselves don't
-  // contain commas, so per-symbol encoding only matters for the rare
-  // edge case of a ticker with reserved chars (^GSPC etc.).
-  const tickers = symbols.map((s) => encodeURIComponent(s)).join(",");
-  const url = `${BASE}/quote/${tickers}?apikey=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
-  if (!res.ok) return [];
-  const json = await res.json();
-  return parseFmpBatch(json, symbols);
+  const results = await Promise.allSettled(
+    symbols.map((s) => fetchOneFmpQuote(s, apiKey)),
+  );
+  const out: Quote[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) out.push(r.value);
+  }
+  return out;
 }
