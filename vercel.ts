@@ -14,13 +14,14 @@ export const config: VercelConfig = {
   regions: ['fra1'],
   crons: [
     { path: '/api/cron/fx',       schedule: '30 15 * * 1-5' },
-    // Quotes cron: hourly at :30 past during the US-market window
-    // (13:30-22:30 UTC), weekdays. Each run refreshes the 8 most-stale
-    // held symbols — over a day every symbol gets refreshed 3-4 times
-    // even for 20+ holdings, working around the free-tier provider
-    // caps (TD = 8 credits/min, FMP = per-symbol paywall) that made a
-    // single big sweep return only ~65% of the portfolio.
-    { path: '/api/cron/quotes',   schedule: '30 13-22 * * 1-5' },
+    // Quotes cron: once daily. Vercel Hobby caps cron jobs at one run
+    // per day, so the hourly-paged refresh schedule we'd otherwise want
+    // (`30 13-22 * * 1-5`) is rejected by the build validator. The
+    // hourly hits the same /api/cron/quotes endpoint from a GitHub
+    // Actions workflow instead (.github/workflows/quotes-refresh.yml)
+    // so the paged behaviour still kicks in 10× per market day — this
+    // entry just keeps the EOD sweep alive on Vercel's side.
+    { path: '/api/cron/quotes',   schedule: '0 21 * * 1-5'  },
     // Daily Coinbase sync at 22:00 UTC, after most market closes. Pulls
     // /v2/accounts + transactions for every active crypto_accounts row
     // (incremental — uses last_sync_cursor so re-runs are cheap).
