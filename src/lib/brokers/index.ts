@@ -24,6 +24,7 @@ export function parseBrokerStatement(input: ParseBrokerStatementInput): ParsedIm
     importedAt: new Date().toISOString(),
     statementStartDate: parsed.account.statementStartDate,
     statementEndDate: parsed.account.statementEndDate,
+    snapshotQuotes: parsed.snapshotQuotes,
   };
 }
 

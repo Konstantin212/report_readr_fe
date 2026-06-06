@@ -57,6 +57,24 @@ type FreedomStatement = {
   commissions?: { detailed?: FreedomCommission[] };
   corporate_actions?: { detailed?: FreedomCorporateAction[] };
   securities_in_outs?: FreedomSecurityInOut[];
+  // Statement-end position snapshot. We use mkt_price per row to seed
+  // quote_cache for symbols our free quote providers can't reach
+  // (UCITS ETFs on Amsterdam / Frankfurt, Freedom-specific aliases
+  // like RY4C, etc.). One entry per currently-held position.
+  account_at_end?: {
+    account?: {
+      positions_from_ts?: {
+        ps?: {
+          pos?: Array<{
+            i?: unknown;            // ticker with FF exchange suffix, e.g. "VHYL.EU"
+            mkt_price?: unknown;    // close in `curr`
+            curr?: unknown;         // native currency, e.g. "USD" / "EUR"
+            q?: unknown;            // quantity (sanity-check only)
+          }>;
+        };
+      };
+    };
+  };
 };
 
 type FreedomTrade = Record<string, unknown> & {
@@ -189,7 +207,40 @@ export function parseFreedomFinanceStatement(
     if (isin) ev.isin = isin;
   }
 
-  return { account, events };
+  const snapshotQuotes = parseFreedomSnapshotQuotes(statement);
+
+  return { account, events, snapshotQuotes };
+}
+
+/**
+ * Extract a spot-quote per currently-held position from the
+ * end-of-statement balance dump. Used to seed quote_cache for symbols
+ * we can't price via the free API providers — Freedom puts the
+ * statement-end mkt_price right there, so re-uploading the file
+ * refreshes the price for the European ETFs at the same time.
+ *
+ * Skips rows with no usable price; the importer happily writes the
+ * empty array. Symbols are stripped of FF's exchange suffix
+ * (.EU/.US/etc.) to match the canonical ticker form used in lots
+ * and positions tables.
+ */
+function parseFreedomSnapshotQuotes(statement: FreedomStatement) {
+  const date = dateOnly(cleanString(statement.date_end));
+  const rows = statement.account_at_end?.account?.positions_from_ts?.ps?.pos ?? [];
+  if (!date || !rows.length) return [];
+  const out: { symbol: string; date: string; close: string; currency: string }[] = [];
+  for (const r of rows) {
+    const rawTicker = cleanString(r.i);
+    const symbol = stripFreedomSuffix(rawTicker);
+    if (!symbol) continue;
+    const price = cleanNumber(r.mkt_price);
+    if (!price) continue;
+    const num = Number(price);
+    if (!Number.isFinite(num) || num <= 0) continue;
+    const currency = cleanString(r.curr) ?? "USD";
+    out.push({ symbol, date, close: num.toFixed(2), currency });
+  }
+  return out;
 }
 
 /**

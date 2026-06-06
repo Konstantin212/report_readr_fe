@@ -40,6 +40,7 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
             statementEndDate: parsed.statementEndDate,
           },
           events: parsed.events,
+          snapshotQuotes: parsed.snapshotQuotes,
         }),
       });
       if (!res.ok) {

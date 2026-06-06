@@ -21,6 +21,13 @@ export const eventSchema = z.object({
   source: z.string().optional(),
 }).passthrough();
 
+export const snapshotQuoteSchema = z.object({
+  symbol: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  close: z.string(),
+  currency: z.string(),
+});
+
 export const ingestPayloadSchema = z.object({
   broker: z.enum(["INTERACTIVE_BROKERS", "FREEDOM_FINANCE"]),
   fileName: z.string(),
@@ -33,6 +40,10 @@ export const ingestPayloadSchema = z.object({
     statementEndDate: z.string().optional(),
   }),
   events: z.array(eventSchema),
+  /** Optional broker-end-of-statement quotes for held positions. Used to
+   *  seed quote_cache for symbols our free providers can't price (UCITS
+   *  ETFs on Amsterdam/Frankfurt, Freedom-specific aliases like RY4C). */
+  snapshotQuotes: z.array(snapshotQuoteSchema).optional(),
 });
 
 export type IngestPayload = z.infer<typeof ingestPayloadSchema>;

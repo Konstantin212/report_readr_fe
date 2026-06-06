@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import * as s from "@/lib/db/schema";
 import { ingestPayloadSchema, type IngestPayload } from "@/lib/domain/zod";
@@ -150,6 +150,34 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
 
   // 6. Rebuild lots/matches/positions for this account
   await runReplayForAccount(ownerUserId, brokerAccountId);
+
+  // 7. Seed quote_cache with the broker's end-of-statement spot prices.
+  //    Critical for European UCITS ETFs (VHYL, VUSA, SPYW, XSX7, …) and
+  //    Freedom-specific aliases (RY4C) that none of our free API
+  //    providers can price. Live API quotes always carry today's date,
+  //    so the orchestrator's "latest by date" pick still prefers the
+  //    fresher API value when present; the snapshot is only the
+  //    fallback for symbols nothing else can reach.
+  if (payload.snapshotQuotes && payload.snapshotQuotes.length) {
+    await db
+      .insert(s.quoteCache)
+      .values(payload.snapshotQuotes.map((q) => ({
+        symbol: q.symbol,
+        date: q.date,
+        close: q.close,
+        currency: q.currency,
+        source: "FREEDOM_SNAPSHOT",
+      })))
+      .onConflictDoUpdate({
+        target: [s.quoteCache.symbol, s.quoteCache.date],
+        set: {
+          close: sql`excluded.close`,
+          currency: sql`excluded.currency`,
+          source: sql`excluded.source`,
+          updatedAt: new Date(),
+        },
+      });
+  }
 
   return { importId: imp[0].id, duplicate: false, insertedCount, duplicateCount, reviewCount };
 }

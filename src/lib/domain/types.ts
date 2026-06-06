@@ -62,6 +62,13 @@ export type ParsedAccount = {
   displayName?: string;
 };
 
+export type SnapshotQuote = {
+  symbol: string;
+  date: string;
+  close: string;
+  currency: string;
+};
+
 export type ParsedImport = {
   broker: Broker;
   fileName: string;
@@ -71,4 +78,10 @@ export type ParsedImport = {
   importedAt?: string;
   statementStartDate?: string;
   statementEndDate?: string;
+  /** Optional broker-end-of-statement spot prices for held positions.
+   *  Used to seed quote_cache for symbols our free providers can't
+   *  reach (UCITS ETFs on Amsterdam/Frankfurt, Freedom aliases like
+   *  RY4C). The ingest endpoint upserts these into quote_cache with
+   *  source = "FREEDOM_SNAPSHOT". */
+  snapshotQuotes?: SnapshotQuote[];
 };
