@@ -13,7 +13,7 @@
  * (e.g. local dev without a key), the cron falls back to Yahoo → Stooq
  * and we behave as before.
  */
-import { toYahooSymbol } from "./symbol-map";
+import { toTwelveDataSymbol } from "./symbol-map";
 
 export type Quote = { symbol: string; date: string; close: string; currency: string };
 
@@ -95,11 +95,13 @@ export async function fetchTwelveDataQuotes(symbols: string[]): Promise<Quote[]>
   const apiKey = process.env.TWELVE_DATA_API_KEY;
   if (!apiKey || !symbols.length) return [];
 
-  // Translate our internal symbols to Twelve Data form (matches Yahoo's
-  // suffix style: .L, .DE, .AS, .ST, …). Keep a back-map so we can
-  // re-key the response to our internal ticker.
+  // Translate to Twelve Data's SYMBOL:EXCHANGE form. CRITICAL for
+  // tickers like TRN — the bare symbol resolves to Trinity Industries
+  // on NYSE, not Trainline on LSE. See toTwelveDataSymbol for the full
+  // override table. Keep a back-map so we can re-key the response to
+  // our internal ticker.
   const externalForInternal = new Map<string, string>();
-  for (const s of symbols) externalForInternal.set(s, toYahooSymbol(s));
+  for (const s of symbols) externalForInternal.set(s, toTwelveDataSymbol(s));
 
   const out: Quote[] = [];
   for (let i = 0; i < symbols.length; i += TWELVE_DATA_MAX_BATCH) {
