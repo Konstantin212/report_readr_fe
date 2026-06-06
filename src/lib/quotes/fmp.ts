@@ -59,8 +59,15 @@ export async function fetchFmpQuotes(symbols: string[]): Promise<Quote[]> {
   // FMP accepts an unlimited list of comma-separated tickers in a
   // single batched /quote call. One HTTP call = 1 of our 250 daily
   // requests, regardless of N.
-  const tickers = symbols.join(",");
-  const url = `${BASE}/quote/${encodeURIComponent(tickers)}?apikey=${encodeURIComponent(apiKey)}`;
+  //
+  // Encode each ticker individually but keep the separating commas
+  // RAW — FMP's router doesn't recognise %2C and silently returns
+  // nothing if you encode the whole path segment, which is what bit
+  // us the first time the combo went live. Tickers themselves don't
+  // contain commas, so per-symbol encoding only matters for the rare
+  // edge case of a ticker with reserved chars (^GSPC etc.).
+  const tickers = symbols.map((s) => encodeURIComponent(s)).join(",");
+  const url = `${BASE}/quote/${tickers}?apikey=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
   if (!res.ok) return [];
   const json = await res.json();
