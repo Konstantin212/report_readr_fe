@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseFmpBatch } from "@/lib/quotes/fmp";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { parseFmpBatch, fetchFmpQuotes } from "@/lib/quotes/fmp";
 
 describe("parseFmpBatch", () => {
   it("returns a Quote per entry from a normal batched response", () => {
@@ -63,5 +63,41 @@ describe("parseFmpBatch", () => {
     const out = parseFmpBatch(json, ["AAPL"]);
     expect(out).toHaveLength(1);
     expect(out[0].symbol).toBe("AAPL");
+  });
+});
+
+describe("fetchFmpQuotes URL construction", () => {
+  const origFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+    delete process.env.FMP_API_KEY;
+  });
+
+  it("sends commas un-encoded in the path (regression: encodeURIComponent broke the batch)", async () => {
+    process.env.FMP_API_KEY = "test-key";
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(JSON.stringify([
+        { symbol: "AAPL", price: 200, timestamp: Math.floor(Date.UTC(2026, 5, 5) / 1000) },
+      ]), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
+
+    await fetchFmpQuotes(["AAPL", "MSFT", "GOOGL"]);
+
+    expect(calls).toHaveLength(1);
+    // Path must contain raw commas — FMP doesn't recognise %2C in the path.
+    expect(calls[0]).toContain("/quote/AAPL,MSFT,GOOGL?");
+    expect(calls[0]).not.toContain("%2C");
+    // API key is still query-string-safe.
+    expect(calls[0]).toContain("apikey=test-key");
+  });
+
+  it("returns [] when FMP_API_KEY is unset (no HTTP call)", async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as typeof globalThis.fetch;
+    const out = await fetchFmpQuotes(["AAPL"]);
+    expect(out).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
