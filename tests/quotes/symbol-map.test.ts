@@ -17,36 +17,36 @@ describe("Yahoo symbol mapping for canonicalized tickers", () => {
   });
 });
 
-describe("Twelve Data symbol mapping (SYMBOL:EXCHANGE format)", () => {
+describe("Twelve Data symbol mapping ({symbol, exchange} for /quote)", () => {
   it("CRITICAL: disambiguates TRN so we get Trainline on LSE, not Trinity Industries on NYSE", () => {
     // The Twelve Data /symbol_search for "TRN" returns Trainline (LSE,
     // GBp), Terna (Milan, EUR), Trinity Industries (NYSE, USD), and
     // others. Bare "TRN" silently resolves to the US listing — which
     // would write a totally unrelated company's price into our cache.
-    expect(toTwelveDataSymbol("TRN")).toBe("TRN:LSE");
+    expect(toTwelveDataSymbol("TRN")).toEqual({ symbol: "TRN", exchange: "LSE" });
   });
 
   it("qualifies UCITS ETFs with their Amsterdam (Euronext) listing", () => {
-    expect(toTwelveDataSymbol("VHYL")).toBe("VHYL:Euronext");
-    expect(toTwelveDataSymbol("VUSA")).toBe("VUSA:Euronext");
-    expect(toTwelveDataSymbol("IEMM")).toBe("IEMM:Euronext");
+    expect(toTwelveDataSymbol("VHYL")).toEqual({ symbol: "VHYL", exchange: "Euronext" });
+    expect(toTwelveDataSymbol("VUSA")).toEqual({ symbol: "VUSA", exchange: "Euronext" });
+    expect(toTwelveDataSymbol("IEMM")).toEqual({ symbol: "IEMM", exchange: "Euronext" });
   });
 
   it("qualifies German exchange tickers with XETR", () => {
-    expect(toTwelveDataSymbol("XSX7")).toBe("XSX7:XETR");
-    expect(toTwelveDataSymbol("SPYW")).toBe("SPYW:XETR");
+    expect(toTwelveDataSymbol("XSX7")).toEqual({ symbol: "XSX7", exchange: "XETR" });
+    expect(toTwelveDataSymbol("SPYW")).toEqual({ symbol: "SPYW", exchange: "XETR" });
     // RY4C is Freedom24's alias for Ryanair on Xetra — TD knows it
     // under exactly that ticker (only on XETR/FSX/Munich).
-    expect(toTwelveDataSymbol("RY4C")).toBe("RY4C:XETR");
+    expect(toTwelveDataSymbol("RY4C")).toEqual({ symbol: "RY4C", exchange: "XETR" });
   });
 
   it("qualifies Stockholm-listed shares with OMXSTO", () => {
-    expect(toTwelveDataSymbol("EVO")).toBe("EVO:OMXSTO");
+    expect(toTwelveDataSymbol("EVO")).toEqual({ symbol: "EVO", exchange: "OMXSTO" });
   });
 
-  it("passes US tickers through unchanged — TD picks the primary listing", () => {
-    expect(toTwelveDataSymbol("AAPL")).toBe("AAPL");
-    expect(toTwelveDataSymbol("SPY")).toBe("SPY");
-    expect(toTwelveDataSymbol("O")).toBe("O");
+  it("passes US tickers through with no exchange — TD picks the primary listing", () => {
+    expect(toTwelveDataSymbol("AAPL")).toEqual({ symbol: "AAPL" });
+    expect(toTwelveDataSymbol("SPY")).toEqual({ symbol: "SPY" });
+    expect(toTwelveDataSymbol("O")).toEqual({ symbol: "O" });
   });
 });

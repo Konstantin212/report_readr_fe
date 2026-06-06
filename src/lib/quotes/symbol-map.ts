@@ -16,7 +16,8 @@ export function toYahooSymbol(internal: string): string {
 }
 
 /**
- * Twelve Data uses `SYMBOL:EXCHANGE` instead of Yahoo's `SYMBOL.suffix`.
+ * Twelve Data needs the exchange as a *separate* query parameter on
+ * /quote (`?symbol=TRN&exchange=LSE`), not embedded in the symbol.
  *
  * For US tickers TD picks the listing automatically when you send just
  * the bare symbol, so no override is needed. The dangerous case is
@@ -25,24 +26,27 @@ export function toYahooSymbol(internal: string): string {
  * an exchange to avoid silently writing the wrong company's price into
  * our cache.
  *
- * Exchange names taken verbatim from TD's /symbol_search response.
+ * Exchange values taken verbatim from TD's /symbol_search responses.
  */
-const TD_OVERRIDES: Record<string, string> = {
+const TD_OVERRIDES: Record<string, { symbol: string; exchange: string }> = {
   // LSE (London Stock Exchange)
-  "TRN":  "TRN:LSE",     // CRITICAL — bare TRN = Trinity Industries (NYSE)
-  // XETR (Xetra, Frankfurt) — only listed in Germany, but qualify anyway
-  // to keep the rule "international = always specify exchange" simple.
-  "XSX7": "XSX7:XETR",
-  "SPYW": "SPYW:XETR",
-  "RY4C": "RY4C:XETR",   // Freedom24's alias for Ryanair Holdings on Xetra
+  "TRN":  { symbol: "TRN",  exchange: "LSE" },     // CRITICAL — bare TRN = Trinity Industries (NYSE)
+  // XETR (Xetra, Frankfurt)
+  "XSX7": { symbol: "XSX7", exchange: "XETR" },
+  "SPYW": { symbol: "SPYW", exchange: "XETR" },
+  "RY4C": { symbol: "RY4C", exchange: "XETR" },    // Freedom24's alias for Ryanair Holdings on Xetra
   // Euronext (Amsterdam) — UCITS ETFs the user holds via the AS listing.
-  "VHYL": "VHYL:Euronext",
-  "VUSA": "VUSA:Euronext",
-  "IEMM": "IEMM:Euronext",
+  "VHYL": { symbol: "VHYL", exchange: "Euronext" },
+  "VUSA": { symbol: "VUSA", exchange: "Euronext" },
+  "IEMM": { symbol: "IEMM", exchange: "Euronext" },
   // Stockholm
-  "EVO":  "EVO:OMXSTO",  // EVOLUTION AB
+  "EVO":  { symbol: "EVO",  exchange: "OMXSTO" },  // EVOLUTION AB
 };
 
-export function toTwelveDataSymbol(internal: string): string {
-  return TD_OVERRIDES[internal] ?? internal;
+export type TwelveDataSymbol = { symbol: string; exchange?: string };
+
+export function toTwelveDataSymbol(internal: string): TwelveDataSymbol {
+  const o = TD_OVERRIDES[internal];
+  if (o) return { symbol: o.symbol, exchange: o.exchange };
+  return { symbol: internal };
 }
