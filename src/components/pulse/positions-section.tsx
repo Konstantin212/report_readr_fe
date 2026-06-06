@@ -129,9 +129,15 @@ export function PositionsSection({
         <span>Holding</span>
         <span>Broker</span>
         <span className="text-right">Qty</span>
-        <span className="text-right">Avg €</span>
+        <span
+          className="text-right cursor-help"
+          title="Cost basis uses FIFO — Germany's §20 EStG requires it for Anlage KAP. Brokers usually display average-cost in their UI, so a 1-3% gap on positions with realized sells is expected (FIFO attributes the gain on the sold share to the oldest lot, avg-cost spreads it across all lots)."
+        >Avg €&nbsp;ⓘ</span>
         <span className="text-right">Price €</span>
-        <span className="text-right">Cost €</span>
+        <span
+          className="text-right cursor-help"
+          title="FIFO cost basis (German tax method). May differ from your broker's UI by 1-3% on positions with realized sells — see the Avg € header tooltip."
+        >Cost €&nbsp;ⓘ</span>
         <span className="text-right">Value €</span>
         <span className="text-right">P/L €</span>
         <span className="text-right">P/L ccy</span>
