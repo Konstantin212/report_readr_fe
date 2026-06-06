@@ -73,6 +73,51 @@ describe("Freedom snapshot-quote extraction", () => {
     expect(parsed.snapshotQuotes?.map((q) => q.symbol)).toEqual(["HOOD", "VHYL"]);
   });
 
+  it("re-keys snapshot to trade ticker when company name matches (Ryanair RYA→RY4C case)", () => {
+    // FF reports Ryanair as `RYA.EU` in account_at_end but as
+    // `RY4C.EU` in the trades section. Both rows carry the same
+    // company name, which we can use to re-key the snapshot quote.
+    const bytes = new TextEncoder().encode(JSON.stringify({
+      date_end: "2026-06-06 23:59:59",
+      plainAccountInfoData: { client_code: "201743" },
+      trades: {
+        detailed: [
+          {
+            id: "t1",
+            short_date: "2024-07-04 10:00:00",
+            // FF puts the ticker (with exchange suffix) here, not the
+            // company name — the company name only exists on snapshot
+            // rows. ISIN is what bridges the two.
+            instr_nm: "RY4C.EU",
+            operation: "buy",
+            curr_c: "EUR",
+            q: "8",
+            p: "16.62",
+            summ: "-132.95",
+            isin: "IE00BYTBXV33",
+          },
+        ],
+      },
+      account_at_end: {
+        account: {
+          positions_from_ts: {
+            ps: {
+              pos: [
+                // FF snapshot ticker is RYA.EU, but the user's lot is RY4C.
+                // Both rows share the same ISIN (IE00BYTBXV33).
+                { i: "RYA.EU", q: 8, mkt_price: 23.88, curr: "EUR", issue_nb: "IE00BYTBXV33" },
+              ],
+            },
+          },
+        },
+      },
+    })).buffer;
+    const parsed = parseFreedomFinanceStatement("test.json", bytes, 2026);
+    expect(parsed.snapshotQuotes).toEqual([
+      { symbol: "RY4C", date: "2026-06-06", close: "23.88", currency: "EUR" },
+    ]);
+  });
+
   it("returns an empty array when the statement has no account_at_end section", () => {
     const bytes = new TextEncoder().encode(JSON.stringify({
       date_end: "2026-06-05 23:59:59",

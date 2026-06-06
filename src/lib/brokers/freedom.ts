@@ -44,7 +44,12 @@ type FreedomStatement = {
   plainAccountInfoData?: {
     account?: unknown;
     account_id?: unknown;
+    /** The stable Freedom24 account identifier — what the user sees as
+     *  their client number. Older statements only carried `account` or
+     *  `account_id`, but mid-2025+ files put it under `client_code`. */
+    client_code?: unknown;
     currency?: unknown;
+    base_currency?: unknown;
   };
   accountInfo?: {
     account?: unknown;
@@ -67,6 +72,7 @@ type FreedomStatement = {
         ps?: {
           pos?: Array<{
             i?: unknown;            // ticker with FF exchange suffix, e.g. "VHYL.EU"
+            issue_nb?: unknown;     // ISIN — matched against trade `isin` to re-key alias mismatches
             mkt_price?: unknown;    // close in `curr`
             curr?: unknown;         // native currency, e.g. "USD" / "EUR"
             q?: unknown;            // quantity (sanity-check only)
@@ -166,14 +172,26 @@ export function parseFreedomFinanceStatement(
   taxYear: number,
 ): ParsedBrokerStatement {
   const statement = JSON.parse(decodeBytes(bytes)) as FreedomStatement;
-  const accountInfo = statement.plainAccountInfoData ?? statement.accountInfo ?? {};
+  // Union the two account-info shapes; only one is present in any
+  // given statement. Cast to a permissive record so we can read every
+  // historically-used key (client_code, account, account_id, …) without
+  // having to introspect which schema variant we got.
+  const accountInfo = (statement.plainAccountInfoData ?? statement.accountInfo ?? {}) as Record<string, unknown>;
+  // Account number priority: client_code (current FF schema) → account
+  // → account_id (legacy keys) → filename (last-resort, NOT stable
+  // across re-uploads of differently-dated periods, which historically
+  // created a duplicate broker_account on every fresh export).
   const accountNumber =
-    cleanString(accountInfo.account) ?? cleanString(accountInfo.account_id) ?? fileName.replace(/\W+/g, "-");
+    cleanString(accountInfo.client_code) ??
+    cleanString(accountInfo.account) ??
+    cleanString(accountInfo.account_id) ??
+    fileName.replace(/\W+/g, "-");
 
   const account: BrokerAccountMetadata = {
     broker: "FREEDOM_FINANCE",
     accountNumber,
-    baseCurrency: cleanString(accountInfo.currency),
+    baseCurrency:
+      cleanString(accountInfo.currency) ?? cleanString(accountInfo.base_currency),
     statementStartDate: dateOnly(statement.date_start) || undefined,
     statementEndDate: dateOnly(statement.date_end) || undefined,
     fileName,
@@ -207,7 +225,21 @@ export function parseFreedomFinanceStatement(
     if (isin) ev.isin = isin;
   }
 
-  const snapshotQuotes = parseFreedomSnapshotQuotes(statement);
+  // Build an (ISIN → trade symbol) map so the snapshot parser can
+  // re-key alias mismatches like Ryanair (FF reports it as `RY4C.EU`
+  // in trades but `RYA.EU` in the position snapshot — same company,
+  // same ISIN `IE00BYTBXV33`). Without this remap the snapshot quote
+  // lands under `RYA`, which nothing in lots or positions references.
+  const tradeSymbolByIsin = new Map<string, string>();
+  for (const row of statement.trades?.detailed ?? []) {
+    const isin = cleanString(row.isin);
+    const symbol = stripFreedomSuffix(cleanString(row.instr_nm));
+    if (isin && symbol && !tradeSymbolByIsin.has(isin)) {
+      tradeSymbolByIsin.set(isin, symbol);
+    }
+  }
+
+  const snapshotQuotes = parseFreedomSnapshotQuotes(statement, tradeSymbolByIsin);
 
   return { account, events, snapshotQuotes };
 }
@@ -220,24 +252,35 @@ export function parseFreedomFinanceStatement(
  * refreshes the price for the European ETFs at the same time.
  *
  * Skips rows with no usable price; the importer happily writes the
- * empty array. Symbols are stripped of FF's exchange suffix
- * (.EU/.US/etc.) to match the canonical ticker form used in lots
- * and positions tables.
+ * empty array. Symbols are first stripped of FF's exchange suffix
+ * (.EU/.US/etc.) and then cross-referenced against
+ * `tradeSymbolByName` so any FF alias mismatch (the Ryanair case
+ * above) lands under the same ticker the user's lots use.
  */
-function parseFreedomSnapshotQuotes(statement: FreedomStatement) {
+function parseFreedomSnapshotQuotes(
+  statement: FreedomStatement,
+  tradeSymbolByIsin: Map<string, string>,
+) {
   const date = dateOnly(cleanString(statement.date_end));
   const rows = statement.account_at_end?.account?.positions_from_ts?.ps?.pos ?? [];
   if (!date || !rows.length) return [];
   const out: { symbol: string; date: string; close: string; currency: string }[] = [];
   for (const r of rows) {
     const rawTicker = cleanString(r.i);
-    const symbol = stripFreedomSuffix(rawTicker);
-    if (!symbol) continue;
+    const stripped = stripFreedomSuffix(rawTicker);
+    if (!stripped) continue;
     const price = cleanNumber(r.mkt_price);
     if (!price) continue;
     const num = Number(price);
     if (!Number.isFinite(num) || num <= 0) continue;
     const currency = cleanString(r.curr) ?? "USD";
+    // If the same company appears under a different ticker in trades
+    // (snapshot says RYA, trades say RY4C — same ISIN), re-key the
+    // snapshot to the trade ticker so the quote lands where lots and
+    // positions actually look for it.
+    const isin = cleanString(r.issue_nb);
+    const remapped = isin ? tradeSymbolByIsin.get(isin) : undefined;
+    const symbol = remapped ?? stripped;
     out.push({ symbol, date, close: num.toFixed(2), currency });
   }
   return out;
