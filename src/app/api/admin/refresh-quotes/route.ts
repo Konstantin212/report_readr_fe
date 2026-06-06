@@ -34,7 +34,7 @@ export async function POST() {
   const skipped = allHeld.filter((s) => EXTERNALLY_PRICED_SYMBOLS.has(s));
   const requested = allHeld.filter((s) => !EXTERNALLY_PRICED_SYMBOLS.has(s));
 
-  const { quotes, bySource, unpriced } = await refreshQuotes(requested);
+  const { quotes, bySource, unpriced, twelveDataConfigured } = await refreshQuotes(requested);
 
   let writeError: string | null = null;
   if (quotes.length) {
@@ -60,6 +60,7 @@ export async function POST() {
     unpriced,
     skipped: skipped.length,
     bySource,
+    twelveDataConfigured,
     writeError,
   });
 }

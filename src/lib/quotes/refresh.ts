@@ -25,16 +25,22 @@ export type RefreshResult = {
   quotes: RefreshQuote[];
   bySource: Record<RefreshSource, number>;
   unpriced: string[];
+  /** True when TWELVE_DATA_API_KEY isn't set in the runtime environment.
+   *  Distinct from "key set but provider failed" so the UI can tell the
+   *  admin to add the key (vs. that the provider itself is having a bad
+   *  day). */
+  twelveDataConfigured: boolean;
 };
 
 export async function refreshQuotes(symbols: string[]): Promise<RefreshResult> {
   const bySource: Record<RefreshSource, number> = { twelveData: 0, yahoo: 0, stooq: 0, none: 0 };
-  if (!symbols.length) return { quotes: [], bySource, unpriced: [] };
+  const twelveDataConfigured = Boolean(process.env.TWELVE_DATA_API_KEY);
+  if (!symbols.length) return { quotes: [], bySource, unpriced: [], twelveDataConfigured };
 
   const got = new Map<string, RefreshQuote>();
 
   // 1. Twelve Data (when configured). Batched, so cheapest provider.
-  if (process.env.TWELVE_DATA_API_KEY) {
+  if (twelveDataConfigured) {
     const tdQuotes = await fetchTwelveDataQuotes(symbols);
     for (const q of tdQuotes) {
       if (!got.has(q.symbol)) {
@@ -70,5 +76,5 @@ export async function refreshQuotes(symbols: string[]): Promise<RefreshResult> {
 
   const unpriced = symbols.filter((s) => !got.has(s));
   bySource.none = unpriced.length;
-  return { quotes: [...got.values()], bySource, unpriced };
+  return { quotes: [...got.values()], bySource, unpriced, twelveDataConfigured };
 }
