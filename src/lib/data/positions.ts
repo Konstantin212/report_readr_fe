@@ -74,13 +74,42 @@ export type DetailLot = {
   gainPct: number | null;
 };
 
+export type DetailTransaction = {
+  /** ISO YYYY-MM-DD */
+  date: string;
+  /** "buy" or "sell" — derived from quantity sign. */
+  side: "buy" | "sell";
+  /** Always positive. */
+  qty: number;
+  /** Per-share price in trade currency, or null when not available. */
+  priceNative: number | null;
+  /** Trade currency (e.g. USD, EUR). */
+  currency: string;
+  /** Total proceeds in trade currency (positive = inflow, negative = outflow). */
+  amountNative: number;
+  /** Total proceeds in EUR at trade-date FX. */
+  amountEur: number;
+  /** Commission in trade currency (always positive). */
+  feeNative: number | null;
+};
+
 export type SelectedPosition = PositionRow & {
   sparkline: number[];
   sparkPctChange: number | null;
   lots: DetailLot[];
   dividendsYtdEur: number;
+  /** Cumulative dividends received on this position (post-WHT, in EUR),
+   *  scoped to the earliest currently-open lot's opened_at so re-opened
+   *  positions don't inherit a prior closed lot's dividend history. */
+  dividendsTotalEur: number;
+  /** Number of dividend payments contributing to dividendsTotalEur. */
+  dividendsTotalCount: number;
   yieldOnCostPct: number;
   daysHeld: number;
+  /** Every TRADE event for this symbol on this user's account, ordered
+   *  oldest → newest. Surfaced in the detail panel's transactions list
+   *  so the user can audit how the FIFO lots were built. */
+  transactions: DetailTransaction[];
 };
 
 export type PositionsData = {
@@ -434,9 +463,46 @@ export async function getPositionsData(
         .reduce((s, t) => s + Number(t.cashAmountEur ?? 0), 0);
       const yieldOnCostPct = yieldOnCost(ttmEur, sel.views.net.costEur) * 100;
 
+      // Lifetime net dividends + payment count, scoped to the same
+      // earliest-open-lot window as the YTD figure so reopened
+      // positions don't get credited with prior-lot dividends.
+      const dividendsTotalEur = symRows.reduce((s, t) => s + Number(t.cashAmountEur ?? 0), 0);
+      const dividendsTotalCount = symRows.filter((t) => t.eventType === "DIVIDEND").length;
+
       const daysHeld = Math.floor((Date.now() - Date.parse(earliestOpen)) / 86400000);
 
-      selected = { ...sel, sparkline, sparkPctChange, lots: detailLots, dividendsYtdEur, yieldOnCostPct, daysHeld };
+      // Every TRADE event for this symbol, ordered chronologically so
+      // the detail panel can show the user the full buy/sell ledger.
+      const transactions: DetailTransaction[] = allTxs
+        .filter((t) => t.eventType === "TRADE" && t.symbol === sel.symbol)
+        .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+        .map((t) => {
+          const qtyRaw = Number(t.quantity ?? "0");
+          const amountNative = Number(t.amount ?? "0");
+          return {
+            date: t.eventDate,
+            side: qtyRaw >= 0 ? "buy" : "sell",
+            qty: Math.abs(qtyRaw),
+            priceNative: t.price ? Number(t.price) : null,
+            currency: t.currency,
+            amountNative,
+            amountEur: Number(t.amountEur ?? "0"),
+            feeNative: t.fee ? Number(t.fee) : null,
+          };
+        });
+
+      selected = {
+        ...sel,
+        sparkline,
+        sparkPctChange,
+        lots: detailLots,
+        dividendsYtdEur,
+        dividendsTotalEur,
+        dividendsTotalCount,
+        yieldOnCostPct,
+        daysHeld,
+        transactions,
+      };
     }
   }
 

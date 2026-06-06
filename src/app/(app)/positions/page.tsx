@@ -44,50 +44,54 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
         <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
       </div>
 
-      <div className={`grid gap-4 ${d.selected ? "grid-cols-1 lg:grid-cols-[1.6fr_1fr]" : "grid-cols-1"}`}>
-        <div className="space-y-4">
-          <PositionsSection
-            title="Stocks"
-            count={d.rowsByKind.stock.length}
-            rows={d.rowsByKind.stock}
-            basePath="/positions"
-            preservedQuery={preservedQuery}
-            selectedSymbol={symbol}
-            showToggle
-          />
-          <PositionsSection
-            title="ETFs"
-            count={d.rowsByKind.etf.length}
-            rows={d.rowsByKind.etf}
-            basePath="/positions"
-            preservedQuery={preservedQuery}
-            selectedSymbol={symbol}
-          />
-          <PositionsSection
-            title="Bonds"
-            count={d.rowsByKind.bond.length}
-            rows={d.rowsByKind.bond}
-            basePath="/positions"
-            preservedQuery={preservedQuery}
-            selectedSymbol={symbol}
-          />
-          <PositionsSection
-            title="Other"
-            count={d.rowsByKind.other.length}
-            rows={d.rowsByKind.other}
-            basePath="/positions"
-            preservedQuery={preservedQuery}
-            selectedSymbol={symbol}
-          />
-          <CashCard balances={d.cash} />
-          {hasNoPositions && (
-            <Card>
-              <div className="text-muted text-sm">No positions match the current filter.</div>
-            </Card>
-          )}
-        </div>
+      {/* Positions list stays full-width regardless of selection — the
+          detail panel renders as a fixed-position overlay (see below)
+          so the table never squeezes. */}
+      <div className="space-y-4">
+        <PositionsSection
+          title="Stocks"
+          count={d.rowsByKind.stock.length}
+          rows={d.rowsByKind.stock}
+          basePath="/positions"
+          preservedQuery={preservedQuery}
+          selectedSymbol={symbol}
+          showToggle
+        />
+        <PositionsSection
+          title="ETFs"
+          count={d.rowsByKind.etf.length}
+          rows={d.rowsByKind.etf}
+          basePath="/positions"
+          preservedQuery={preservedQuery}
+          selectedSymbol={symbol}
+        />
+        <PositionsSection
+          title="Bonds"
+          count={d.rowsByKind.bond.length}
+          rows={d.rowsByKind.bond}
+          basePath="/positions"
+          preservedQuery={preservedQuery}
+          selectedSymbol={symbol}
+        />
+        <PositionsSection
+          title="Other"
+          count={d.rowsByKind.other.length}
+          rows={d.rowsByKind.other}
+          basePath="/positions"
+          preservedQuery={preservedQuery}
+          selectedSymbol={symbol}
+        />
+        <CashCard balances={d.cash} />
+        {hasNoPositions && (
+          <Card>
+            <div className="text-muted text-sm">No positions match the current filter.</div>
+          </Card>
+        )}
+      </div>
 
-        {d.selected && <PositionDetailPanel d={{
+      {d.selected && <PositionDetailPanel
+        closeHref={`/positions${preservedQuery && Object.keys(preservedQuery).length ? `?${new URLSearchParams(preservedQuery).toString()}` : ""}`}
+        d={{
           symbol: d.selected.symbol,
           name: d.selected.name,
           broker: d.selected.broker,
@@ -112,13 +116,15 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
           sparkPctChange: d.selected.sparkPctChange,
           lots: d.selected.lots,
           dividendsYtdEur: d.selected.dividendsYtdEur,
-          dividendsTotalEur: d.selected.dividendsEur,
+          dividendsTotalEur: d.selected.dividendsTotalEur,
+          dividendsTotalCount: d.selected.dividendsTotalCount,
           feesEur: d.selected.feesEur,
           yieldOnCostPct: d.selected.yieldOnCostPct,
           daysHeld: d.selected.daysHeld,
           priceAsOf: d.selected.asOf,
-        }} />}
-      </div>
+          transactions: d.selected.transactions,
+        }}
+      />}
     </main>
   );
 }
