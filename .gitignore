@@ -46,3 +46,4 @@ playwright-report/
 
 .vercel
 .env*.local
+tests/fixtures/brokers/freedom-portfolio-2026-06-06.json
