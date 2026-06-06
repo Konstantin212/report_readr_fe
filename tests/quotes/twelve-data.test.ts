@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseTwelveDataQuote, parseTwelveDataBatch } from "@/lib/quotes/twelve-data";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { parseTwelveDataQuote, fetchTwelveDataQuotes } from "@/lib/quotes/twelve-data";
 
 describe("parseTwelveDataQuote", () => {
   it("parses a single-symbol /quote response", () => {
@@ -40,51 +40,88 @@ describe("parseTwelveDataQuote", () => {
     );
     expect(out?.date).toBe("2026-06-05");
   });
+
+  it("normalises LSE pence (GBp) into GBP units", () => {
+    const out = parseTwelveDataQuote(
+      { symbol: "TRN", datetime: "2026-06-05", close: "254.00", currency: "GBp" },
+      "TRN",
+    );
+    expect(out).toEqual({ symbol: "TRN", date: "2026-06-05", close: "2.54", currency: "GBP" });
+  });
 });
 
-describe("parseTwelveDataBatch", () => {
-  it("returns a quote per requested symbol from a batched response", () => {
-    const json = {
-      AAPL: { symbol: "AAPL", datetime: "2026-06-05", close: "204.20", currency: "USD" },
-      MSFT: { symbol: "MSFT", datetime: "2026-06-05", close: "405.94", currency: "USD" },
-    };
-    const out = parseTwelveDataBatch(json, ["AAPL", "MSFT"]);
-    expect(out).toEqual([
-      { symbol: "AAPL", date: "2026-06-05", close: "204.20", currency: "USD" },
-      { symbol: "MSFT", date: "2026-06-05", close: "405.94", currency: "USD" },
-    ]);
+describe("fetchTwelveDataQuotes URL + per-symbol parallel calls", () => {
+  const origFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+    delete process.env.TWELVE_DATA_API_KEY;
   });
 
-  it("skips symbols whose entry is an error code (e.g. unknown symbol)", () => {
-    const json = {
-      AAPL: { symbol: "AAPL", datetime: "2026-06-05", close: "204.20", currency: "USD" },
-      ZZZZ: { code: 400, message: "Symbol not found" },
-    };
-    const out = parseTwelveDataBatch(json, ["AAPL", "ZZZZ"]);
+  it("calls /quote once per symbol with optional &exchange=", async () => {
+    process.env.TWELVE_DATA_API_KEY = "test-key";
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      const m = url.match(/[?&]symbol=([^&]+)/);
+      const symbol = m ? decodeURIComponent(m[1]) : "?";
+      return new Response(JSON.stringify({
+        symbol, datetime: "2026-06-05", close: "100", currency: "USD",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
+
+    await fetchTwelveDataQuotes(["AAPL", "TRN", "SPYW"]);
+
+    expect(calls).toHaveLength(3);
+    // AAPL: bare symbol, no exchange
+    expect(calls.some((u) => /symbol=AAPL(&|$)/.test(u) && !u.includes("exchange="))).toBe(true);
+    // TRN: must include exchange=LSE to avoid Trinity Industries collision
+    expect(calls.some((u) => u.includes("symbol=TRN") && u.includes("exchange=LSE"))).toBe(true);
+    // SPYW: Xetra
+    expect(calls.some((u) => u.includes("symbol=SPYW") && u.includes("exchange=XETR"))).toBe(true);
+    // All have the API key
+    for (const url of calls) expect(url).toContain("apikey=test-key");
+  });
+
+  it("re-keys the response to the internal ticker (TD echoes the bare external symbol)", async () => {
+    process.env.TWELVE_DATA_API_KEY = "test-key";
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const m = url.match(/[?&]symbol=([^&]+)/);
+      const symbol = m ? decodeURIComponent(m[1]) : "?";
+      // TD echoes back the external symbol it received (e.g. "TRN", not "TRN.L")
+      return new Response(JSON.stringify({
+        symbol, datetime: "2026-06-05", close: "254.00", currency: "GBp",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
+
+    const out = await fetchTwelveDataQuotes(["TRN"]);
     expect(out).toHaveLength(1);
-    expect(out[0].symbol).toBe("AAPL");
+    expect(out[0].symbol).toBe("TRN"); // internal ticker, not whatever TD echoed
+    expect(out[0]).toEqual({ symbol: "TRN", date: "2026-06-05", close: "2.54", currency: "GBP" });
   });
 
-  it("returns an empty list when every symbol failed (whole-batch error)", () => {
-    // Twelve Data shape on a batched failure: top-level error object.
-    expect(parseTwelveDataBatch({ code: 429, message: "Hit limit" }, ["AAPL", "MSFT"])).toEqual([]);
+  it("returns [] when TWELVE_DATA_API_KEY is unset (no HTTP call)", async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as typeof globalThis.fetch;
+    const out = await fetchTwelveDataQuotes(["AAPL"]);
+    expect(out).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("handles a single-symbol batch that returns the unwrapped shape", () => {
-    // When the request had a single symbol the response is the bare quote
-    // object, not a {SYMBOL: {...}} map. Cover that.
-    const json = { symbol: "AAPL", datetime: "2026-06-05", close: "204.20", currency: "USD" };
-    const out = parseTwelveDataBatch(json, ["AAPL"]);
-    expect(out).toEqual([{ symbol: "AAPL", date: "2026-06-05", close: "204.20", currency: "USD" }]);
-  });
+  it("drops failures but keeps successful sibling symbols", async () => {
+    process.env.TWELVE_DATA_API_KEY = "test-key";
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("symbol=ZZZZ")) return new Response("nope", { status: 429 });
+      const m = url.match(/[?&]symbol=([^&]+)/);
+      const symbol = m ? decodeURIComponent(m[1]) : "?";
+      return new Response(JSON.stringify({
+        symbol, datetime: "2026-06-05", close: "100", currency: "USD",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
 
-  it("maps the input symbol back, not Twelve Data's normalised one", () => {
-    // We send 'TRN.L', Twelve Data may echo back 'TRN'. We need the result
-    // to match our internal ticker so the cache write keys correctly.
-    const json = { "TRN.L": { symbol: "TRN", datetime: "2026-06-05", close: "254.00", currency: "GBp" } };
-    const out = parseTwelveDataBatch(json, ["TRN.L"]);
-    expect(out[0].symbol).toBe("TRN.L");
-    // GBp (LSE pence) gets normalised to GBP units, like the Yahoo parser.
-    expect(out[0]).toEqual({ symbol: "TRN.L", date: "2026-06-05", close: "2.54", currency: "GBP" });
+    const out = await fetchTwelveDataQuotes(["AAPL", "ZZZZ", "MSFT"]);
+    expect(out.map((q) => q.symbol).sort()).toEqual(["AAPL", "MSFT"]);
   });
 });
