@@ -1,0 +1,59 @@
+name: Quotes refresh (paged)
+
+# Vercel Hobby caps cron jobs at one run per day, so we offload the
+# hourly paged refresh to GitHub Actions. Each run hits our existing
+# /api/cron/quotes endpoint which already picks the 8 oldest-cached
+# held symbols. Over a market day every symbol cycles through the
+# provider chain (FMP → Twelve Data → Yahoo → Stooq) 3-4 times — far
+# better coverage than a single 21:00 UTC Vercel sweep can deliver
+# given TD's 8/min free-tier cap and FMP's per-symbol paywall.
+#
+# Required setup (one-time, on the GitHub repo):
+#   Settings → Secrets and variables → Actions
+#     Secrets:
+#       CRON_SECRET            same value as Vercel's CRON_SECRET env
+#     Variables:
+#       VERCEL_PRODUCTION_URL  https://<your-project>.vercel.app
+#
+# Cost: ~30 s per run × 10 runs/day × ~20 weekdays ≈ 100 minutes/month.
+# Well under GitHub Actions' 2000 min/month free quota for private repos.
+
+on:
+  schedule:
+    # Every hour at :30 past, 13:30-22:30 UTC, Mon-Fri.
+    # 13:30 UTC = market open (NYSE 9:30 EDT / 8:30 EST).
+    # 22:30 UTC = ~2h post-close, lets us pull post-trade closes.
+    - cron: "30 13-22 * * 1-5"
+  workflow_dispatch:  # manual trigger from the Actions UI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quotes-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Hit /api/cron/quotes
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PRODUCTION_URL: ${{ vars.VERCEL_PRODUCTION_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret is not set on this repo"
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "::error::VERCEL_PRODUCTION_URL variable is not set on this repo"
+            exit 1
+          fi
+          # -f fails the step on non-2xx so a 401/500 surfaces as a red
+          # workflow run instead of silently succeeding.
+          response=$(curl -sS -f \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$PRODUCTION_URL/api/cron/quotes")
+          echo "Response: $response"
