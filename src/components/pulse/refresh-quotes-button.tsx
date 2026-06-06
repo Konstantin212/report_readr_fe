@@ -8,6 +8,7 @@ type Result = {
   unpriced?: string[];
   skipped?: number;
   bySource?: Record<string, number>;
+  fmpConfigured?: boolean;
   twelveDataConfigured?: boolean;
 };
 
@@ -54,17 +55,24 @@ export function RefreshQuotesButton() {
           {result.inserted}/{result.requested} priced
           {result.bySource ? (
             <span className="ml-2 text-dim">
+              {(result.bySource.fmp ?? 0) > 0 && <> · fmp {result.bySource.fmp}</>}
               {(result.bySource.twelveData ?? 0) > 0 && <> · td {result.bySource.twelveData}</>}
               {(result.bySource.yahoo ?? 0) > 0 && <> · yahoo {result.bySource.yahoo}</>}
               {(result.bySource.stooq ?? 0) > 0 && <> · stooq {result.bySource.stooq}</>}
               {(result.bySource.none ?? 0) > 0 && <> · <span className="text-bad">none {result.bySource.none}</span></>}
             </span>
           ) : null}
+          {result.fmpConfigured === false && (
+            <div className="mt-1 text-amber text-[10px]">
+              FMP_API_KEY not set — FMP was skipped (would have priced US symbols).
+              Sign up at financialmodelingprep.com, add the key in Vercel,
+              scope to Production, then redeploy.
+            </div>
+          )}
           {result.twelveDataConfigured === false && (
             <div className="mt-1 text-amber text-[10px]">
-              TWELVE_DATA_API_KEY not set in this environment — Twelve Data was skipped.
-              Add the key in Vercel → Settings → Environment Variables, scope it to
-              Production, then redeploy.
+              TWELVE_DATA_API_KEY not set — Twelve Data was skipped (would have
+              priced international symbols).
             </div>
           )}
         </div>
