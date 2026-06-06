@@ -2,33 +2,20 @@ import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
-import { fetchYahooQuote } from "@/lib/quotes/yahoo";
-import { fetchStooqQuote } from "@/lib/quotes/stooq";
+import { refreshQuotes } from "@/lib/quotes/refresh";
 import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
 import { hasValidCronSecret } from "@/lib/auth/cron";
 
-// Daily spot-quotes cron. Yahoo's v8 chart endpoint is the primary
-// source — it's the only free venue that still returns parseable JSON
-// for unauthenticated callers after Stooq's mid-2026 bot challenge
-// rollout and Yahoo's v7 quote endpoint's "Unauthorized" gate.
-// Stooq remains as a fallback in case Yahoo throttles a specific
-// symbol; the bot challenge there now returns null (see parseStooqCsv)
-// instead of writing JS-blob substrings into the cache.
+// Daily spot-quotes cron. Provider priority lives in lib/quotes/refresh:
+//   1. Twelve Data (when TWELVE_DATA_API_KEY is set) — works from
+//      data-center IPs, free tier, batched (8 symbols/call).
+//   2. Yahoo v8 chart — works locally; data-center IPs often get
+//      "Unauthorized".
+//   3. Stooq — silently bot-challenged mid-2026; kept around in case
+//      they revert.
+// The orchestrator is shared with /api/admin/refresh-quotes so the
+// behavior of the daily run and the manual button stays identical.
 export const maxDuration = 60;
-
-type Quote = { symbol: string; date: string; close: string; currency: string };
-
-async function fetchWithFallback(symbol: string): Promise<{ quote: Quote | null; source: "yahoo" | "stooq" | "none" }> {
-  try {
-    const y = await fetchYahooQuote(symbol);
-    if (y) return { quote: y, source: "yahoo" };
-  } catch { /* fall through */ }
-  try {
-    const s = await fetchStooqQuote(symbol);
-    if (s) return { quote: s, source: "stooq" };
-  } catch { /* fall through */ }
-  return { quote: null, source: "none" };
-}
 
 export async function GET(req: Request) {
   if (!hasValidCronSecret(req)) {
@@ -44,13 +31,7 @@ export async function GET(req: Request) {
   const skipped = allHeld.filter((s) => EXTERNALLY_PRICED_SYMBOLS.has(s));
   const requested = allHeld.filter((s) => !EXTERNALLY_PRICED_SYMBOLS.has(s));
 
-  const results = await Promise.all(requested.map((s) => fetchWithFallback(s)));
-  const quotes: Quote[] = [];
-  const bySource: Record<string, number> = { yahoo: 0, stooq: 0, none: 0 };
-  for (const r of results) {
-    bySource[r.source] = (bySource[r.source] ?? 0) + 1;
-    if (r.quote) quotes.push(r.quote);
-  }
+  const { quotes, bySource, unpriced } = await refreshQuotes(requested);
 
   let writeError: string | null = null;
   if (quotes.length) {
@@ -70,11 +51,9 @@ export async function GET(req: Request) {
       writeError = (e as Error).message;
     }
   }
-  const inserted = quotes.map((q) => q.symbol);
-  const unpriced = requested.filter((s) => !inserted.includes(s));
   return NextResponse.json({
     requested,
-    inserted,
+    inserted: quotes.map((q) => q.symbol),
     unpriced,
     skipped,
     bySource,

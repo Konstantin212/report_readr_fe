@@ -53,7 +53,8 @@ export function RefreshQuotesButton() {
           {result.inserted}/{result.requested} priced
           {result.bySource ? (
             <span className="ml-2 text-dim">
-              · yahoo {result.bySource.yahoo ?? 0}
+              {(result.bySource.twelveData ?? 0) > 0 && <> · td {result.bySource.twelveData}</>}
+              {(result.bySource.yahoo ?? 0) > 0 && <> · yahoo {result.bySource.yahoo}</>}
               {(result.bySource.stooq ?? 0) > 0 && <> · stooq {result.bySource.stooq}</>}
               {(result.bySource.none ?? 0) > 0 && <> · <span className="text-bad">none {result.bySource.none}</span></>}
             </span>
