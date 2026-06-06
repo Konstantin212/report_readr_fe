@@ -11,6 +11,7 @@ import { ToggleRow } from "@/components/pulse/toggle-row";
 import { SettingsSidebar } from "@/components/pulse/settings-sidebar";
 import { ResetBrokerButton } from "@/components/pulse/reset-broker-button";
 import { BackfillFxButton } from "@/components/pulse/backfill-fx-button";
+import { RefreshQuotesButton } from "@/components/pulse/refresh-quotes-button";
 import { MembersManager } from "@/components/pulse/members-manager";
 import { CryptoAccountsManager } from "@/components/pulse/crypto-accounts-manager";
 
@@ -158,6 +159,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                 <SettingRow label="FX gains in tax" value="Separate report" />
                 <SettingRow label="Round to" value="2 decimals" last />
                 <BackfillFxButton />
+                <RefreshQuotesButton />
               </Card>
             </div>
           )}
