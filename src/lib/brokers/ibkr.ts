@@ -56,7 +56,17 @@ export function parseInteractiveBrokersStatement(
 
   const statementRows = getRows(dataRows, "Statement");
   const accountRows = getRows(dataRows, "Account Information");
-  const accountNumber = getField(accountRows, "Account") ?? "UNKNOWN";
+  // Prefer the Account Information field (e.g. "U00000000"). If that section
+  // is missing — as it is on some Trade Confirmation exports — peel the
+  // account id out of the filename (IBKR always names downloads like
+  // `U00000000_2024_2024.csv`). Falling all the way through to "UNKNOWN"
+  // would let two genuinely-different uploads collapse into one account,
+  // or split one account across multiple rows, so we try hard to recover.
+  // IBKR account ids are an uppercase U followed by 4+ digits. `\b` doesn't
+  // help here because underscores in the filename count as word chars.
+  const filenameAccount = fileName.match(/(?:^|[^A-Za-z0-9])(U\d{4,})(?:[^A-Za-z0-9]|$)/)?.[1];
+  const accountNumber =
+    getField(accountRows, "Account") ?? filenameAccount ?? "UNKNOWN";
   const statementPeriod = getField(statementRows, "Period");
   const statementDates = parseStatementPeriod(statementPeriod);
 
