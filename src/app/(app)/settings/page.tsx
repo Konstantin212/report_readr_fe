@@ -55,37 +55,56 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                     <div className="font-mono text-[11px] text-muted mt-1">Manage data sources · all parsing happens locally</div>
                   </div>
                 </div>
-                {accounts.length === 0 && <div className="text-muted text-sm">No broker accounts yet. Upload a statement to register one.</div>}
-                {accounts.map((b, i) => (
-                  <div key={b.id} className={`grid grid-cols-[50px_1fr_1fr_1fr_1fr_auto] gap-3.5 py-3.5 items-center ${i > 0 ? "border-t border-border" : ""}`}>
-                    <div className={`w-11 h-11 rounded-[12px] flex items-center justify-center font-mono font-bold text-[13px] ${
-                      b.broker === "FREEDOM_FINANCE" ? "bg-amber/20 text-amber" : "bg-mint/20 text-mint"
-                    }`}>
-                      {b.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"}
+                {(() => {
+                  // Coinbase is managed in the dedicated Crypto exchanges section
+                  // below (with its own connect/disconnect/sync controls). Listing
+                  // it here too confused users — and the Reset button would orphan
+                  // the encrypted API key in crypto_accounts. Filter it out.
+                  const statementAccounts = accounts.filter((b) => b.broker !== "COINBASE");
+                  if (statementAccounts.length === 0) {
+                    return <div className="text-muted text-sm">No broker accounts yet. Upload a statement to register one.</div>;
+                  }
+                  return statementAccounts.map((b, i) => {
+                  // Broker chip + label + mode are derived from a single map so the
+                  // settings page stays in lockstep with the positions table, where
+                  // brand colors identify each broker (IBKR red, Freedom green,
+                  // Coinbase blue). Previously this page collapsed everything that
+                  // wasn't FF into "IBKR" — which mislabeled Coinbase rows as IBKR.
+                  const meta = {
+                    INTERACTIVE_BROKERS: { short: "IBKR", label: "Interactive Brokers", mode: "Manual CSV uploads",  chip: "bg-brand-ibkr/15 text-brand-ibkr border border-brand-ibkr/30" },
+                    FREEDOM_FINANCE:     { short: "FF",   label: "Freedom Finance",     mode: "Manual JSON uploads", chip: "bg-brand-freedom/15 text-brand-freedom border border-brand-freedom/30" },
+                    COINBASE:            { short: "CB",   label: "Coinbase",            mode: "Live API sync",       chip: "bg-brand-coinbase/15 text-brand-coinbase border border-brand-coinbase/30" },
+                  }[b.broker] ?? { short: b.broker.slice(0, 4).toUpperCase(), label: b.broker, mode: "—", chip: "bg-panel2 text-muted" };
+                  return (
+                    <div key={b.id} className={`grid grid-cols-[50px_1fr_1fr_1fr_1fr_auto] gap-3.5 py-3.5 items-center ${i > 0 ? "border-t border-border" : ""}`}>
+                      <div className={`w-11 h-11 rounded-[12px] flex items-center justify-center font-mono font-bold text-[13px] ${meta.chip}`}>
+                        {meta.short}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-sm">{meta.label}</div>
+                        <div className="font-mono text-[11px] text-muted">{b.accountNumber}</div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Mode</div>
+                        <div className="text-xs mt-1">{meta.mode}</div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Base ccy</div>
+                        <div className="text-xs mt-1">{b.baseCurrency}</div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Status</div>
+                        <div className="text-xs mt-1 text-mint">● Active</div>
+                      </div>
+                      <ResetBrokerButton
+                        brokerAccountId={b.id}
+                        brokerLabel={meta.label}
+                        accountNumber={b.accountNumber}
+                      />
                     </div>
-                    <div>
-                      <div className="font-semibold text-sm">{b.broker === "FREEDOM_FINANCE" ? "Freedom Finance" : "Interactive Brokers"}</div>
-                      <div className="font-mono text-[11px] text-muted">{b.accountNumber}</div>
-                    </div>
-                    <div>
-                      <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Mode</div>
-                      <div className="text-xs mt-1">{b.broker === "FREEDOM_FINANCE" ? "Manual JSON uploads" : "Manual CSV uploads"}</div>
-                    </div>
-                    <div>
-                      <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Base ccy</div>
-                      <div className="text-xs mt-1">{b.baseCurrency}</div>
-                    </div>
-                    <div>
-                      <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Status</div>
-                      <div className="text-xs mt-1 text-mint">● Active</div>
-                    </div>
-                    <ResetBrokerButton
-                      brokerAccountId={b.id}
-                      brokerLabel={b.broker === "FREEDOM_FINANCE" ? "Freedom Finance" : "Interactive Brokers"}
-                      accountNumber={b.accountNumber}
-                    />
-                  </div>
-                ))}
+                  );
+                });
+                })()}
               </Card>
             </>
           )}

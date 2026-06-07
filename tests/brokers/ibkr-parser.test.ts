@@ -56,4 +56,24 @@ Trades,Data,Order,Stocks,USD,VUAA,2024-08-01;10:00:00,-1,100,100,-1,80,19,19,C
     expect(parsed.statementStartDate).toBe("2023-01-01");
     expect(parsed.statementEndDate).toBe("2024-12-31");
   });
+
+  it("recovers the IBKR account id from the filename when the Account Information section is absent", () => {
+    // Trade Confirmation exports and some abbreviated activity reports omit
+    // the Account Information section entirely. Without a fallback the parser
+    // would store these under accountNumber "UNKNOWN", which then collides
+    // with every other Account-less upload from any IBKR user. The filename
+    // pattern (`U13142092_2024_2024.csv`) is a reliable secondary source.
+    const bytes = Buffer.from(`Statement,Header,Field Name,Field Value
+Statement,Data,BrokerName,Interactive Brokers Ireland Limited
+Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Proceeds,Comm/Fee,Basis,Realized P/L,MTM P/L,Code
+Trades,Data,Order,Stocks,USD,VUAA,2024-08-01;10:00:00,2,80,-160,-1,160,0,0,O
+`);
+    const parsed = parseBrokerStatement({
+      broker: "INTERACTIVE_BROKERS",
+      fileName: "U13142092_2024_2024.csv",
+      bytes,
+      taxYear: 2024,
+    });
+    expect(parsed.account.accountNumber).toBe("U13142092");
+  });
 });
