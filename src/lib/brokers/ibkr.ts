@@ -7,6 +7,7 @@ import {
   dateOnly,
   decodeBytes,
   negateNumber,
+  parsePositiveAmount,
   subtractNumbers,
 } from "./format";
 import type { BrokerAccountMetadata, NormalizedEvent, ParsedBrokerStatement, SnapshotQuote } from "./types";
@@ -118,6 +119,13 @@ export function parseInteractiveBrokersStatement(
  * Skips Total/SubTotal rows (DataDiscriminator !== "Summary"), applies
  * the FII canonical-symbol remap (so TRNl is stored as TRN), and
  * filters out rows with no usable close price.
+ *
+ * Canonical-symbol remap caveat: relies on IBKR populating the FII
+ * `Underlying` column. In practice IBKR fills this for LSE/Xetra
+ * dual-listings (TRNl→TRN); the parity test in
+ * `tests/brokers/ibkr-portfolio-parity.test.ts` empirically guards
+ * the regression — if IBKR ever drops `Underlying` for the user's
+ * holdings, that test fails and we'll know.
  */
 function parseIbkrSnapshotQuotes(
   dataRows: SectionRow[],
@@ -132,12 +140,10 @@ function parseIbkrSnapshotQuotes(
     if (!rawSymbol) continue;
     const info = instrumentMap.get(stripBondYieldSuffix(rawSymbol)) ?? instrumentMap.get(rawSymbol);
     const symbol = info?.canonicalSymbol ?? stripBondYieldSuffix(rawSymbol);
-    const closeStr = cleanNumber(row["Close Price"]);
-    if (!closeStr) continue;
-    const num = Number(closeStr);
-    if (!Number.isFinite(num) || num <= 0) continue;
+    const num = parsePositiveAmount(cleanNumber(row["Close Price"]));
+    if (num === null) continue;
     const currency = cleanString(row["Currency"]) ?? "USD";
-    out.push({ symbol, date: endDate, close: num.toFixed(4), currency, source: "IBKR_SNAPSHOT" });
+    out.push({ symbol, date: endDate, close: num.toFixed(2), currency, source: "IBKR_SNAPSHOT" });
   }
   return out;
 }

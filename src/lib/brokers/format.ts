@@ -31,6 +31,19 @@ export function cleanNumber(value: unknown): string | undefined {
   return numeric.toString();
 }
 
+/**
+ * Parse a broker-supplied price/amount string into a positive finite
+ * number, or `null` when the value is missing, malformed, zero, or
+ * negative. Used by snapshot-quote parsers — both brokers want exactly
+ * the same "skip bad rows" semantics for the close-price column.
+ */
+export function parsePositiveAmount(value: string | undefined): number | null {
+  if (!value) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+}
+
 export function absoluteNumber(value: unknown): string | undefined {
   const text = cleanNumber(value);
   if (!text) {

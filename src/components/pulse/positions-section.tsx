@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { Card } from "./card";
 import { usePnlMode, PnlModeToggle } from "./pnl-mode";
+import { classifyQuoteFreshness } from "@/lib/quotes/freshness";
 
 type ViewMetrics = {
   avgCostEur: number;
@@ -34,41 +35,32 @@ type Row = {
   quoteUpdatedAt?: string | null;
 };
 
-const API_QUOTE_SOURCES = new Set(["FMP", "TWELVE_DATA", "YAHOO", "STOOQ", "COINGECKO"]);
-const STATEMENT_QUOTE_SOURCES = new Set(["FREEDOM_SNAPSHOT", "IBKR_SNAPSHOT"]);
-const STALE_AFTER_DAYS = 7;
+/**
+ * Single source of truth for the per-row data-source chip. Each new
+ * provider added to the quote orchestrator only touches THIS record —
+ * the short label, long label, and visual kind all flow from here.
+ */
+type SourceKind = "api" | "statement";
+const SOURCE_META: Record<string, { short: string; long: string; kind: SourceKind }> = {
+  FREEDOM_SNAPSHOT: { short: "FF",  long: "Freedom statement snapshot",     kind: "statement" },
+  IBKR_SNAPSHOT:    { short: "IB",  long: "IBKR statement snapshot",        kind: "statement" },
+  FMP:              { short: "FMP", long: "Financial Modeling Prep API",    kind: "api" },
+  TWELVE_DATA:      { short: "12D", long: "Twelve Data API",                kind: "api" },
+  YAHOO:            { short: "YAH", long: "Yahoo Finance API",              kind: "api" },
+  STOOQ:            { short: "STQ", long: "Stooq CSV API",                  kind: "api" },
+  COINGECKO:        { short: "CG",  long: "CoinGecko API",                  kind: "api" },
+};
 
-function sourceShortLabel(src: string | null | undefined): string {
-  if (!src) return "?";
-  if (src === "FREEDOM_SNAPSHOT") return "FF";
-  if (src === "IBKR_SNAPSHOT") return "IB";
-  if (src === "TWELVE_DATA") return "12D";
-  if (src === "COINGECKO") return "CG";
-  return src.slice(0, 3);
-}
-
-function sourceLongLabel(src: string | null | undefined): string {
-  if (!src) return "Unknown source";
-  if (src === "FREEDOM_SNAPSHOT") return "Freedom statement snapshot";
-  if (src === "IBKR_SNAPSHOT") return "IBKR statement snapshot";
-  if (src === "TWELVE_DATA") return "Twelve Data API";
-  if (src === "COINGECKO") return "CoinGecko API";
-  if (src === "FMP") return "Financial Modeling Prep API";
-  if (src === "YAHOO") return "Yahoo Finance API";
-  if (src === "STOOQ") return "Stooq CSV API";
-  return src;
-}
-
-function daysSince(isoDate: string): number {
-  const then = new Date(isoDate).getTime();
-  if (Number.isNaN(then)) return Infinity;
-  return (Date.now() - then) / 86_400_000;
+function sourceMeta(src: string | null | undefined) {
+  if (!src) return null;
+  return SOURCE_META[src] ?? null;
 }
 
 function relativeTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const days = daysSince(iso);
-  if (!Number.isFinite(days)) return iso;
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "?";
+  const days = (Date.now() - then) / 86_400_000;
   if (days < 1) return "today";
   if (days < 2) return "1 day ago";
   if (days < 30) return `${Math.round(days)} days ago`;
@@ -77,9 +69,19 @@ function relativeTime(iso: string | null | undefined): string {
 }
 
 /**
+ * Defensive YYYY-MM-DD extraction for the inline date chip. Schema says
+ * quote_cache.date is always YYYY-MM-DD, but if a provider ever writes a
+ * full ISO timestamp by mistake, plain `.slice(5)` would produce garbled
+ * text like "-06-01T00:00:00.000Z" in the chip.
+ */
+function monthDay(asOf: string): string {
+  return asOf.slice(0, 10).slice(5);
+}
+
+/**
  * Per-row "where this price came from" chip. Sits in the column right of
- * Broker. Snapshot sources (📄, broker tint) show the price date inline;
- * API sources (📡, muted tint) keep it in the tooltip. When the row is
+ * Broker. Snapshot sources (≡, amber tint) show the price date inline;
+ * API sources (·, muted tint) keep it in the tooltip. When the row is
  * stale, the date renders in amber too so it stands out at a glance.
  */
 function QuoteSourceIndicator({
@@ -93,8 +95,9 @@ function QuoteSourceIndicator({
   updatedAt: string | null | undefined;
   stale: boolean;
 }) {
-  const isStatement = !!source && STATEMENT_QUOTE_SOURCES.has(source);
-  const isApi = !!source && API_QUOTE_SOURCES.has(source);
+  const meta = sourceMeta(source);
+  const isStatement = meta?.kind === "statement";
+  const isApi = meta?.kind === "api";
   const glyph = isStatement ? "≡" : isApi ? "·" : "?";
   const baseChip = isStatement
     ? "bg-amber/10 text-amber border border-amber/25"
@@ -102,11 +105,12 @@ function QuoteSourceIndicator({
     ? "bg-panel2 text-muted border border-border"
     : "bg-panel2 text-dim border border-border";
   const tooltip = [
-    sourceLongLabel(source),
+    meta?.long ?? (source ?? "Unknown source"),
     asOf ? `price date ${asOf}` : null,
     updatedAt ? `cached ${relativeTime(updatedAt)}` : null,
-    stale ? `stale (>${STALE_AFTER_DAYS} days old)` : null,
+    stale ? "stale" : null,
   ].filter(Boolean).join(" · ");
+  const shortLabel = meta?.short ?? (source ? source.slice(0, 3) : "?");
 
   return (
     <span
@@ -114,9 +118,9 @@ function QuoteSourceIndicator({
       className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded font-mono text-[9px] tracking-wider w-fit cursor-help ${baseChip}`}
     >
       <span>{glyph}</span>
-      <span>{sourceShortLabel(source)}</span>
+      <span>{shortLabel}</span>
       {asOf && (isStatement || stale) && (
-        <span className={`ml-0.5 ${stale ? "text-amber" : "opacity-70"}`}>{asOf.slice(5)}</span>
+        <span className={`ml-0.5 ${stale ? "text-amber" : "opacity-70"}`}>{monthDay(asOf)}</span>
       )}
     </span>
   );
@@ -203,6 +207,10 @@ export function PositionsSection({
   };
   const { mode } = usePnlMode();
   if (rows.length === 0) return null;
+  // Computed once per render so every row's freshness check uses the
+  // same baseline. The default-`new Date()`-each-row alternative would
+  // be slightly racier and would re-allocate per iteration.
+  const todayIso = new Date().toISOString().slice(0, 10);
   const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtPct = (v: number | null) => v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
   const fmtNative = (v: number | null, ccy: string | null) => {
@@ -250,11 +258,12 @@ export function PositionsSection({
         const plEurColor = v.plEur === null ? "text-muted" : v.plEur >= 0 ? "text-mint" : "text-bad";
         const plNativeColor = v.plNative === null ? "text-muted" : v.plNative >= 0 ? "text-mint" : "text-bad";
         const plPctColor = v.plPct === null ? "text-muted" : v.plPct >= 0 ? "text-mint" : "text-bad";
-        // Stale = the *price date* of the backing quote is older than the
-        // threshold. Lots of UCITS ETFs end up here when our API chain
-        // doesn't price them and the only quote we have is from the last
-        // statement upload — that's exactly the case we want to surface.
-        const isStale = !!r.asOf && daysSince(r.asOf) > STALE_AFTER_DAYS;
+        // Stale = the *price date* is past the project-wide freshness
+        // threshold (see classifyQuoteFreshness — 5 calendar days, same
+        // policy the quote-status table uses). Lots of UCITS ETFs land
+        // here when our API chain can't price them and the only quote
+        // we have is from a months-old statement upload.
+        const isStale = classifyQuoteFreshness(r.asOf ?? null, todayIso) === "stale";
         // Inline style (not Tailwind) — the hex is an arbitrary value that
         // Tailwind's JIT can't pre-extract from a conditional className.
         const staleStyle = isStale ? { boxShadow: "inset 0px -14px 21px -16px #FFE61C" } : undefined;
