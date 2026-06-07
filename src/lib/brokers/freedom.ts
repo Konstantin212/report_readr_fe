@@ -82,6 +82,16 @@ type FreedomStatement = {
       };
     };
   };
+  /**
+   * Per-currency cash summary including `curr_at_end` — FF's authoritative
+   * ending balance for each currency at date_end. Used to seed the cash
+   * card with a snapshot instead of summing 700+ historical events, the
+   * same way IBKR's "Ending Settled Cash" row in the Cash Report is used.
+   */
+  cash_flows_json?: Array<{
+    curr?: unknown;            // currency code, e.g. "USD" / "EUR" / "RUR"
+    curr_at_end?: unknown;     // ending balance in `curr`
+  }>;
 };
 
 type FreedomTrade = Record<string, unknown> & {
@@ -209,6 +219,10 @@ export function parseFreedomFinanceStatement(
     // Corporate actions: same shape choice as cash.
     ...parseSecuritiesInOuts(statement.securities_in_outs ?? [], accountNumber),
     ...parseCorporateActions(statement.corporate_actions?.detailed ?? [], accountNumber),
+    // Authoritative per-currency ending balance snapshot — getCashBalances
+    // sees source="CASH_REPORT_ENDING" and skips event-summing for that
+    // (account, currency) pair. Mirrors IBKR's Cash Report path.
+    ...parseFreedomCashEndings(statement, accountNumber),
   ];
 
   // Freedom stamps ISIN on TRADE rows but leaves it off DIVIDEND and
@@ -281,6 +295,53 @@ function parseFreedomSnapshotQuotes(
     const remapped = isin ? tradeSymbolByIsin.get(isin) : undefined;
     const symbol = remapped ?? stripped;
     out.push({ symbol, date, close: num.toFixed(2), currency, source: "FREEDOM_SNAPSHOT" });
+  }
+  return out;
+}
+
+/**
+ * Capture Freedom's authoritative per-currency ending balance from the
+ * top-level `cash_flows_json` array. Each entry has `curr` (currency code
+ * like "USD" / "EUR") and `curr_at_end` (ending balance in that currency).
+ *
+ * Emitted as CASH_TRANSFER events with source="CASH_REPORT_ENDING" so the
+ * cash accessor in src/lib/data/cash.ts recognises them as snapshots and
+ * bypasses event-summing for those currencies. Without this we'd sum
+ * 700+ historical cash flows + commissions + trades, which silently
+ * overstates the balance whenever any sign is wrong or an old
+ * withdrawal didn't make it into the latest export.
+ *
+ * Skips currencies with a zero / missing ending balance — the snapshot
+ * is then absent for those currencies and the existing event-sum path
+ * handles them (which for zero-balance currencies will produce no row).
+ */
+function parseFreedomCashEndings(
+  statement: FreedomStatement,
+  accountNumber: string,
+): NormalizedEvent[] {
+  const date = dateOnly(cleanString(statement.date_end));
+  const rows = statement.cash_flows_json ?? [];
+  if (!date || !rows.length) return [];
+  const out: NormalizedEvent[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const currency = cleanString(r.curr);
+    const endStr = cleanNumber(r.curr_at_end);
+    if (!currency || !endStr) continue;
+    const num = Number(endStr);
+    if (!Number.isFinite(num)) continue;
+    out.push(compactEvent<NormalizedEvent>({
+      id: `ff-cash-snapshot-${i + 1}`,
+      broker: "FREEDOM_FINANCE",
+      accountNumber,
+      type: "CASH_TRANSFER",
+      date,
+      currency,
+      description: "Ending balance",
+      amount: endStr,
+      cashAmount: endStr,
+      source: "CASH_REPORT_ENDING",
+    }));
   }
   return out;
 }
