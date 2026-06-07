@@ -29,9 +29,9 @@ describe("Freedom snapshot-quote extraction", () => {
   it("captures one quote per held position with mkt_price + curr", () => {
     const parsed = parseFreedomFinanceStatement("test.json", fixture(), 2026);
     expect(parsed.snapshotQuotes).toEqual([
-      { symbol: "HOOD", date: "2026-06-05", close: "84.06", currency: "USD" },
-      { symbol: "VHYL", date: "2026-06-05", close: "51.34", currency: "EUR" },
-      { symbol: "RY4C", date: "2026-06-05", close: "22.41", currency: "EUR" },
+      { symbol: "HOOD", date: "2026-06-05", close: "84.06", currency: "USD", source: "FREEDOM_SNAPSHOT" },
+      { symbol: "VHYL", date: "2026-06-05", close: "51.34", currency: "EUR", source: "FREEDOM_SNAPSHOT" },
+      { symbol: "RY4C", date: "2026-06-05", close: "22.41", currency: "EUR", source: "FREEDOM_SNAPSHOT" },
     ]);
   });
 
@@ -114,7 +114,7 @@ describe("Freedom snapshot-quote extraction", () => {
     })).buffer;
     const parsed = parseFreedomFinanceStatement("test.json", bytes, 2026);
     expect(parsed.snapshotQuotes).toEqual([
-      { symbol: "RY4C", date: "2026-06-06", close: "23.88", currency: "EUR" },
+      { symbol: "RY4C", date: "2026-06-06", close: "23.88", currency: "EUR", source: "FREEDOM_SNAPSHOT" },
     ]);
   });
 

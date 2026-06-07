@@ -45,7 +45,16 @@ export type PositionRow = {
   qty: number;
   pricePerUnitEur: number | null;
   marketEur: number | null;
+  /** ISO YYYY-MM-DD — the *price date* of the quote backing this row. */
   asOf: string | null;
+  /** quote_cache.source for the quote backing this row (e.g.
+   *  "FMP" / "TWELVE_DATA" / "YAHOO" / "STOOQ" / "COINGECKO" /
+   *  "FREEDOM_SNAPSHOT" / "IBKR_SNAPSHOT"). Null when no quote exists. */
+  quoteSource: string | null;
+  /** ISO timestamp of when the backing quote_cache row was written.
+   *  Lets the UI distinguish "price as of yesterday" from "cached
+   *  yesterday but price is two weeks old". */
+  quoteUpdatedAt: string | null;
   // P/L in the equity's listed/trade currency (USD for COIN, GBP for TRN, EUR for SPYW, …).
   // Derived from each lot's source-transaction native amount + a current FX conversion of
   // the EUR-equivalent market value. Null when source transactions are missing or the lot
@@ -214,10 +223,22 @@ export async function getPositionsData(
     if (!prev || r.date > prev.date) latestFx.set(r.fromCurrency, { rate: Number(r.rate), date: r.date });
   }
 
-  const latestQuote = new Map<string, { close: number; currency: string; date: string }>();
+  const latestQuote = new Map<string, {
+    close: number;
+    currency: string;
+    date: string;
+    source: string;
+    updatedAt: Date | null;
+  }>();
   for (const q of allQuotes) {
     const prev = latestQuote.get(q.symbol);
-    if (!prev || q.date > prev.date) latestQuote.set(q.symbol, { close: Number(q.close), currency: q.currency, date: q.date });
+    if (!prev || q.date > prev.date) latestQuote.set(q.symbol, {
+      close: Number(q.close),
+      currency: q.currency,
+      date: q.date,
+      source: q.source,
+      updatedAt: q.updatedAt,
+    });
   }
 
   // Group lots by (brokerAccountId, isin ?? symbol) → aggregated row.
@@ -392,6 +413,8 @@ export async function getPositionsData(
       pricePerUnitEur,
       marketEur,
       asOf,
+      quoteSource: q?.source ?? null,
+      quoteUpdatedAt: q?.updatedAt ? q.updatedAt.toISOString() : null,
       nativeCurrency: nativeCcy,
       pricePerUnitNative,
       marketNative,

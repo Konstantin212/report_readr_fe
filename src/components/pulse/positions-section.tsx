@@ -24,7 +24,103 @@ type Row = {
   marketEur: number | null;
   nativeCurrency: string | null;
   views: { broker: ViewMetrics; net: ViewMetrics };
+  /** ISO YYYY-MM-DD — price date of the quote backing this row, or null. */
+  asOf?: string | null;
+  /** Provider label written into quote_cache.source. Null when no quote
+   *  exists at all. */
+  quoteSource?: string | null;
+  /** ISO timestamp of when the cache row was written. Server-rendered Dates
+   *  cross the boundary as strings. */
+  quoteUpdatedAt?: string | null;
 };
+
+const API_QUOTE_SOURCES = new Set(["FMP", "TWELVE_DATA", "YAHOO", "STOOQ", "COINGECKO"]);
+const STATEMENT_QUOTE_SOURCES = new Set(["FREEDOM_SNAPSHOT", "IBKR_SNAPSHOT"]);
+const STALE_AFTER_DAYS = 7;
+
+function sourceShortLabel(src: string | null | undefined): string {
+  if (!src) return "?";
+  if (src === "FREEDOM_SNAPSHOT") return "FF";
+  if (src === "IBKR_SNAPSHOT") return "IB";
+  if (src === "TWELVE_DATA") return "12D";
+  if (src === "COINGECKO") return "CG";
+  return src.slice(0, 3);
+}
+
+function sourceLongLabel(src: string | null | undefined): string {
+  if (!src) return "Unknown source";
+  if (src === "FREEDOM_SNAPSHOT") return "Freedom statement snapshot";
+  if (src === "IBKR_SNAPSHOT") return "IBKR statement snapshot";
+  if (src === "TWELVE_DATA") return "Twelve Data API";
+  if (src === "COINGECKO") return "CoinGecko API";
+  if (src === "FMP") return "Financial Modeling Prep API";
+  if (src === "YAHOO") return "Yahoo Finance API";
+  if (src === "STOOQ") return "Stooq CSV API";
+  return src;
+}
+
+function daysSince(isoDate: string): number {
+  const then = new Date(isoDate).getTime();
+  if (Number.isNaN(then)) return Infinity;
+  return (Date.now() - then) / 86_400_000;
+}
+
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const days = daysSince(iso);
+  if (!Number.isFinite(days)) return iso;
+  if (days < 1) return "today";
+  if (days < 2) return "1 day ago";
+  if (days < 30) return `${Math.round(days)} days ago`;
+  if (days < 365) return `${Math.round(days / 30)} mo ago`;
+  return `${Math.round(days / 365)}y ago`;
+}
+
+/**
+ * Per-row "where this price came from" chip. Sits in the column right of
+ * Broker. Snapshot sources (📄, broker tint) show the price date inline;
+ * API sources (📡, muted tint) keep it in the tooltip. When the row is
+ * stale, the date renders in amber too so it stands out at a glance.
+ */
+function QuoteSourceIndicator({
+  source,
+  asOf,
+  updatedAt,
+  stale,
+}: {
+  source: string | null | undefined;
+  asOf: string | null | undefined;
+  updatedAt: string | null | undefined;
+  stale: boolean;
+}) {
+  const isStatement = !!source && STATEMENT_QUOTE_SOURCES.has(source);
+  const isApi = !!source && API_QUOTE_SOURCES.has(source);
+  const glyph = isStatement ? "≡" : isApi ? "·" : "?";
+  const baseChip = isStatement
+    ? "bg-amber/10 text-amber border border-amber/25"
+    : isApi
+    ? "bg-panel2 text-muted border border-border"
+    : "bg-panel2 text-dim border border-border";
+  const tooltip = [
+    sourceLongLabel(source),
+    asOf ? `price date ${asOf}` : null,
+    updatedAt ? `cached ${relativeTime(updatedAt)}` : null,
+    stale ? `stale (>${STALE_AFTER_DAYS} days old)` : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <span
+      title={tooltip}
+      className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded font-mono text-[9px] tracking-wider w-fit cursor-help ${baseChip}`}
+    >
+      <span>{glyph}</span>
+      <span>{sourceShortLabel(source)}</span>
+      {asOf && (isStatement || stale) && (
+        <span className={`ml-0.5 ${stale ? "text-amber" : "opacity-70"}`}>{asOf.slice(5)}</span>
+      )}
+    </span>
+  );
+}
 
 const CCY_SYMBOL: Record<string, string> = {
   EUR: "€", USD: "$", GBP: "£", CHF: "₣", JPY: "¥", SEK: "kr", HKD: "HK$", CAD: "C$",
@@ -125,9 +221,13 @@ export function PositionsSection({
           <div className="font-mono text-[11px] text-muted tracking-wider">{count} holdings</div>
         </div>
       </div>
-      <div className="hidden lg:grid grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+      <div className="hidden lg:grid grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
         <span>Holding</span>
         <span>Broker</span>
+        <span
+          className="cursor-help"
+          title="Where this row's price came from. 📄 is the broker statement (FF/IB) — refreshes only on upload; 📡 is a live API (FMP/Twelve Data/Yahoo/Stooq/CoinGecko) — refreshes on the daily quote cron. Hover any row's chip for the exact provider, price date, and cache age."
+        >Src&nbsp;ⓘ</span>
         <span className="text-right">Qty</span>
         <span
           className="text-right cursor-help"
@@ -150,11 +250,20 @@ export function PositionsSection({
         const plEurColor = v.plEur === null ? "text-muted" : v.plEur >= 0 ? "text-mint" : "text-bad";
         const plNativeColor = v.plNative === null ? "text-muted" : v.plNative >= 0 ? "text-mint" : "text-bad";
         const plPctColor = v.plPct === null ? "text-muted" : v.plPct >= 0 ? "text-mint" : "text-bad";
+        // Stale = the *price date* of the backing quote is older than the
+        // threshold. Lots of UCITS ETFs end up here when our API chain
+        // doesn't price them and the only quote we have is from the last
+        // statement upload — that's exactly the case we want to surface.
+        const isStale = !!r.asOf && daysSince(r.asOf) > STALE_AFTER_DAYS;
+        // Inline style (not Tailwind) — the hex is an arbitrary value that
+        // Tailwind's JIT can't pre-extract from a conditional className.
+        const staleStyle = isStale ? { boxShadow: "inset 0px -14px 21px -16px #FFE61C" } : undefined;
         return (
           <Link
             key={r.symbol}
             href={hrefFor(r.symbol) as never}
-            className={`flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
+            style={staleStyle}
+            className={`flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
               isSelected ? "bg-panel2 border-l-mint" : bk.borderLeft
             } border-b border-border last:border-b-0`}
           >
@@ -175,11 +284,12 @@ export function PositionsSection({
               </div>
             </div>
 
-            {/* Line 2 (mobile only): broker pill · qty · value €.
-                On lg, the broker pill / qty / avg / price / value cells render directly as grid cells. */}
+            {/* Line 2 (mobile only): broker pill · source · qty · value €.
+                On lg, the broker pill / source / qty / avg / price / value cells render directly as grid cells. */}
             <div className="flex items-center justify-between gap-3 lg:hidden">
               <div className="flex items-center gap-2 min-w-0">
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${bk.chip}`}>{r.broker}</span>
+                <QuoteSourceIndicator source={r.quoteSource} asOf={r.asOf} updatedAt={r.quoteUpdatedAt} stale={isStale} />
                 <span className="font-mono text-[11px] text-muted">{r.qty} sh</span>
               </div>
               <span className="font-mono font-semibold text-[13px] text-right shrink-0">
@@ -200,9 +310,12 @@ export function PositionsSection({
               </span>
             </div>
 
-            {/* Desktop-only grid cells (cols 2-9). Hidden on mobile because lines 2/3 above already
+            {/* Desktop-only grid cells (cols 2-10). Hidden on mobile because lines 2/3 above already
                 surface this data in a stacked form. */}
             <span className={`hidden lg:inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${bk.chip}`}>{r.broker}</span>
+            <span className="hidden lg:inline-flex">
+              <QuoteSourceIndicator source={r.quoteSource} asOf={r.asOf} updatedAt={r.quoteUpdatedAt} stale={isStale} />
+            </span>
             <span className="hidden lg:block text-right font-mono text-xs text-muted">{r.qty}</span>
             <span className="hidden lg:block text-right font-mono text-xs text-muted">{v.avgCostEur.toFixed(2)}</span>
             <span className="hidden lg:block text-right font-mono text-xs">{r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}</span>

@@ -9,7 +9,7 @@ import {
   signedQuantity,
   subtractNumbers,
 } from "./format";
-import type { BrokerAccountMetadata, NormalizedEvent, ParsedBrokerStatement } from "./types";
+import type { BrokerAccountMetadata, NormalizedEvent, ParsedBrokerStatement, SnapshotQuote } from "./types";
 
 /**
  * Freedom Finance / Freedom24 statement parser.
@@ -264,7 +264,7 @@ function parseFreedomSnapshotQuotes(
   const date = dateOnly(cleanString(statement.date_end));
   const rows = statement.account_at_end?.account?.positions_from_ts?.ps?.pos ?? [];
   if (!date || !rows.length) return [];
-  const out: { symbol: string; date: string; close: string; currency: string }[] = [];
+  const out: SnapshotQuote[] = [];
   for (const r of rows) {
     const rawTicker = cleanString(r.i);
     const stripped = stripFreedomSuffix(rawTicker);
@@ -281,7 +281,7 @@ function parseFreedomSnapshotQuotes(
     const isin = cleanString(r.issue_nb);
     const remapped = isin ? tradeSymbolByIsin.get(isin) : undefined;
     const symbol = remapped ?? stripped;
-    out.push({ symbol, date, close: num.toFixed(2), currency });
+    out.push({ symbol, date, close: num.toFixed(2), currency, source: "FREEDOM_SNAPSHOT" });
   }
   return out;
 }
