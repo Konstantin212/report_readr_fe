@@ -79,7 +79,9 @@ describe("IBKR snapshot-quote extraction", () => {
     const trn = (parsed.snapshotQuotes ?? []).find((q) => q.symbol === "TRN");
     expect(trn).toBeDefined();
     expect(trn?.currency).toBe("GBP");
-    expect(Number(trn?.close)).toBeCloseTo(2.272, 3);
+    // Snapshot quotes are persisted at 2 decimal places (matches the
+    // FF parser; quote_cache.close column is shared across brokers).
+    expect(Number(trn?.close)).toBeCloseTo(2.27, 2);
   });
 
   it("returns an empty array when the statement has no end date", () => {

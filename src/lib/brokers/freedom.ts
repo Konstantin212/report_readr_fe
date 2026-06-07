@@ -6,6 +6,7 @@ import {
   dateOnly,
   decodeBytes,
   negateNumber,
+  parsePositiveAmount,
   signedQuantity,
   subtractNumbers,
 } from "./format";
@@ -269,10 +270,8 @@ function parseFreedomSnapshotQuotes(
     const rawTicker = cleanString(r.i);
     const stripped = stripFreedomSuffix(rawTicker);
     if (!stripped) continue;
-    const price = cleanNumber(r.mkt_price);
-    if (!price) continue;
-    const num = Number(price);
-    if (!Number.isFinite(num) || num <= 0) continue;
+    const num = parsePositiveAmount(cleanNumber(r.mkt_price));
+    if (num === null) continue;
     const currency = cleanString(r.curr) ?? "USD";
     // If the same company appears under a different ticker in trades
     // (snapshot says RYA, trades say RY4C — same ISIN), re-key the

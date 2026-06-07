@@ -62,8 +62,23 @@ export type ParsedAccount = {
   displayName?: string;
 };
 
+/**
+ * A spot-quote snapshot for a single symbol, captured from a broker
+ * statement at upload time (e.g. Freedom24's `account_at_end.positions_from_ts`
+ * or IBKR's Open Positions section). Used to seed `quote_cache` so
+ * symbols our free API providers can't reach (UCITS ETFs, broker-specific
+ * aliases like RY4C, mid-caps like RBRK) still render with a usable price.
+ *
+ * Each broker parser stamps `source` with its own provider tag
+ * (`FREEDOM_SNAPSHOT`, `IBKR_SNAPSHOT`, ...) so the ingest path doesn't
+ * need to know which broker the quotes came from.
+ *
+ * Live API quotes always carry a later date than the statement, so the
+ * orchestrator's "latest by date" pick prefers them when present.
+ */
 export type SnapshotQuote = {
   symbol: string;
+  /** ISO YYYY-MM-DD — usually the statement end date. */
   date: string;
   close: string;
   currency: string;
@@ -81,9 +96,7 @@ export type ParsedImport = {
   statementStartDate?: string;
   statementEndDate?: string;
   /** Optional broker-end-of-statement spot prices for held positions.
-   *  Used to seed quote_cache for symbols our free providers can't
-   *  reach (UCITS ETFs on Amsterdam/Frankfurt, Freedom aliases like
-   *  RY4C). The ingest endpoint upserts these into quote_cache with
-   *  source = "FREEDOM_SNAPSHOT". */
+   *  Each entry carries its own `source` tag so the ingest endpoint
+   *  knows which provider to record in quote_cache. */
   snapshotQuotes?: SnapshotQuote[];
 };

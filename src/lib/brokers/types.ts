@@ -1,6 +1,6 @@
-import type { Broker, EventType, NormalizedEvent } from "@/lib/domain/types";
+import type { Broker, EventType, NormalizedEvent, SnapshotQuote } from "@/lib/domain/types";
 
-export type { NormalizedEvent };
+export type { NormalizedEvent, SnapshotQuote };
 
 export const brokerIds = ["INTERACTIVE_BROKERS", "FREEDOM_FINANCE"] as const;
 
@@ -27,28 +27,6 @@ export type BrokerAccountMetadata = {
   statementEndDate?: string;
   fileName: string;
   taxYear: number;
-};
-
-/**
- * A spot-quote snapshot for a single symbol, captured from the
- * statement itself (e.g. Freedom24's `account_at_end.positions_from_ts`).
- *
- * Lets the import pipeline seed `quote_cache` with the broker's own
- * end-of-day prices for symbols our free quote providers can't reach
- * (e.g. European UCITS ETFs that Twelve Data free won't price and
- * Yahoo blocks from Vercel IPs). Live API quotes always carry a later
- * date than the statement, so the orchestrator's "latest by date"
- * pick automatically prefers them when present.
- */
-export type SnapshotQuote = {
-  symbol: string;
-  date: string;     // ISO YYYY-MM-DD (statement end)
-  close: string;
-  currency: string;
-  /** Provider tag stored in `quote_cache.source`. Each broker parser
-   *  stamps its own value (`FREEDOM_SNAPSHOT`, `IBKR_SNAPSHOT`, …) so the
-   *  ingest path doesn't need to know which broker the quotes came from. */
-  source: string;
 };
 
 export type ParsedBrokerStatement = {
