@@ -31,9 +31,33 @@ const TYPE_ORDER: Record<string, number> = {
 
 const identityOf = (e: NormalizedEvent): string => e.isin ?? e.symbol ?? "";
 
+/**
+ * Returns -1 for a buy (qty > 0), +1 for a sell (qty < 0), 0 otherwise.
+ * Used as a tiebreaker so same-day TRADE events sort buys-before-sells:
+ * you can't sell what you haven't bought, and intraday FIFO should match
+ * a buy against a same-day sell rather than leaking a phantom open lot.
+ *
+ * Why this matters: when replay runs against DB-stored transactions
+ * (runReplayForAccount in ingest.ts), the original parser-emitted ID is
+ * replaced by a random DB UUID. Without the qty-sign tiebreaker, two
+ * same-day trades sort by UUID — randomly — and roughly half the time
+ * the sell lands before the buy, opening a 1-share zombie lot.
+ */
+function tradeSideOrder(e: NormalizedEvent): number {
+  if (e.type !== "TRADE") return 0;
+  const q = Number(e.quantity ?? "0");
+  if (!Number.isFinite(q)) return 0;
+  if (q > 0) return -1;
+  if (q < 0) return 1;
+  return 0;
+}
+
 export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: RealizedMatch[] } {
   const sorted = [...events].sort((a, b) =>
-    a.date.localeCompare(b.date) || (TYPE_ORDER[a.type] - TYPE_ORDER[b.type]) || a.id.localeCompare(b.id),
+    a.date.localeCompare(b.date)
+    || (TYPE_ORDER[a.type] - TYPE_ORDER[b.type])
+    || (tradeSideOrder(a) - tradeSideOrder(b))
+    || a.id.localeCompare(b.id),
   );
 
   const openLotsByIdentity = new Map<string, Lot[]>();
