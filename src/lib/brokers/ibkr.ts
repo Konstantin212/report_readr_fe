@@ -9,7 +9,7 @@ import {
   negateNumber,
   subtractNumbers,
 } from "./format";
-import type { BrokerAccountMetadata, NormalizedEvent, ParsedBrokerStatement } from "./types";
+import type { BrokerAccountMetadata, NormalizedEvent, ParsedBrokerStatement, SnapshotQuote } from "./types";
 
 type SectionRow = {
   section: string;
@@ -103,7 +103,43 @@ export function parseInteractiveBrokersStatement(
     ...parseCorporateActions(dataRows, accountNumber, instrumentMap),
   ];
 
-  return { account, events };
+  const snapshotQuotes = parseIbkrSnapshotQuotes(dataRows, instrumentMap, statementDates.endDate);
+
+  return { account, events, snapshotQuotes };
+}
+
+/**
+ * Extract a spot-quote per currently-held position from IBKR's "Open
+ * Positions / Summary" section. Mirrors the Freedom Finance path —
+ * seeds quote_cache with the broker's own close prices on every
+ * upload, so symbols our free quote chain can't reach (mid-caps like
+ * RBRK, EU UCITS ETFs) still render with a usable price.
+ *
+ * Skips Total/SubTotal rows (DataDiscriminator !== "Summary"), applies
+ * the FII canonical-symbol remap (so TRNl is stored as TRN), and
+ * filters out rows with no usable close price.
+ */
+function parseIbkrSnapshotQuotes(
+  dataRows: SectionRow[],
+  instrumentMap: Map<string, InstrumentInfo>,
+  endDate: string | undefined,
+): SnapshotQuote[] {
+  if (!endDate) return [];
+  const out: SnapshotQuote[] = [];
+  for (const row of getRows(dataRows, "Open Positions")) {
+    if (row["DataDiscriminator"] !== "Summary") continue;
+    const rawSymbol = cleanString(row["Symbol"]);
+    if (!rawSymbol) continue;
+    const info = instrumentMap.get(stripBondYieldSuffix(rawSymbol)) ?? instrumentMap.get(rawSymbol);
+    const symbol = info?.canonicalSymbol ?? stripBondYieldSuffix(rawSymbol);
+    const closeStr = cleanNumber(row["Close Price"]);
+    if (!closeStr) continue;
+    const num = Number(closeStr);
+    if (!Number.isFinite(num) || num <= 0) continue;
+    const currency = cleanString(row["Currency"]) ?? "USD";
+    out.push({ symbol, date: endDate, close: num.toFixed(4), currency, source: "IBKR_SNAPSHOT" });
+  }
+  return out;
 }
 
 function getRows(rows: SectionRow[], section: string): Record<string, string>[] {

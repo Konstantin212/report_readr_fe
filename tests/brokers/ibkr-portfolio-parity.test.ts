@@ -71,6 +71,7 @@ function runPipeline() {
   }
   const events: NormalizedEvent[] = [];
   let accountNumber: string | undefined;
+  let latestSnapshotQuotes: ReturnType<typeof parseBrokerStatement>["snapshotQuotes"];
   for (const name of FILES) {
     const bytes = readFileSync(`${FIXTURE_DIR}/${name}`);
     const parsed = parseBrokerStatement({
@@ -80,6 +81,9 @@ function runPipeline() {
       taxYear: Number(name.slice(9, 13)),
     });
     if (!accountNumber) accountNumber = parsed.account.accountNumber;
+    if (parsed.snapshotQuotes && parsed.snapshotQuotes.length > 0) {
+      latestSnapshotQuotes = parsed.snapshotQuotes;
+    }
     for (const e of parsed.events) {
       events.push({ ...e, currency: e.currency ?? "UNKNOWN" });
     }
@@ -97,7 +101,7 @@ function runPipeline() {
     if (!lot.symbol) continue;
     openBySymbol.set(lot.symbol, (openBySymbol.get(lot.symbol) ?? 0) + qty);
   }
-  return { accountNumber, events, lots, matches, openBySymbol };
+  return { accountNumber, events, lots, matches, openBySymbol, snapshotQuotes: latestSnapshotQuotes ?? [] };
 }
 
 describe("Interactive Brokers real-portfolio parity (U00000000, 2026-06-06)", () => {
@@ -121,4 +125,22 @@ describe("Interactive Brokers real-portfolio parity (U00000000, 2026-06-06)", ()
       expect(actual).toBeCloseTo(exp.qty, 4);
     });
   }
+
+  it("YTD statement emits one snapshot quote per open position with source IBKR_SNAPSHOT", () => {
+    const { snapshotQuotes } = runPipeline();
+    const symbols = snapshotQuotes.map((q) => q.symbol).sort();
+    const expected = EXPECTED_POSITIONS.map((p) => p.ticker).sort();
+    expect(symbols).toEqual(expected);
+    expect(snapshotQuotes.every((q) => q.source === "IBKR_SNAPSHOT")).toBe(true);
+  });
+
+  it("snapshot close prices match IBKR's Open Positions section per symbol", () => {
+    const { snapshotQuotes } = runPipeline();
+    for (const exp of EXPECTED_POSITIONS) {
+      const q = snapshotQuotes.find((qq) => qq.symbol === exp.ticker);
+      expect(q, `missing quote for ${exp.ticker}`).toBeDefined();
+      expect(Number(q!.close)).toBeCloseTo(exp.closePriceNative, 2);
+      expect(q!.currency).toBe(exp.currency);
+    }
+  });
 });

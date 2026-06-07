@@ -45,6 +45,10 @@ export type SnapshotQuote = {
   date: string;     // ISO YYYY-MM-DD (statement end)
   close: string;
   currency: string;
+  /** Provider tag stored in `quote_cache.source`. Each broker parser
+   *  stamps its own value (`FREEDOM_SNAPSHOT`, `IBKR_SNAPSHOT`, …) so the
+   *  ingest path doesn't need to know which broker the quotes came from. */
+  source: string;
 };
 
 export type ParsedBrokerStatement = {

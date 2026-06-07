@@ -67,6 +67,8 @@ export type SnapshotQuote = {
   date: string;
   close: string;
   currency: string;
+  /** Provider tag stored in quote_cache.source. */
+  source: string;
 };
 
 export type ParsedImport = {

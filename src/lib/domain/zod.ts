@@ -26,6 +26,7 @@ export const snapshotQuoteSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   close: z.string(),
   currency: z.string(),
+  source: z.string(),
 });
 
 export const ingestPayloadSchema = z.object({

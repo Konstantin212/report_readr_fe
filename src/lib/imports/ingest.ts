@@ -166,7 +166,7 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
         date: q.date,
         close: q.close,
         currency: q.currency,
-        source: "FREEDOM_SNAPSHOT",
+        source: q.source,
       })))
       .onConflictDoUpdate({
         target: [s.quoteCache.symbol, s.quoteCache.date],

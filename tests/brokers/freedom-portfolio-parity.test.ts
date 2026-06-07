@@ -89,4 +89,9 @@ describe("Freedom Finance real-portfolio parity (2026-06-06)", () => {
     const expected = EXPECTED_POSITIONS.map((p) => p.ticker).sort();
     expect(symbols).toEqual(expected);
   });
+
+  it("every snapshot quote carries source FREEDOM_SNAPSHOT", () => {
+    const { parsed } = runPipeline();
+    expect((parsed.snapshotQuotes ?? []).every((q) => q.source === "FREEDOM_SNAPSHOT")).toBe(true);
+  });
 });
