@@ -171,6 +171,16 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
             </div>
             <div className="font-mono text-[10px] text-dim mt-1">Separate report for Coinbase staking income</div>
           </a>
+          <a
+            href={`/tax/${year}/loss-harvest`}
+            className="mt-2 block bg-panel2 border border-amber/30 rounded-md px-3 py-2.5 hover:border-amber/60 transition-colors"
+          >
+            <div className="flex justify-between items-baseline">
+              <div className="font-mono text-[11px] uppercase tracking-widest text-amber">Loss Harvest →</div>
+              <div className="font-mono text-[10px] text-muted">§20 Abs. 6 EStG · Pauschbetrag optimiser</div>
+            </div>
+            <div className="font-mono text-[10px] text-dim mt-1">Sell-at-a-loss candidates to stay under €{d.allowance.totalEur.toLocaleString("de-DE")}</div>
+          </a>
         </Card>
       </div>
 
