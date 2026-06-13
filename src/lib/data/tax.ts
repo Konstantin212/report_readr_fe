@@ -2,6 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { realizedMatches, transactions, userSettings, brokerAccounts, positions as positionsTable } from "@/lib/db/schema";
 import { buildAnlageKap, type BuildAnlageKapInput, type GermanTaxDraft } from "@/lib/tax/german-tax";
+import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
+import { classifyKind, classifySector } from "@/lib/analytics/sector-map";
 
 /**
  * Returns the distinct tax years a user has any tax-relevant activity in
@@ -163,17 +165,36 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   const settings = settingsRows[0];
   const allowance = Number(settings?.saverAllowance ?? "1000");
 
-  // Sparer-Pauschbetrag applies to the *sum* of all Kapitalerträge in the
-  // year (§20 EStG): realised gains net of losses + dividends + interest.
-  // Losses can pull the total below zero; in that case the allowance is
-  // untouched (and the losses carry forward separately — that's a v3
-  // concern).
-  const totalCapitalIncomeEur = netRealized + dividendsEur + interestEur;
-  const taxableBase = Math.max(0, totalCapitalIncomeEur - allowance);
-  const estTax = taxableBase * ABGELT_RATE;
+  // §20 Abs. 6 EStG bucket isolation: Aktien (individual-stock) losses
+  // cannot offset Sonstige (ETF/bond/dividend/interest) income. We split
+  // realised gains per match using the same classifier the positions
+  // table uses. Without this the dashboard understates the taxable base
+  // by the size of any wasted stock-loss — the bug that surfaced as a
+  // mismatch between this page (€167) and the loss-harvest page (€171).
+  let aktienRealisedNetEur = 0;
+  let sonstigeRealisedNetEur = 0;
+  for (const m of yrMatches) {
+    const sector = classifySector(m.symbol);
+    const kind = classifyKind(m.symbol, sector);
+    const gain = Number(m.gainEur);
+    if (kind === "stock") aktienRealisedNetEur += gain;
+    else sonstigeRealisedNetEur += gain;
+  }
+  // netRealized retains its aggregate definition (sum across both buckets)
+  // — that's what the "REALISED" breakdown number means on the dashboard.
 
-  const usedEur = Math.max(0, Math.min(totalCapitalIncomeEur, allowance));
-  const pct = allowance > 0 ? Math.min(100, Math.max(0, (totalCapitalIncomeEur / allowance) * 100)) : 0;
+  const bucket = applyBucketIsolation({
+    aktienRealisedNetEur,
+    sonstigeRealisedNetEur,
+    dividendsEur,
+    interestEur,
+    forecastDividendsEur: 0,
+    allowanceEur: allowance,
+  });
+  const taxableBase = bucket.taxableBaseEur;
+  const estTax = taxableBase * ABGELT_RATE;
+  const usedEur = bucket.usedEur;
+  const pct = allowance > 0 ? Math.min(100, Math.max(0, (bucket.combinedNetEur / allowance) * 100)) : 0;
 
   // FX adjustments: events with fxSource=ECB AND raw.brokerEurAmount → delta sum
   // v2: best-effort — sum (amountEur - brokerEur) where broker raw includes EUR equivalent
@@ -238,20 +259,27 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
       Math.floor((yearEnd.getTime() - today.getTime()) / 86_400_000),
     );
     const additionalDividendsEur = ttmHeldDivsEur * (daysRemaining / 365);
-    const forecastTotalCapitalIncome = totalCapitalIncomeEur + additionalDividendsEur;
-    const forecastTaxableBase = Math.max(0, forecastTotalCapitalIncome - allowance);
-    const forecastUsedEur = Math.max(0, Math.min(forecastTotalCapitalIncome, allowance));
+    // Re-apply bucket isolation including the projected dividends (which
+    // fall entirely into Sonstige under §20 Abs. 1 Nr. 1 EStG).
+    const forecastBucket = applyBucketIsolation({
+      aktienRealisedNetEur,
+      sonstigeRealisedNetEur,
+      dividendsEur,
+      interestEur,
+      forecastDividendsEur: additionalDividendsEur,
+      allowanceEur: allowance,
+    });
     const forecastPct = allowance > 0
-      ? Math.min(100, Math.max(0, (forecastTotalCapitalIncome / allowance) * 100))
+      ? Math.min(100, Math.max(0, (forecastBucket.forecastCombinedNetEur / allowance) * 100))
       : 0;
     forecast = {
       asOfDate: todayStr,
       daysRemaining,
       additionalDividendsEur,
-      usedEur: forecastUsedEur,
+      usedEur: forecastBucket.forecastUsedEur,
       pct: forecastPct,
-      taxableBaseEur: forecastTaxableBase,
-      estTaxEur: forecastTaxableBase * ABGELT_RATE,
+      taxableBaseEur: forecastBucket.forecastTaxableBaseEur,
+      estTaxEur: forecastBucket.forecastTaxableBaseEur * ABGELT_RATE,
     };
   }
 
