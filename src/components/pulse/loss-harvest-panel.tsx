@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "./card";
 import {
+  bucketOverages,
   encodeSellParams,
+  suggestedSharesToZero,
   type HarvestCandidate,
   type HarvestInputs,
   type HarvestResult,
@@ -117,9 +119,26 @@ export function LossHarvestPanel({
     Math.max(0, inputs.aktien.totalIncomeEur) + Math.max(0, inputs.sonstige.totalIncomeEur) - inputs.allowanceEur,
   );
 
+  // Per-bucket overage remaining after the user's current sells.
+  // Drives the live per-row "shares to zero remaining overage" hint.
+  const overages = useMemo(() => bucketOverages(inputs, optimisticSells), [inputs, optimisticSells]);
+  const aktienHasCandidatesButNoOverage =
+    aktienCands.length > 0 && overages.aktien <= 0;
+  const sonstigeHasCandidatesButNoOverage =
+    sonstigeCands.length > 0 && overages.sonstige <= 0;
+
   return (
     <div className="space-y-4">
       <DisclaimerBanner />
+
+      <BucketSituation
+        overages={overages}
+        aktienGross={inputs.aktien.totalIncomeEur}
+        sonstigeGross={inputs.sonstige.totalIncomeEur}
+        allowanceEur={inputs.allowanceEur}
+        aktienOnlyCandidates={aktienHasCandidatesButNoOverage && sonstigeCands.length === 0}
+        sonstigeOnlyCandidates={sonstigeHasCandidatesButNoOverage && aktienCands.length === 0}
+      />
 
       {/* Summary cards. While the RSC refetch is in flight after a click,
           the optimisticSells already reflects the new selection but the
@@ -129,28 +148,48 @@ export function LossHarvestPanel({
         <SummaryCard
           label="Aktien bucket"
           value={fmtEur(result.aktienNetEur)}
-          sub={`gross €${inputs.aktien.totalIncomeEur.toFixed(0)} · loss applied €${(result.aktienNetEur - inputs.aktien.totalIncomeEur).toFixed(0)}`}
-          help="Individual-stock income net of selected stock losses. Floored at €0 — under §20 Abs. 6 EStG losses here cannot offset the Sonstige bucket."
+          sub={
+            inputs.aktien.totalIncomeEur < 0
+              ? `${fmtEur(-inputs.aktien.totalIncomeEur)} of stock losses carry forward to next year`
+              : overages.aktien > 0
+                ? `${fmtEur(overages.aktien)} over the cap — sell Aktien losers to reduce`
+                : `Already inside the Pauschbetrag for this bucket`
+          }
+          help="Individual-stock income net of selected stock losses. §20 Abs. 6 EStG: floored at €0 — losses here cannot offset the Sonstige bucket."
         />
         <SummaryCard
           label="Sonstige bucket"
           value={fmtEur(result.sonstigeNetEur)}
-          sub={`gross €${inputs.sonstige.totalIncomeEur.toFixed(0)} · loss applied €${(result.sonstigeNetEur - inputs.sonstige.totalIncomeEur).toFixed(0)}`}
-          help="ETFs, bonds, dividends, interest. Forecast dividends included. Floored at €0."
+          sub={
+            overages.sonstige > 0
+              ? `${fmtEur(overages.sonstige)} over the cap — sell Sonstige losers to reduce`
+              : `Already inside the Pauschbetrag for this bucket`
+          }
+          help="ETFs, bonds, dividends, interest. Forecast dividends included. §20 Abs. 6 EStG: floored at €0 — losses here cannot offset the Aktien bucket."
         />
         <SummaryCard
           label="Taxable base"
           value={fmtEur(result.taxableBaseEur)}
-          sub={`was ${fmtEur(currentTaxableBase)} · Pauschbetrag €${inputs.allowanceEur.toLocaleString("de-DE")}`}
+          sub={
+            result.taxableBaseEur === 0
+              ? `At or under the €${inputs.allowanceEur.toLocaleString("de-DE")} Pauschbetrag`
+              : `${fmtEur(result.taxableBaseEur)} above the €${inputs.allowanceEur.toLocaleString("de-DE")} Pauschbetrag${result.taxableBaseEur < currentTaxableBase ? ` · was ${fmtEur(currentTaxableBase)}` : ""}`
+          }
           highlight={result.taxableBaseEur < currentTaxableBase ? "mint" : undefined}
-          help="Net capital income above the Sparer-Pauschbetrag — taxed at the Abgeltungsteuer flat rate."
+          help="Net capital income above the Sparer-Pauschbetrag — taxed at 26.375% (Abgeltungsteuer + Soli)."
         />
         <SummaryCard
           label="Tax saved"
           value={fmtEur(result.estTaxSavedEur)}
-          sub={`@ 26.375% (KapESt + Soli)${forecastDaysRemaining > 0 ? ` · ${forecastDaysRemaining}d to Dec 31` : ""}`}
+          sub={
+            result.estTaxSavedEur > 0
+              ? `vs. doing nothing · ${forecastDaysRemaining > 0 ? `${forecastDaysRemaining}d to Dec 31` : "end of year"}`
+              : forecastDaysRemaining > 0
+                ? `Select losses to see savings · ${forecastDaysRemaining}d to Dec 31`
+                : `End of tax year reached`
+          }
           highlight={result.estTaxSavedEur > 0 ? "mint" : undefined}
-          help="Estimated tax saved vs. doing nothing. Does not include Kirchensteuer."
+          help="Estimated tax saved vs. the current 'do nothing' baseline. Excludes Kirchensteuer."
         />
       </div>
 
@@ -190,19 +229,29 @@ export function LossHarvestPanel({
 
       <BucketSection
         title="Aktien — individual stocks"
-        subtitle={`Losses here can only offset stock gains (Aktien gross €${inputs.aktien.totalIncomeEur.toFixed(0)} this year)`}
+        subtitle={
+          overages.aktien > 0
+            ? `${fmtEur(overages.aktien)} of Aktien overage to cover · gross €${inputs.aktien.totalIncomeEur.toFixed(0)}`
+            : `Aktien bucket has no overage to cover · losses here carry forward to next year`
+        }
         candidates={aktienCands}
         sellByKey={sellByKey}
+        bucketOverage={overages.aktien}
         onToggle={toggleSell}
-        onQty={setQty}
+        onCommitQty={setQty}
       />
       <BucketSection
         title="Sonstige — ETFs, bonds, dividends, interest"
-        subtitle={`Losses here can only offset Sonstige income (Sonstige gross €${inputs.sonstige.totalIncomeEur.toFixed(0)} incl. forecast)`}
+        subtitle={
+          overages.sonstige > 0
+            ? `${fmtEur(overages.sonstige)} of Sonstige overage to cover · gross €${inputs.sonstige.totalIncomeEur.toFixed(0)} incl. forecast`
+            : `Sonstige bucket already inside the Pauschbetrag`
+        }
         candidates={sonstigeCands}
         sellByKey={sellByKey}
+        bucketOverage={overages.sonstige}
         onToggle={toggleSell}
-        onQty={setQty}
+        onCommitQty={setQty}
       />
 
       <BucketSplitFootnote />
@@ -213,6 +262,88 @@ export function LossHarvestPanel({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/**
+ * Header banner that explicitly tells the user where the overage sits and
+ * whether their loss candidates can do anything about it. Previously the
+ * "all stock losses but Sonstige overage" situation was invisible — the user
+ * thought selling DIS would reduce the €171 forecast, when in fact §20
+ * Abs. 6 EStG forbids it.
+ */
+function BucketSituation({
+  overages,
+  aktienGross,
+  sonstigeGross,
+  allowanceEur,
+  aktienOnlyCandidates,
+  sonstigeOnlyCandidates,
+}: {
+  overages: { aktien: number; sonstige: number };
+  aktienGross: number;
+  sonstigeGross: number;
+  allowanceEur: number;
+  aktienOnlyCandidates: boolean;
+  sonstigeOnlyCandidates: boolean;
+}) {
+  const totalOverage = overages.aktien + overages.sonstige;
+  if (totalOverage <= 0) {
+    return (
+      <div className="font-mono text-[11px] text-mint bg-mint/5 border border-mint/25 rounded-md px-3 py-2.5">
+        <strong>You&apos;re already inside the €{allowanceEur.toLocaleString("de-DE")} Pauschbetrag.</strong>{" "}
+        Aktien net €{aktienGross.toFixed(0)} · Sonstige net €{sonstigeGross.toFixed(0)} · no harvest needed.
+      </div>
+    );
+  }
+  // The pathological case: overage lives entirely in a bucket where the user
+  // has no loss candidates. Selling won't help this year.
+  if (aktienOnlyCandidates && overages.sonstige > 0 && overages.aktien <= 0) {
+    return (
+      <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2.5">
+        <strong>Your overage (€{overages.sonstige.toFixed(0)}) is in the Sonstige bucket, but all your loss candidates are Aktien.</strong>{" "}
+        Under §20 Abs. 6 EStG, stock losses cannot offset dividend/ETF income — selling them now would just carry the
+        losses forward to next year as Aktien-only losses, with <em>no impact</em> on this year&apos;s taxable base.
+      </div>
+    );
+  }
+  if (sonstigeOnlyCandidates && overages.aktien > 0 && overages.sonstige <= 0) {
+    return (
+      <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2.5">
+        <strong>Your overage (€{overages.aktien.toFixed(0)}) is in the Aktien bucket, but all your loss candidates are Sonstige.</strong>{" "}
+        §20 Abs. 6 EStG: those losses can&apos;t offset stock gains — they&apos;d carry forward instead.
+      </div>
+    );
+  }
+  // Normal case: at least one bucket has both overage AND candidates.
+  // When BOTH buckets have positive overage, the per-bucket numbers are NOT
+  // additive — each represents how much that bucket alone could absorb
+  // to zero the same shared taxable base. Spell that out so the user
+  // doesn't think they need to harvest both sums.
+  if (overages.aktien > 0 && overages.sonstige > 0) {
+    const smaller = Math.min(overages.aktien, overages.sonstige);
+    return (
+      <div className="font-mono text-[11px] text-ink bg-panel2 border border-border rounded-md px-3 py-2.5 space-y-1">
+        <div>
+          <strong>Overage to cover: €{smaller.toFixed(0)}</strong>{" "}
+          (taxable base — the single shared figure, not summed across buckets).
+        </div>
+        <div className="text-muted">
+          Either bucket alone can zero it — Aktien losses absorb up to €{overages.aktien.toFixed(0)}, Sonstige up to
+          €{overages.sonstige.toFixed(0)}. Pick whichever bucket you have better losers in. The &quot;To zero&quot; column
+          shows how many shares of each position would do it on its own.
+        </div>
+      </div>
+    );
+  }
+  const parts: string[] = [];
+  if (overages.aktien > 0) parts.push(`€${overages.aktien.toFixed(0)} Aktien`);
+  if (overages.sonstige > 0) parts.push(`€${overages.sonstige.toFixed(0)} Sonstige`);
+  return (
+    <div className="font-mono text-[11px] text-ink bg-panel2 border border-border rounded-md px-3 py-2.5">
+      <strong>Overage to cover:</strong> {parts.join(" · ")}. Sell losers in the matching bucket to reduce taxable base — the
+      &quot;To zero&quot; column shows how many shares of each position would do it.
+    </div>
+  );
+}
 
 function Spinner() {
   // 10×10 inline SVG so we don't pull a heavier icon lib for one usage.
@@ -306,11 +437,14 @@ function SummaryCard({
 function CandidateRow({
   c,
   sel,
+  bucketOverage,
   onToggle,
   onCommitQty,
 }: {
   c: HarvestCandidate;
   sel: SellInstruction | undefined;
+  /** Remaining overage in THIS row's bucket. Drives the per-row suggestion. */
+  bucketOverage: number;
   onToggle: (c: HarvestCandidate) => void;
   onCommitQty: (c: HarvestCandidate, qty: number) => void;
 }) {
@@ -331,9 +465,27 @@ function CandidateRow({
     if (clamped !== committedQty) onCommitQty(c, clamped);
   };
 
+  // Bucket-aware suggestion: whole shares of THIS position that would zero
+  // the remaining overage in this row's bucket. Returns null when the
+  // bucket already fits inside the Pauschbetrag (i.e. selling this row
+  // wouldn't reduce taxable base — only carry the loss forward).
+  const suggested = suggestedSharesToZero(c, c.bucket === "aktien" ? { aktien: bucketOverage, sonstige: 0 } : { aktien: 0, sonstige: bucketOverage });
+
+  // INTENTIONAL: clicking the "To zero" button auto-selects the row even
+  // when the checkbox was previously unchecked. The user's explicit click
+  // expresses "yes, apply this suggestion" — different from the onBlur
+  // `commit` path which discards the draft when unselected (since typing
+  // alone might just be the user exploring numbers). Don't add a
+  // `if (!selected) return` guard here.
+  const applySuggested = () => {
+    if (suggested === null) return;
+    setDraft(suggested);
+    onCommitQty(c, suggested);
+  };
+
   return (
     <div
-      className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.8fr] gap-2 lg:gap-0 px-4 lg:px-5 py-3 items-center border-b border-border last:border-b-0 ${selected ? "bg-bad/5" : ""}`}
+      className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.85fr_0.8fr] gap-2 lg:gap-0 px-4 lg:px-5 py-3 items-center border-b border-border last:border-b-0 ${selected ? "bg-bad/5" : ""}`}
     >
       <input
         type="checkbox"
@@ -357,6 +509,27 @@ function CandidateRow({
       <span className="hidden lg:block text-right font-mono text-xs">{c.pricePerUnitEur.toFixed(2)}</span>
       <span className="hidden lg:block text-right font-mono font-semibold text-xs text-bad">{fmtEur(c.unrealisedLossEur)}</span>
       <span className="hidden lg:block text-right font-mono text-xs text-bad">{fmtEur(c.lossPerShareEur)}</span>
+      <span className="hidden lg:flex justify-end items-center">
+        {suggested === null ? (
+          <span
+            className="font-mono text-[11px] text-dim cursor-help"
+            title={
+              c.bucket === "aktien"
+                ? "Aktien bucket has no overage to cover — selling this loss would carry forward to next year, not reduce this year's taxable base."
+                : "Sonstige bucket has no overage to cover — selling this loss would carry forward to next year, not reduce this year's taxable base."
+            }
+          >—</span>
+        ) : (
+          <button
+            type="button"
+            onClick={applySuggested}
+            title={`Click to apply: sell ${suggested} share${suggested === 1 ? "" : "s"} (zeros this bucket's overage)`}
+            className="font-mono text-xs px-2 py-1 rounded border border-mint/30 bg-mint/10 text-mint hover:bg-mint/20 cursor-pointer transition-colors"
+          >
+            {suggested}
+          </button>
+        )}
+      </span>
       <span className="hidden lg:flex justify-end items-center">
         <input
           type="number"
@@ -388,15 +561,18 @@ function BucketSection({
   subtitle,
   candidates,
   sellByKey,
+  bucketOverage,
   onToggle,
-  onQty,
+  onCommitQty,
 }: {
   title: string;
   subtitle: string;
   candidates: HarvestCandidate[];
   sellByKey: Map<string, SellInstruction>;
+  /** Remaining overage in this bucket (already nets out user's sells in this bucket). */
+  bucketOverage: number;
   onToggle: (c: HarvestCandidate) => void;
-  onQty: (c: HarvestCandidate, qty: number) => void;
+  onCommitQty: (c: HarvestCandidate, qty: number) => void;
 }) {
   return (
     <Card className="p-0 overflow-hidden">
@@ -412,7 +588,7 @@ function BucketSection({
       )}
       {candidates.length > 0 && (
         <>
-          <div className="hidden lg:grid grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.8fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+          <div className="hidden lg:grid grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.85fr_0.8fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
             <span></span>
             <span>Holding</span>
             <span>Broker</span>
@@ -421,6 +597,10 @@ function BucketSection({
             <span className="text-right">Price €</span>
             <span className="text-right">Loss €</span>
             <span className="text-right">Loss/sh</span>
+            <span
+              className="text-right cursor-help"
+              title="Whole shares needed to zero this bucket's remaining overage. Updates as you adjust other rows. Click the number to apply it."
+            >To&nbsp;zero&nbsp;ⓘ</span>
             <span className="text-right">Sell qty</span>
           </div>
           {candidates.map((c) => (
@@ -428,8 +608,9 @@ function BucketSection({
               key={`${c.symbol}.${c.broker}`}
               c={c}
               sel={sellByKey.get(`${c.symbol}.${c.broker}`)}
+              bucketOverage={bucketOverage}
               onToggle={onToggle}
-              onCommitQty={onQty}
+              onCommitQty={onCommitQty}
             />
           ))}
         </>

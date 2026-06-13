@@ -10,10 +10,12 @@
 import { describe, it, expect } from "vitest";
 import {
   buildCandidates,
+  bucketOverages,
   computeHarvest,
-  suggestOptimum,
-  encodeSellParams,
   decodeSellParams,
+  encodeSellParams,
+  suggestedSharesToZero,
+  suggestOptimum,
   type HarvestCandidate,
   type HarvestInputs,
   type SellInstruction,
@@ -312,6 +314,113 @@ describe("suggestOptimum", () => {
     // Overage = €100 (€2100 − €2000). Pick 20 shares at €5 loss/share.
     expect(out[0].qtyToSell).toBeCloseTo(20);
     expect(out[0].realisedLossEur).toBeCloseTo(-100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bucketOverages
+// ---------------------------------------------------------------------------
+
+describe("bucketOverages", () => {
+  it("reports the per-bucket overage that needs covering, no sells yet", () => {
+    const inputs = makeInputs({
+      aktien:   { realisedGainsEur: 0,    dividendsEur: 0,   interestEur: 0, forecastAdditionalEur: 0,   totalIncomeEur: 0 },
+      sonstige: { realisedGainsEur: 796,  dividendsEur: 214, interestEur: -2, forecastAdditionalEur: 163, totalIncomeEur: 1171 },
+    });
+    const o = bucketOverages(inputs, []);
+    expect(o.aktien).toBe(0);
+    expect(o.sonstige).toBeCloseTo(171, 2);
+  });
+
+  it("user's portfolio: Aktien sells have ZERO impact on Sonstige overage when Aktien is already at zero", () => {
+    // The case from the screenshot: aktien is already floored at 0 (a small
+    // realised stock loss). Selling more aktien losers doesn't help — the
+    // Sonstige bucket is what's over the cap.
+    const inputs = makeInputs({
+      aktien:   { realisedGainsEur: -4,   dividendsEur: 0,   interestEur: 0,  forecastAdditionalEur: 0,   totalIncomeEur: -4 },
+      sonstige: { realisedGainsEur: 796,  dividendsEur: 214, interestEur: -2, forecastAdditionalEur: 163, totalIncomeEur: 1171 },
+    });
+    const dis = makeCand({ bucket: "aktien", unrealisedLossEur: -362.92, qty: 20, lossPerShareEur: -18.15 });
+    // Even at 20-share DIS sell (full position), sonstige overage is unchanged.
+    const after = bucketOverages(inputs, [sellAll(dis)]);
+    expect(after.aktien).toBe(0);
+    expect(after.sonstige).toBeCloseTo(171, 2);
+  });
+
+  it("a same-bucket loss reduces that bucket's overage, ceteris paribus", () => {
+    const inputs = makeInputs({
+      sonstige: { realisedGainsEur: 0, dividendsEur: 1500, interestEur: 0, forecastAdditionalEur: 0, totalIncomeEur: 1500 },
+    });
+    // Sonstige overage starts at 500. Sell a -€200 Sonstige loss → drops to 300.
+    const etf = makeCand({ bucket: "sonstige", unrealisedLossEur: -200, qty: 1, lossPerShareEur: -200 });
+    const after = bucketOverages(inputs, [sellAll(etf)]);
+    expect(after.sonstige).toBeCloseTo(300, 2);
+  });
+
+  it("returns zero overage when the bucket already fits under the allowance", () => {
+    const inputs = makeInputs({
+      sonstige: { realisedGainsEur: 0, dividendsEur: 500, interestEur: 0, forecastAdditionalEur: 0, totalIncomeEur: 500 },
+    });
+    const o = bucketOverages(inputs, []);
+    expect(o.sonstige).toBe(0);
+  });
+
+  it("mixed buckets: each bucket's overage = amount it could absorb ALONE to zero taxable base", () => {
+    // Both buckets at 600 with allowance 1000 → true taxable base = 200.
+    // EITHER bucket can absorb 200 of loss to zero taxable. So per-bucket
+    // overage = 200 for each. Critical: this is NOT additive — the user
+    // only needs to harvest 200 worth from ONE bucket, not 400 from both.
+    const inputs = makeInputs({
+      aktien:   { realisedGainsEur: 600, dividendsEur: 0,   interestEur: 0, forecastAdditionalEur: 0, totalIncomeEur: 600 },
+      sonstige: { realisedGainsEur: 0,   dividendsEur: 600, interestEur: 0, forecastAdditionalEur: 0, totalIncomeEur: 600 },
+    });
+    const o = bucketOverages(inputs, []);
+    expect(o.aktien).toBe(200);
+    expect(o.sonstige).toBe(200);
+    // Confirm: selling 200 of aktien alone zeros it. Selling 100 of each
+    // ALSO zeros it (over-harvesting waste = 0 since each contribution
+    // applies to the same combined sum).
+    const ak200 = makeCand({ bucket: "aktien", unrealisedLossEur: -200, qty: 1, lossPerShareEur: -200 });
+    const afterAktienOnly = bucketOverages(inputs, [sellAll(ak200)]);
+    expect(afterAktienOnly.aktien).toBe(0);
+    expect(afterAktienOnly.sonstige).toBe(0); // also drops to 0 — single sell zeros taxable
+  });
+});
+
+// ---------------------------------------------------------------------------
+// suggestedSharesToZero
+// ---------------------------------------------------------------------------
+
+describe("suggestedSharesToZero", () => {
+  it("returns null when the candidate's bucket has no overage", () => {
+    // The user's exact scenario: Aktien candidates exist but only Sonstige
+    // has overage. All Aktien rows must show "—".
+    const dis = makeCand({ bucket: "aktien", unrealisedLossEur: -362.92, qty: 20, lossPerShareEur: -18.15 });
+    const result = suggestedSharesToZero(dis, { aktien: 0, sonstige: 171.39 });
+    expect(result).toBeNull();
+  });
+
+  it("rounds up to the nearest whole share", () => {
+    const cand = makeCand({ bucket: "sonstige", lossPerShareEur: -10, qty: 100 });
+    // overage 31 / 10 = 3.1 → ceil → 4
+    expect(suggestedSharesToZero(cand, { aktien: 0, sonstige: 31 })).toBe(4);
+  });
+
+  it("clamps to the candidate's own qty (can't sell what we don't hold)", () => {
+    const cand = makeCand({ bucket: "sonstige", lossPerShareEur: -1, qty: 50 });
+    // overage 1000 / 1 = 1000, but qty is 50 → clamped to 50
+    expect(suggestedSharesToZero(cand, { aktien: 0, sonstige: 1000 })).toBe(50);
+  });
+
+  it("returns null defensively when lossPerShare is zero", () => {
+    const cand = makeCand({ bucket: "sonstige", lossPerShareEur: 0, qty: 100, unrealisedLossEur: 0 });
+    expect(suggestedSharesToZero(cand, { aktien: 0, sonstige: 100 })).toBeNull();
+  });
+
+  it("matches the user's DIS example math when DIS's bucket has overage", () => {
+    // Hypothetical: if DIS were Sonstige, 10 shares would cover €171.39.
+    const dis = makeCand({ bucket: "sonstige", lossPerShareEur: -18.15, qty: 20 });
+    expect(suggestedSharesToZero(dis, { aktien: 0, sonstige: 171.39 })).toBe(10);
   });
 });
 
