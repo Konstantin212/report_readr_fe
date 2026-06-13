@@ -53,15 +53,25 @@ export function LossHarvestPanel({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // useTransition keeps the RSC re-fetch from blocking input. Without this
-  // every checkbox click / qty change would freeze the page while the
-  // server recomputes the summary cards.
-  const [, startTransition] = useTransition();
+  // useTransition lets the RSC refetch run in the background without
+  // blocking the UI thread. isPending drives the "Updating…" indicator.
+  const [isPending, startTransition] = useTransition();
+
+  // Optimistic mirror of the server-derived `sells` prop. Click handlers
+  // mutate this immediately so the checkbox flips on first frame; the
+  // useEffect resyncs once the RSC payload arrives. Without this, the
+  // checkbox state lags behind the click by an entire round-trip and the
+  // UI looks unresponsive.
+  const [optimisticSells, setOptimisticSells] = useState<SellInstruction[]>(sells);
+  useEffect(() => {
+    setOptimisticSells(sells);
+  }, [sells]);
 
   // Selection state lives in ?sell=… so it's shareable and survives reload.
-  // Server has already decoded the param into `sells`; we just rewrite the URL
-  // on commit (not on every keystroke — see CandidateRow's local-state pattern).
+  // The URL update is wrapped in startTransition so it doesn't block input;
+  // optimisticSells covers the visual gap until the new server props arrive.
   const updateUrl = useCallback((next: SellInstruction[]) => {
+    setOptimisticSells(next);
     const usp = new URLSearchParams(searchParams.toString());
     const encoded = encodeSellParams(next);
     if (encoded) usp.set("sell", encoded);
@@ -73,34 +83,34 @@ export function LossHarvestPanel({
 
   const sellByKey = useMemo(() => {
     const m = new Map<string, SellInstruction>();
-    for (const s of sells) m.set(`${s.candidate.symbol}.${s.candidate.broker}`, s);
+    for (const s of optimisticSells) m.set(`${s.candidate.symbol}.${s.candidate.broker}`, s);
     return m;
-  }, [sells]);
+  }, [optimisticSells]);
 
   const toggleSell = useCallback((c: HarvestCandidate) => {
     const key = `${c.symbol}.${c.broker}`;
-    const next = [...sells];
+    const next = [...optimisticSells];
     const idx = next.findIndex((s) => `${s.candidate.symbol}.${s.candidate.broker}` === key);
     if (idx >= 0) next.splice(idx, 1);
     else next.push({ candidate: c, qtyToSell: c.qty, realisedLossEur: c.unrealisedLossEur });
     updateUrl(next);
-  }, [sells, updateUrl]);
+  }, [optimisticSells, updateUrl]);
 
   const setQty = useCallback((c: HarvestCandidate, qty: number) => {
     const key = `${c.symbol}.${c.broker}`;
     const clamped = Math.max(0, Math.min(c.qty, Number.isFinite(qty) ? qty : 0));
-    const next = sells
+    const next = optimisticSells
       .filter((s) => `${s.candidate.symbol}.${s.candidate.broker}` !== key)
       .concat(clamped > 0 ? [{ candidate: c, qtyToSell: clamped, realisedLossEur: c.lossPerShareEur * clamped }] : []);
     updateUrl(next);
-  }, [sells, updateUrl]);
+  }, [optimisticSells, updateUrl]);
 
   const applyOptimum = useCallback(() => updateUrl(optimum), [optimum, updateUrl]);
   const clearAll = useCallback(() => updateUrl([]), [updateUrl]);
 
   const aktienCands = candidates.filter((c) => c.bucket === "aktien");
   const sonstigeCands = candidates.filter((c) => c.bucket === "sonstige");
-  const hasSonstigeSell = sells.some((s) => s.candidate.bucket === "sonstige");
+  const hasSonstigeSell = optimisticSells.some((s) => s.candidate.bucket === "sonstige");
 
   const currentTaxableBase = Math.max(
     0,
@@ -111,8 +121,11 @@ export function LossHarvestPanel({
     <div className="space-y-4">
       <DisclaimerBanner />
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Summary cards. While the RSC refetch is in flight after a click,
+          the optimisticSells already reflects the new selection but the
+          summary numbers are still last-frame's — fade the cards slightly
+          so the user knows fresh totals are loading. */}
+      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 transition-opacity duration-150 ${isPending ? "opacity-60" : "opacity-100"}`}>
         <SummaryCard
           label="Aktien bucket"
           value={fmtEur(result.aktienNetEur)}
@@ -153,17 +166,26 @@ export function LossHarvestPanel({
         </button>
         <button
           onClick={clearAll}
-          disabled={sells.length === 0}
+          disabled={optimisticSells.length === 0}
           className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-4 py-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
         >
           Clear all
         </button>
-        <div className="font-mono text-[11px] text-muted ml-auto">
-          {sells.length} of {candidates.length} positions selected · {fmtEur(result.totalLossRealisedEur)} loss realised
+        <div className="font-mono text-[11px] text-muted ml-auto flex items-center gap-2">
+          {isPending && (
+            <span
+              className="inline-flex items-center gap-1 text-mint"
+              title="Recomputing totals after your last change"
+            >
+              <Spinner />
+              <span>Updating…</span>
+            </span>
+          )}
+          <span>{optimisticSells.length} of {candidates.length} positions selected · {fmtEur(result.totalLossRealisedEur)} loss realised</span>
         </div>
       </div>
 
-      {sells.length > 0 && <WashSaleWarning />}
+      {optimisticSells.length > 0 && <WashSaleWarning />}
       {hasSonstigeSell && <TeilfreistellungNote />}
 
       <BucketSection
@@ -191,6 +213,17 @@ export function LossHarvestPanel({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function Spinner() {
+  // 10×10 inline SVG so we don't pull a heavier icon lib for one usage.
+  // Stays in flow next to the "Updating…" text so it never causes layout shift.
+  return (
+    <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4" />
+      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function DisclaimerBanner() {
   return (
