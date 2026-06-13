@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "./card";
 import {
@@ -53,16 +53,22 @@ export function LossHarvestPanel({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // useTransition keeps the RSC re-fetch from blocking input. Without this
+  // every checkbox click / qty change would freeze the page while the
+  // server recomputes the summary cards.
+  const [, startTransition] = useTransition();
 
   // Selection state lives in ?sell=… so it's shareable and survives reload.
   // Server has already decoded the param into `sells`; we just rewrite the URL
-  // on every interaction without bouncing through local React state.
+  // on commit (not on every keystroke — see CandidateRow's local-state pattern).
   const updateUrl = useCallback((next: SellInstruction[]) => {
     const usp = new URLSearchParams(searchParams.toString());
     const encoded = encodeSellParams(next);
     if (encoded) usp.set("sell", encoded);
     else usp.delete("sell");
-    router.replace(`/tax/${year}/loss-harvest${usp.toString() ? `?${usp.toString()}` : ""}` as never, { scroll: false });
+    startTransition(() => {
+      router.replace(`/tax/${year}/loss-harvest${usp.toString() ? `?${usp.toString()}` : ""}` as never, { scroll: false });
+    });
   }, [searchParams, router, year]);
 
   const sellByKey = useMemo(() => {
@@ -248,6 +254,102 @@ function SummaryCard({
   );
 }
 
+/**
+ * Single harvest candidate row with isolated local state for the qty input.
+ *
+ * Why local state: the input was previously bound directly to the server-
+ * derived `sel.qtyToSell` and every keystroke fired router.replace, causing
+ * an RSC refetch that snapped the value back mid-edit. The page felt
+ * frozen and "blocking input during request".
+ *
+ * Now: the input owns a local `draft` integer. Typing updates `draft`
+ * immediately (no network). The URL only updates on:
+ *   1. blur (the user tabbed or clicked away)
+ *   2. Enter
+ *   3. the user toggling the checkbox off (handled by parent)
+ * When the `sel` prop changes externally (e.g. Auto-pick was clicked,
+ * or the user navigated back), `draft` resyncs in the effect.
+ */
+function CandidateRow({
+  c,
+  sel,
+  onToggle,
+  onCommitQty,
+}: {
+  c: HarvestCandidate;
+  sel: SellInstruction | undefined;
+  onToggle: (c: HarvestCandidate) => void;
+  onCommitQty: (c: HarvestCandidate, qty: number) => void;
+}) {
+  const selected = !!sel;
+  const committedQty = sel?.qtyToSell ?? c.qty;
+  const [draft, setDraft] = useState<number>(committedQty);
+
+  // Resync draft when committedQty changes from outside (Auto-pick, Clear,
+  // back/forward nav). Comparing numbers — useEffect won't loop because
+  // setDraft is a no-op when the value is unchanged.
+  useEffect(() => {
+    setDraft(committedQty);
+  }, [committedQty]);
+
+  const commit = () => {
+    if (!selected) return;
+    const clamped = Math.max(0, Math.min(c.qty, Number.isFinite(draft) ? draft : 0));
+    if (clamped !== committedQty) onCommitQty(c, clamped);
+  };
+
+  return (
+    <div
+      className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.8fr] gap-2 lg:gap-0 px-4 lg:px-5 py-3 items-center border-b border-border last:border-b-0 ${selected ? "bg-bad/5" : ""}`}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={() => onToggle(c)}
+        className="w-4 h-4 accent-bad cursor-pointer"
+        aria-label={`Select ${c.symbol} for harvest`}
+      />
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold shrink-0 bg-panel2 text-muted">
+          {avatarLabel(c.symbol, c.name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-[13px]">{c.symbol}</div>
+          {c.name && <div className="text-[11px] text-muted truncate">{c.name}</div>}
+        </div>
+      </div>
+      <span className={`hidden lg:inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${brokerChip(c.broker)}`}>{c.broker}</span>
+      <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.qty}</span>
+      <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.avgCostEur.toFixed(2)}</span>
+      <span className="hidden lg:block text-right font-mono text-xs">{c.pricePerUnitEur.toFixed(2)}</span>
+      <span className="hidden lg:block text-right font-mono font-semibold text-xs text-bad">{fmtEur(c.unrealisedLossEur)}</span>
+      <span className="hidden lg:block text-right font-mono text-xs text-bad">{fmtEur(c.lossPerShareEur)}</span>
+      <span className="hidden lg:flex justify-end items-center">
+        <input
+          type="number"
+          min={0}
+          max={c.qty}
+          step={1}
+          value={Number.isFinite(draft) ? draft : ""}
+          onChange={(e) => setDraft(Number(e.target.value))}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            } else if (e.key === "Escape") {
+              setDraft(committedQty);
+              e.currentTarget.blur();
+            }
+          }}
+          disabled={!selected}
+          title={selected ? "Press Enter or Tab to commit · Esc to revert" : "Check the box to enable"}
+          className="bg-panel2 border border-border rounded font-mono text-xs w-20 text-right px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+        />
+      </span>
+    </div>
+  );
+}
+
 function BucketSection({
   title,
   subtitle,
@@ -288,52 +390,15 @@ function BucketSection({
             <span className="text-right">Loss/sh</span>
             <span className="text-right">Sell qty</span>
           </div>
-          {candidates.map((c) => {
-            const key = `${c.symbol}.${c.broker}`;
-            const sel = sellByKey.get(key);
-            const selected = !!sel;
-            return (
-              <div
-                key={key}
-                className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.8fr] gap-2 lg:gap-0 px-4 lg:px-5 py-3 items-center border-b border-border last:border-b-0 ${selected ? "bg-bad/5" : ""}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selected}
-                  onChange={() => onToggle(c)}
-                  className="w-4 h-4 accent-bad cursor-pointer"
-                  aria-label={`Select ${c.symbol} for harvest`}
-                />
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold shrink-0 bg-panel2 text-muted">
-                    {avatarLabel(c.symbol, c.name)}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-[13px]">{c.symbol}</div>
-                    {c.name && <div className="text-[11px] text-muted truncate">{c.name}</div>}
-                  </div>
-                </div>
-                <span className={`hidden lg:inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${brokerChip(c.broker)}`}>{c.broker}</span>
-                <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.qty}</span>
-                <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.avgCostEur.toFixed(2)}</span>
-                <span className="hidden lg:block text-right font-mono text-xs">{c.pricePerUnitEur.toFixed(2)}</span>
-                <span className="hidden lg:block text-right font-mono font-semibold text-xs text-bad">{fmtEur(c.unrealisedLossEur)}</span>
-                <span className="hidden lg:block text-right font-mono text-xs text-bad">{fmtEur(c.lossPerShareEur)}</span>
-                <span className="hidden lg:flex justify-end items-center">
-                  <input
-                    type="number"
-                    min={0}
-                    max={c.qty}
-                    step={1}
-                    value={sel?.qtyToSell ?? c.qty}
-                    onChange={(e) => onQty(c, Number(e.target.value))}
-                    disabled={!selected}
-                    className="bg-panel2 border border-border rounded font-mono text-xs w-20 text-right px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-                  />
-                </span>
-              </div>
-            );
-          })}
+          {candidates.map((c) => (
+            <CandidateRow
+              key={`${c.symbol}.${c.broker}`}
+              c={c}
+              sel={sellByKey.get(`${c.symbol}.${c.broker}`)}
+              onToggle={onToggle}
+              onCommitQty={onQty}
+            />
+          ))}
         </>
       )}
     </Card>
