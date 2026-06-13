@@ -196,6 +196,65 @@ export function suggestOptimum(inputs: HarvestInputs): SellInstruction[] {
 }
 
 // ---------------------------------------------------------------------------
+// Per-bucket remaining overage + per-candidate suggested shares
+// ---------------------------------------------------------------------------
+
+/**
+ * Remaining overage per bucket AFTER applying the user's current sells.
+ *
+ * Used to drive the per-row "shares to zero" hint. Bucket-aware: an Aktien
+ * loss only counts against the Aktien bucket, never against Sonstige.
+ *
+ * Reasoning for the maths: each bucket's *net* is floored at zero before
+ * the Pauschbetrag is applied to the combined total (§20 Abs. 6 EStG).
+ * To bring taxable base to zero, each bucket's net must be ≤ its share of
+ * the allowance. Since the allowance is shared, the OTHER bucket may
+ * already consume part of it. So this bucket's target is
+ * `max(0, allowance − otherBucket.net)` and the overage to cover is
+ * `max(0, thisBucket.net − target)`.
+ */
+export function bucketOverages(
+  inputs: HarvestInputs,
+  sells: SellInstruction[],
+): { aktien: number; sonstige: number } {
+  let aktienLossEur = 0;
+  let sonstigeLossEur = 0;
+  for (const s of sells) {
+    const qty = Math.max(0, Math.min(s.candidate.qty, s.qtyToSell));
+    if (qty === 0) continue;
+    const realised = s.candidate.lossPerShareEur * qty;
+    if (s.candidate.bucket === "aktien") aktienLossEur += realised;
+    else sonstigeLossEur += realised;
+  }
+  const aktienNet = Math.max(0, inputs.aktien.totalIncomeEur + aktienLossEur);
+  const sonstigeNet = Math.max(0, inputs.sonstige.totalIncomeEur + sonstigeLossEur);
+  const aktienTarget = Math.max(0, inputs.allowanceEur - sonstigeNet);
+  const sonstigeTarget = Math.max(0, inputs.allowanceEur - aktienNet);
+  return {
+    aktien: Math.max(0, aktienNet - aktienTarget),
+    sonstige: Math.max(0, sonstigeNet - sonstigeTarget),
+  };
+}
+
+/**
+ * For a single candidate, the integer number of shares that would zero
+ * its bucket's remaining overage. Returns null when:
+ *   - the bucket has no overage left to cover, OR
+ *   - the candidate's loss per share is zero (defensive)
+ * The result is clamped to the candidate's own qty.
+ */
+export function suggestedSharesToZero(
+  c: HarvestCandidate,
+  overages: { aktien: number; sonstige: number },
+): number | null {
+  const overage = c.bucket === "aktien" ? overages.aktien : overages.sonstige;
+  if (overage <= 0) return null;
+  const lossPerShareAbs = Math.abs(c.lossPerShareEur);
+  if (lossPerShareAbs <= 0) return null;
+  return Math.min(c.qty, Math.ceil(overage / lossPerShareAbs));
+}
+
+// ---------------------------------------------------------------------------
 // URL param encode / decode
 // ---------------------------------------------------------------------------
 
