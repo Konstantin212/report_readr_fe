@@ -154,8 +154,12 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
       text: "KAP Zeile 17 = 0 (let ELSTER auto-allocate the Sparer-Pauschbetrag)",
     },
     {
-      mark: draft.kap.lines.Z19.euros === 0 ? "yes" : "warn",
-      text: `KAP Zeile 19 = ${draft.kap.lines.Z19.euros} (non-fund foreign capital income)`,
+      // Z19 non-zero is normal for stock dividends or interest — informational.
+      mark: "yes",
+      text:
+        draft.kap.lines.Z19.euros === 0
+          ? "KAP Zeile 19 = 0 (no non-fund foreign capital income)"
+          : `KAP Zeile 19 = ${draft.kap.lines.Z19.euros} (non-fund dividends + interest)`,
     },
   ];
 

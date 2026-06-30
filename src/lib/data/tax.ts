@@ -1,7 +1,13 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { realizedMatches, transactions, userSettings, brokerAccounts, positions as positionsTable } from "@/lib/db/schema";
-import { buildAnlageKap, type BuildAnlageKapInput, type LegacyGermanTaxDraft as GermanTaxDraft } from "@/lib/tax/german-tax";
+import {
+  buildAnlageKap,
+  buildKapAndKapInv,
+  type BuildAnlageKapInput,
+  type GermanTaxDraft,
+  type LegacyGermanTaxDraft,
+} from "@/lib/tax/german-tax";
 import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
 import { classifyKind, classifySector } from "@/lib/analytics/sector-map";
 
@@ -89,7 +95,12 @@ export type TaxData = {
    *  the realised-lots table, the Anlage KAP draft, or the export. */
   forecast: TaxForecast | null;
   realizedLots: { ticker: string; broker: string; method: string; opened: string; closed: string; qty: number; costEur: number; proceedsEur: number; gainEur: number }[];
-  kap: GermanTaxDraft;
+  /** Legacy KAP draft (7 fields, cents-as-string). Kept for back-compat
+   *  until the few remaining consumers migrate to `kapV2`. */
+  kap: LegacyGermanTaxDraft;
+  /** New per-form KAP / KAP-INV draft with whole-euro values, used by the
+   *  ElsterValuesCard on the tax page and by the PDF/CSV export. */
+  kapV2: GermanTaxDraft;
 };
 
 export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promise<BuildAnlageKapInput> {
@@ -248,7 +259,9 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
 
   // Reuse the rows we already loaded above — avoids three redundant
   // round-trips that `loadTaxInputs` would otherwise re-issue.
-  const kap = buildAnlageKap(buildKapInputs(year, settings, allTx, allMatches));
+  const kapInputs = buildKapInputs(year, settings, allTx, allMatches);
+  const kap = buildAnlageKap(kapInputs);
+  const kapV2 = buildKapAndKapInv(kapInputs);
 
   // ---- Forecast (current year only) -----------------------------------
   // Projects how much more of the Pauschbetrag is likely to be consumed
@@ -327,6 +340,7 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
     forecast,
     realizedLots,
     kap,
+    kapV2,
   };
 }
 

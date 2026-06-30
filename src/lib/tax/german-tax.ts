@@ -275,26 +275,6 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   }
 
   // --- Build KAP-INV ZeileValues with negative-clamp + warnings ---------
-  const buildKapInvSection = <T extends Record<string, Decimal>>(
-    totals: T,
-    formTargets: Record<keyof T, FormTarget>,
-    isSales: boolean,
-  ): { values: Record<keyof T, ZeileValue>; anyNonZero: boolean } => {
-    const out = {} as Record<keyof T, ZeileValue>;
-    let anyNonZero = false;
-    for (const key of Object.keys(totals) as Array<keyof T>) {
-      const dec = totals[key];
-      if (dec.lt(0)) {
-        warnings.push(
-          `Negative ${isSales ? "fund-sale" : "fund-distribution"} total in ${String(formTargets[key])} (${dec.toFixed(2)} €). ELSTER rejects negative values here — carry forward via Verlustvortrag instead.`,
-        );
-      }
-      out[key] = toZeile(dec, !isSales); // section 1 must be non-neg; section 2 can be negative (but we still warn)
-      if (isNonZero(out[key])) anyNonZero = true;
-    }
-    return { values: out, anyNonZero };
-  };
-
   // Map subtype keys back to the section1/section2 field-name keys.
   const section1Out = {
     Z4_aktienfonds: toZeile(section1.aktien, true),
@@ -317,9 +297,6 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       );
     }
   }
-
-  // Reference unused helper to satisfy linter — the inline assembly above is clearer than calling it.
-  void buildKapInvSection;
 
   const kapInvPresent =
     isNonZero(section1Out.Z4_aktienfonds)
