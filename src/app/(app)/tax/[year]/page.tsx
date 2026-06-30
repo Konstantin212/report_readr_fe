@@ -5,6 +5,8 @@ import { ProgressBar } from "@/components/pulse/progress-bar";
 import { TaxYearSelector } from "@/components/pulse/tax-year-selector";
 import { MetricsGrid } from "@/components/pulse/metrics-grid";
 import { RealizedLotsTable } from "@/components/pulse/realized-lots-table";
+import { ElsterValuesCard } from "@/components/pulse/elster-values-card";
+import { PreSubmitChecklist } from "@/components/pulse/pre-submit-checklist";
 import { fmtEur } from "@/lib/format";
 
 export default async function TaxPage({ params }: { params: Promise<{ year: string }> }) {
@@ -184,6 +186,8 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
         </Card>
       </div>
 
+      <ElsterValuesCard draft={d.kapV2} />
+
       <RealizedLotsTable
         lots={d.realizedLots}
         year={yearNum}
@@ -191,6 +195,8 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
         totalProceedsEur={d.realizedLots.reduce((s, l) => s + l.proceedsEur, 0)}
         netRealizedEur={d.hero.netRealizedEur}
       />
+
+      <PreSubmitChecklist draft={d.kapV2} />
 
       <div className="flex gap-2 font-mono text-[11px] text-dim">
         <span>ℹ</span>
