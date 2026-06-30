@@ -41,6 +41,11 @@ export const KIND_MAP: Record<string, AssetKind> = {
   EUDI: "etf", // delisted alias for SPYW
   VOO: "etf", VTI: "etf", QQQ: "etf", SPY: "etf",
   ARKK: "etf", IVV: "etf",
+  // ETFs we know are ETFs but whose KAP-INV subtype hasn't been verified
+  // yet — they'll get classified as "etf" here but fundSubtype() returns
+  // "unknown", which routes them to Z8_sonstige + a warning so the user
+  // double-checks with their Steuerberater.
+  EUNL: "etf", // iShares Core MSCI World — almost certainly aktien, awaiting verification
 };
 
 /**
@@ -69,4 +74,34 @@ export function classifyKind(symbol: string, sector?: string, rawSymbol?: string
   }
 
   return "stock";
+}
+
+/**
+ * German Anlage KAP-INV fund subtype — drives WHICH line a fund's
+ * distribution/sale lands on (Z4 Aktienfonds, Z5 Mischfonds, etc.).
+ *
+ * Kept SEPARATE from `classifyKind` because the other call sites
+ * (positions, loss-harvest, bucket isolation) don't care about the
+ * sub-taxonomy — only the tax pipeline does. Adding it to classifyKind
+ * would force every consumer to deal with a refinement they don't need.
+ *
+ * "unknown" → builder routes to Z8_sonstige (0% Teilfreistellung — the
+ * safe, higher-tax default) and emits a warning so the user verifies.
+ */
+export type FundSubtype = "aktien" | "misch" | "immo_inland" | "immo_ausland" | "sonstige";
+
+const FUND_SUBTYPE_MAP: Record<string, FundSubtype> = {
+  // Equity funds (Aktienfonds) — distributing or accumulating, >50% stocks.
+  // Triggers 30% Teilfreistellung in ELSTER.
+  SPYW: "aktien", VUSA: "aktien", VHYL: "aktien", XSX7: "aktien",
+  EUDI: "aktien",   // delisted alias for SPYW
+  VUAA: "aktien",   // S&P 500 accumulating
+  IEMM: "aktien",   // iShares MSCI EM
+  IWDA: "aktien",   // iShares Core MSCI World
+  VOO:  "aktien", VTI: "aktien", QQQ: "aktien", SPY: "aktien",
+  ARKK: "aktien", IVV: "aktien",
+};
+
+export function fundSubtype(symbol: string): FundSubtype | "unknown" {
+  return FUND_SUBTYPE_MAP[symbol] ?? "unknown";
 }

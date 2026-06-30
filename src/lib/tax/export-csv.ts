@@ -1,4 +1,5 @@
-import type { GermanTaxDraft } from "./german-tax";
+// Legacy CSV evidence writer — rewritten in Step 6 alongside the PDF.
+import type { LegacyGermanTaxDraft as GermanTaxDraft } from "./german-tax";
 
 export function renderEvidenceCsv(draft: GermanTaxDraft): string {
   const head = ["date","symbol","ticker","country","grossEur","whtEur","ecbRate","sourceFingerprint"].join(",");
