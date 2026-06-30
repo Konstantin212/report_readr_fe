@@ -1,4 +1,6 @@
-import type { GermanTaxDraft, KapEvidenceItem } from "@/lib/tax/german-tax";
+// Legacy CSV exporter — uses the back-compat draft shape. Will be rewritten
+// alongside export-pdf.tsx in Step 6 of the KAP/KAP-INV split.
+import type { LegacyGermanTaxDraft as GermanTaxDraft, KapEvidenceItem } from "@/lib/tax/german-tax";
 
 const csvColumns = ["date","ticker","symbol","country","grossEur","whtEur","ecbRate","fingerprint"] as const;
 

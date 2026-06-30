@@ -1,6 +1,8 @@
 import { Document, Page, Text, View, StyleSheet, renderToStream } from "@react-pdf/renderer";
 import React from "react";
-import type { GermanTaxDraft } from "./german-tax";
+// Temporarily importing the legacy draft shape — this file gets rewritten
+// in Step 6 of the KAP/KAP-INV split (separate KAP + KAP-INV pages).
+import type { LegacyGermanTaxDraft as GermanTaxDraft } from "./german-tax";
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 11, fontFamily: "Helvetica" },

@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db/client";
 import { brokerAccounts, imports, taxReportLines, taxReports, transactions } from "@/lib/db/schema";
 import type { Broker, EventType, NormalizedEvent } from "@/lib/domain/types";
 import { buildLedgerSummary, type LedgerSummary } from "@/lib/ledger/summary";
-import type { GermanTaxDraft } from "@/lib/tax/german-tax";
+import type { LegacyGermanTaxDraft as GermanTaxDraft } from "@/lib/tax/german-tax";
 
 export type StorageMode = "DATABASE" | "LOCAL";
 

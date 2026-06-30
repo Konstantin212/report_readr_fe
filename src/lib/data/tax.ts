@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { realizedMatches, transactions, userSettings, brokerAccounts, positions as positionsTable } from "@/lib/db/schema";
-import { buildAnlageKap, type BuildAnlageKapInput, type GermanTaxDraft } from "@/lib/tax/german-tax";
+import { buildAnlageKap, type BuildAnlageKapInput, type LegacyGermanTaxDraft as GermanTaxDraft } from "@/lib/tax/german-tax";
 import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
 import { classifyKind, classifySector } from "@/lib/analytics/sector-map";
 
@@ -41,6 +41,18 @@ export async function getAvailableTaxYears(ownerUserId: string): Promise<number[
 }
 
 const ABGELT_RATE = 0.26375; // 25 % AbgSt + 5.5 % SolZ
+
+/**
+ * Returns true for transaction sources that look like dividend-accrual
+ * artefacts. Used to exclude those rows from the dividend totals — only
+ * actually-paid dividends count under §20 EStG (Zuflussprinzip).
+ *
+ * Exported so tests can lock in the matching contract.
+ */
+export function isAccrualSource(source: string | null | undefined): boolean {
+  if (!source) return false;
+  return /accrual/i.test(source);
+}
 
 export type TaxForecast = {
   // Date the projection was computed (today).
@@ -103,8 +115,18 @@ function buildKapInputs(
   allMatches: Array<typeof realizedMatches.$inferSelect>,
 ): BuildAnlageKapInput {
   const yr = String(taxYear);
+  // Defensive accruals filter (Zuflussprinzip): only PAID dividends count
+  // for §20 EStG. The IBKR parser doesn't emit accruals as DIVIDEND events
+  // today, but a previous upload of the GF's portfolio surfaced €12.33 of
+  // mystery delta that exactly matched her year-end accrual balance — we
+  // never reproduced the leak in code, but excluding sources that look
+  // like accruals is cheap insurance against statement-variant edge cases.
   const dividends = tx
-    .filter(t => t.eventType === "DIVIDEND" && t.eventDate.startsWith(yr))
+    .filter(t =>
+      t.eventType === "DIVIDEND"
+      && t.eventDate.startsWith(yr)
+      && !isAccrualSource(t.source ?? null)
+    )
     .map(t => ({
       ticker: t.symbol ?? "",
       country: countryFromIsin(t.isin),
@@ -156,7 +178,11 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   );
   const netRealized = yrMatches.reduce((s, m) => s + Number(m.gainEur), 0);
 
-  const yrDivs = allTx.filter(t => t.eventType === "DIVIDEND" && t.eventDate.startsWith(yrStr));
+  const yrDivs = allTx.filter(t =>
+    t.eventType === "DIVIDEND"
+    && t.eventDate.startsWith(yrStr)
+    && !isAccrualSource(t.source ?? null)
+  );
   const dividendsEur = yrDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
   const whtPaid = yrDivs.reduce((s, t) => s + Number(t.withholdingTaxEur ?? 0), 0);
   const yrInterest = allTx.filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yrStr));
