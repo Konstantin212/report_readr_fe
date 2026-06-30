@@ -1,18 +1,35 @@
-// Legacy CSV evidence writer — rewritten in Step 6 alongside the PDF.
-import type { LegacyGermanTaxDraft as GermanTaxDraft } from "./german-tax";
+import type { GermanTaxDraft } from "./german-tax";
 
+/**
+ * Evidence CSV — one row per dividend / realised match, with the
+ * `formTarget` column identifying which ELSTER Zeile each row feeds.
+ * Lets a Steuerberater audit the routing decisions made by the builder.
+ */
 export function renderEvidenceCsv(draft: GermanTaxDraft): string {
-  const head = ["date","symbol","ticker","country","grossEur","whtEur","ecbRate","sourceFingerprint"].join(",");
-  const rows = draft.evidence.map(e => [
-    e.date,
-    e.symbol ?? "",
-    e.ticker ?? "",
-    e.country ?? "",
-    e.grossEur,
-    e.whtEur ?? "",
-    e.ecbRate ?? "",
-    e.fingerprint,
-  ].map(escapeCsv).join(","));
+  const head = [
+    "date",
+    "symbol",
+    "ticker",
+    "country",
+    "grossEur",
+    "whtEur",
+    "ecbRate",
+    "formTarget",
+    "sourceFingerprint",
+  ].join(",");
+  const rows = draft.evidence.map((e) =>
+    [
+      e.date,
+      e.symbol ?? "",
+      e.ticker ?? "",
+      e.country ?? "",
+      e.grossEur,
+      e.whtEur ?? "",
+      e.ecbRate ?? "",
+      e.formTarget ?? "",
+      e.fingerprint,
+    ].map(escapeCsv).join(","),
+  );
   return [head, ...rows].join("\n");
 }
 
