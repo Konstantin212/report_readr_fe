@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db/client";
 import {
   brokerAccounts, lots, quoteCache, quoteHistory, transactions, instruments,
 } from "@/lib/db/schema";
-import { classifySector, classifyKind } from "@/lib/analytics/sector-map";
+import { classifySector, classifyKind, normalizeSector, SECTOR_ETF } from "@/lib/analytics/sector-map";
 import { loadClassificationOverrides } from "@/lib/analytics/classification";
 import { getMetaByIsins } from "@/lib/marketdata/store";
 import { syntheticIsin } from "@/lib/marketdata/types";
@@ -358,8 +358,14 @@ export async function getPositionsData(
     // Prefer the scraped market-data classification when we have one;
     // otherwise fall back to the hardcoded symbol maps (today's behavior).
     const override = overrides.get(displaySymbol);
-    const sector = override?.sector ?? classifySector(displaySymbol);
-    const kind = override?.kind ?? classifyKind(displaySymbol, sector);
+    const hardcodedSector = classifySector(displaySymbol);
+    const kind = override?.kind ?? classifyKind(displaySymbol, hardcodedSector);
+    // ETFs are grouped by kind and diversified across companies, so a
+    // provider's equity-sector label (e.g. FMP tagging SPY "Financial
+    // Services") is misleading — show "ETF". Everything else uses the
+    // enriched-or-hardcoded sector, normalised so "Technology"/"Tech" and
+    // "Financial Services"/"Financials" never split into two buckets.
+    const sector = kind === "etf" ? SECTOR_ETF : normalizeSector(override?.sector ?? hardcodedSector);
     const distribution = override?.distribution ?? null;
 
     // Native-currency P/L via the IBKR-mirror function. The function returns
