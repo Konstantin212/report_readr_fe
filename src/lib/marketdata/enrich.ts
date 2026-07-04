@@ -230,6 +230,9 @@ export async function enrichSingle(
   if (manual && manual.provider === "yahoo" && manual.yahooSymbol) {
     return enrichManualYahoo(ref, manual.yahooSymbol, manualUrl);
   }
+  if (manual && manual.provider === "justetf") {
+    return enrichManualJustetf(ref, manualUrl);
+  }
 
   const plan = planEnrichment(ref, manual);
   for (const id of plan) {
@@ -322,6 +325,68 @@ async function enrichManualYahoo(
     markScraped: true,
   });
 
+  const [m] = await getMetaByIsins([ref.isin]);
+  return m ?? null;
+}
+
+/**
+ * Resolve + price an instrument from a user-pasted justETF link. justETF's
+ * quote API (/api/etfs/{isin}/quote) prices BOTH funds and EU stocks, so:
+ *  - if the ETF profile resolves → it's a real ETF (full metadata + subtype),
+ *  - otherwise (a stock ISIN 302s to search) → still price it via the quote
+ *    API and record it as a stock.
+ */
+async function enrichManualJustetf(
+  ref: InstrumentRef,
+  manualUrl?: string,
+): Promise<InstrumentMeta | null> {
+  let profile;
+  try {
+    profile = await justEtfProvider.fetchMeta(ref);
+  } catch (e) {
+    profile = { status: "ERROR" as const, error: (e as Error).message };
+  }
+
+  if (profile.status === "OK") {
+    await upsertMeta({
+      isin: ref.isin,
+      status: "OK",
+      source: "JUSTETF",
+      assetKind: profile.assetKind,
+      fields: profile.fields,
+      raw: profile.raw,
+      manualUrl,
+      markScraped: true,
+    });
+    if (profile.assetKind === "etf") await writeEtfQuote(ref);
+    const [m] = await getMetaByIsins([ref.isin]);
+    return m ?? null;
+  }
+
+  // Not an ETF profile — price the stock via justETF's quote API anyway.
+  const q = await fetchEtfQuote(ref.isin);
+  if (q) {
+    const symbols = new Set<string>(await getSymbolsByIsin(ref.isin));
+    if (ref.symbol) symbols.add(ref.symbol);
+    await writeQuotes(
+      [...symbols].map((symbol) => ({
+        symbol,
+        close: q.close,
+        currency: q.currency,
+        date: q.date,
+        source: q.source,
+      })),
+    );
+    await upsertMeta({ isin: ref.isin, status: "OK", source: "JUSTETF", assetKind: "stock", manualUrl, markScraped: true });
+  } else {
+    await upsertMeta({
+      isin: ref.isin,
+      status: "NOT_FOUND",
+      error: "justETF returned no quote for this ISIN",
+      manualUrl,
+      markScraped: true,
+    });
+  }
   const [m] = await getMetaByIsins([ref.isin]);
   return m ?? null;
 }

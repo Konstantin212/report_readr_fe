@@ -8,7 +8,13 @@ describe("parseManualLink — justETF", () => {
     ).toEqual({ provider: "justetf", isin: "IE00B0M63177" });
   });
 
-  it("errors when isin param is missing", () => {
+  it("extracts isin from a /stock-profiles/{ISIN} path (EU stock)", () => {
+    expect(
+      parseManualLink("https://www.justetf.com/en/stock-profiles/IE00BYTBXV33"),
+    ).toEqual({ provider: "justetf", isin: "IE00BYTBXV33" });
+  });
+
+  it("errors when no isin is present in query or path", () => {
     const out = parseManualLink("https://www.justetf.com/en/etf-profile.html");
     expect(out).toHaveProperty("error");
   });

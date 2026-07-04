@@ -78,9 +78,20 @@ export function parseManualLink(url: string): ManualLink | { error: string } {
 }
 
 function parseJustetf(parsed: URL): ManualLink | { error: string } {
-  const isin = parsed.searchParams.get("isin");
+  // Two justETF URL shapes carry the ISIN differently:
+  //   ETF profile:   /en/etf-profile.html?isin={ISIN}   (query param)
+  //   Stock profile: /en/stock-profiles/{ISIN}          (path segment)
+  // justETF's quote API (/api/etfs/{isin}/quote) prices both, so accept both.
+  const queryIsin = parsed.searchParams.get("isin");
+  const segs = parsed.pathname.split("/").filter(Boolean);
+  const spIdx = segs.indexOf("stock-profiles");
+  const pathIsin = spIdx >= 0 ? segs[spIdx + 1] : undefined;
+  const isin = (queryIsin || pathIsin || "").toUpperCase();
   if (!isin) {
-    return { error: "justETF link is missing the ?isin= parameter." };
+    return {
+      error:
+        "justETF link needs an ISIN — use an /etf-profile.html?isin=… or /stock-profiles/{ISIN} URL.",
+    };
   }
   return { provider: "justetf", isin };
 }
