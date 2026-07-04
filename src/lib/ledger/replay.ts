@@ -63,23 +63,85 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
   const openLotsByIdentity = new Map<string, Lot[]>();
   const matches: RealizedMatch[] = [];
 
-  // Freedom Finance reports a share split as a PAIR of CORPORATE_ACTION rows
-  // on the same date+identity: a negative quantity (old shares removed) and a
-  // positive quantity (new shares added), e.g. -34 / +102 for a 3:1 split.
-  // We buffer the first leg per identity and apply the ratio once both arrive
-  // (the two rows may sort in either order). A split preserves cost basis, so
-  // we scale each open lot's remaining quantity and leave its cost untouched —
-  // per-share cost implicitly divides by the ratio. Without this, a later sell
-  // would FIFO-match pre-split lots at the un-split per-share cost, inventing a
-  // phantom realized loss.
+  // Share splits arrive in two broker-specific shapes:
+  //
+  //  - Freedom Finance: a PAIR of CORPORATE_ACTION rows on the same
+  //    date+identity — negative qty (old shares removed) and positive qty
+  //    (new shares added), e.g. -34 / +102 for a 3:1 split, description
+  //    just "split". We buffer the first leg and apply once both arrive.
+  //  - IBKR: a SINGLE row whose description carries the ratio, e.g.
+  //    "SCHD(US8085247976) Split 3 for 1 (…)", with Quantity = the NET
+  //    share delta (+68 for 34→102). We parse "X for Y" and derive the
+  //    affected pre-split quantity from the delta.
+  //
+  // A split preserves cost basis: we scale lot quantities FIFO up to the
+  // affected pre-split quantity and leave costEur untouched (per-share cost
+  // implicitly divides by the ratio). Without this, a later sell would
+  // FIFO-match pre-split lots at the un-split per-share cost, inventing a
+  // phantom realized loss (the SCHD −€1,531 production bug).
   const pendingSplits = new Map<string, { remove?: Decimal; add?: Decimal }>();
+
+  // Identity fallback: corporate-action rows often carry only the symbol
+  // while TRADE lots are keyed by ISIN (identityOf = isin ?? symbol). Try
+  // the event's own identity, then the other key, then scan for a lot list
+  // whose lots carry this symbol — otherwise the split silently applies to
+  // a nonexistent identity and the phantom pre-split basis survives.
+  const resolveLots = (e: NormalizedEvent, id: string): Lot[] | undefined =>
+    openLotsByIdentity.get(id)
+    ?? (e.symbol ? openLotsByIdentity.get(e.symbol) : undefined)
+    ?? (e.symbol
+      ? [...openLotsByIdentity.values()].find((l) => l[0]?.symbol === e.symbol)
+      : undefined);
+
+  // Scale FIFO only up to the affected pre-split quantity — not every open
+  // lot. A same-day post-split buy sorts BEFORE the corporate action
+  // (TYPE_ORDER puts TRADE first) and must not be scaled. Multiply-then-
+  // divide keeps exact ratios (102/34) exact.
+  const scaleFifo = (lots: Lot[], removeQty: Decimal, addQty: Decimal): void => {
+    let toScale = removeQty;
+    for (const lot of lots) {
+      if (toScale.lte(0)) break;
+      const lotQty = new Decimal(lot.remainingQty);
+      const consume = Decimal.min(lotQty, toScale);
+      const scaled = consume.mul(addQty).div(removeQty);
+      lot.remainingQty = scaled.plus(lotQty.minus(consume)).toString();
+      toScale = toScale.minus(consume);
+    }
+  };
 
   for (const e of sorted) {
     if (e.type === "CORPORATE_ACTION" && /split/i.test(e.description ?? "")) {
-      const q = Number(e.quantity);
-      if (!Number.isFinite(q) || q === 0) continue;
       const id = identityOf(e);
       if (!id) continue;
+
+      // IBKR single-row form: ratio in the description ("Split 3 for 1",
+      // reverse: "Split 1 for 10").
+      const ratioMatch = /(\d+(?:\.\d+)?)\s*for\s*(\d+(?:\.\d+)?)/i.exec(e.description ?? "");
+      if (ratioMatch) {
+        const newPer = new Decimal(ratioMatch[1]);
+        const oldPer = new Decimal(ratioMatch[2]);
+        if (newPer.lte(0) || oldPer.lte(0) || newPer.eq(oldPer)) continue;
+        const lots = resolveLots(e, id);
+        if (!lots) continue;
+        const ratio = newPer.div(oldPer);
+        const delta = new Decimal(e.quantity ?? "0");
+        if (!delta.isZero() && delta.isFinite()) {
+          // delta = old × (ratio − 1) ⇒ old = |delta| / |ratio − 1|.
+          const oldQty = delta.abs().div(ratio.minus(1).abs());
+          scaleFifo(lots, oldQty, oldQty.mul(ratio));
+        } else {
+          // No usable delta — scale the whole open position (splits are
+          // dated distinctly from trades in IBKR statements, so the
+          // same-day-buy hazard of the FF pair form doesn't apply here).
+          const total = lots.reduce((s, l) => s.plus(l.remainingQty), new Decimal(0));
+          if (total.gt(0)) scaleFifo(lots, total, total.mul(ratio));
+        }
+        continue;
+      }
+
+      // FF pair form: buffer legs per identity until both signs arrived.
+      const q = Number(e.quantity);
+      if (!Number.isFinite(q) || q === 0) continue;
       const legQty = new Decimal(e.quantity ?? "0");
       const pending = pendingSplits.get(id) ?? {};
       if (legQty.lt(0)) pending.remove = legQty.abs();
@@ -89,34 +151,8 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
       if (pending.remove && pending.add && pending.remove.gt(0)) {
         const ratio = pending.add.div(pending.remove);
         if (ratio.isFinite() && ratio.gt(0)) {
-          // Identity fallback: FF corporate-action rows often carry only the
-          // symbol while TRADE lots are keyed by ISIN (identityOf = isin ??
-          // symbol). Try the event's own identity, then the other key, then
-          // scan for a lot list whose lots carry this symbol — otherwise the
-          // split silently applies to a nonexistent identity and the phantom
-          // pre-split basis survives (the exact SCHD production bug).
-          const lots =
-            openLotsByIdentity.get(id)
-            ?? (e.symbol ? openLotsByIdentity.get(e.symbol) : undefined)
-            ?? (e.symbol
-              ? [...openLotsByIdentity.values()].find((l) => l[0]?.symbol === e.symbol)
-              : undefined);
-          if (lots) {
-            // Scale FIFO only up to the REMOVE quantity the broker declared —
-            // not every open lot. A same-day post-split buy sorts BEFORE the
-            // corporate action (TYPE_ORDER puts TRADE first) and must not be
-            // scaled: the -34/+102 pair applies to exactly 34 pre-split
-            // shares. Multiply-then-divide keeps exact ratios (102/34) exact.
-            let toScale = pending.remove;
-            for (const lot of lots) {
-              if (toScale.lte(0)) break;
-              const lotQty = new Decimal(lot.remainingQty);
-              const consume = Decimal.min(lotQty, toScale);
-              const scaled = consume.mul(pending.add).div(pending.remove);
-              lot.remainingQty = scaled.plus(lotQty.minus(consume)).toString();
-              toScale = toScale.minus(consume);
-            }
-          }
+          const lots = resolveLots(e, id);
+          if (lots) scaleFifo(lots, pending.remove, pending.add);
         }
         pendingSplits.delete(id);
       }

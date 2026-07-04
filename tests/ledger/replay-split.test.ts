@@ -201,6 +201,53 @@ describe("FIFO replay — share splits (CORPORATE_ACTION pairs)", () => {
     expect(totalGain).toBeCloseTo(2464.84 - 2305.46 - 77.86, 1);
   });
 
+  it("applies an IBKR single-row split (\"Split 3 for 1\", qty = net delta)", () => {
+    // IBKR reports splits as ONE row: ratio in the description, Quantity =
+    // net share delta (34 shares → 102 shares ⇒ +68).
+    const events: NormalizedEvent[] = [
+      trade("b1", "2023-06-14", "IBKS", "34", "2305.46"),
+      split("ca1", "2024-10-11", "IBKS", "68", "IBKS(US0000000001) Split 3 for 1 (IBKS, TEST FUND, US0000000001)"),
+      trade("s1", "2025-11-11", "IBKS", "-102", "2400.00"),
+    ];
+
+    const { lots, matches } = replay(events);
+
+    expect(lots).toHaveLength(0);
+    expect(sum(matches.map((m) => m.qty))).toBe(102);
+    expect(sum(matches.map((m) => m.costEur))).toBeCloseTo(2305.46, 1);
+    expect(sum(matches.map((m) => m.gainEur))).toBeCloseTo(2400.0 - 2305.46, 1);
+  });
+
+  it("applies an IBKR single-row REVERSE split (\"Split 1 for 10\", negative delta)", () => {
+    // 30 shares → 3 shares ⇒ delta −27; basis preserved.
+    const events: NormalizedEvent[] = [
+      trade("b1", "2023-06-14", "REVS", "30", "3000"),
+      split("ca1", "2024-10-11", "REVS", "-27", "Split 1 for 10"),
+      trade("s1", "2025-11-11", "REVS", "-3", "3100"),
+    ];
+
+    const { lots, matches } = replay(events);
+
+    expect(lots).toHaveLength(0);
+    expect(sum(matches.map((m) => m.qty))).toBe(3);
+    expect(sum(matches.map((m) => m.costEur))).toBeCloseTo(3000, 1);
+    expect(sum(matches.map((m) => m.gainEur))).toBeCloseTo(100, 1);
+  });
+
+  it("applies an IBKR ratio-text split with NO quantity by scaling the whole position", () => {
+    const events: NormalizedEvent[] = [
+      trade("b1", "2023-06-14", "NOQ", "10", "1000"),
+      split("ca1", "2024-10-11", "NOQ", undefined as unknown as string, "Split 2 for 1"),
+      trade("s1", "2025-11-11", "NOQ", "-20", "1200"),
+    ];
+
+    const { lots, matches } = replay(events);
+
+    expect(lots).toHaveLength(0);
+    expect(sum(matches.map((m) => m.costEur))).toBeCloseTo(1000, 1);
+    expect(sum(matches.map((m) => m.gainEur))).toBeCloseTo(200, 1);
+  });
+
   it("applies a symbol-only split pair to ISIN-keyed lots (real FF DB shape)", () => {
     // Production shape: TRADE rows carry the ISIN (lots keyed by it via
     // identityOf = isin ?? symbol) while FF's corporate-action rows carry

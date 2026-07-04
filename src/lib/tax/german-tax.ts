@@ -170,6 +170,11 @@ export type BuildAnlageKapInput = {
    *  gain must be reduced by previously taxed Vorabpauschalen. v1 emits
    *  warnings only; docs/vorabpauschale-design.md describes the full v2. */
   accumulatingFunds?: { heldAtPriorYearEnd: string[]; soldInYear: string[] };
+  /** Pre-formatted corporate-action prevention alerts from the loader:
+   *  unmodeled actions (mergers/spin-offs/…), splits the replay could not
+   *  apply, and sells without full lot coverage. Appended verbatim to the
+   *  draft warnings so no affected number ships silently. */
+  corporateActionAlerts?: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -541,6 +546,8 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       + `Verify with your Steuerberater before filing.`,
     );
   }
+  // Corporate-action prevention alerts (pre-formatted by the loader).
+  for (const alert of input.corporateActionAlerts ?? []) warnings.push(alert);
 
   const kapInvPresent =
     isNonZero(section1Out.Z4_aktienfonds)

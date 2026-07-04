@@ -330,6 +330,89 @@ export function buildKapInputs(
       ? { heldAtPriorYearEnd, soldInYear }
       : undefined;
 
+  // Corporate-action prevention guards. The FIFO replay models share splits
+  // (FF pair rows + IBKR "X for Y" rows) but nothing else — a merger,
+  // spin-off, symbol change or an unrecognized split form would silently
+  // corrupt the basis of every later sale. Detect three report-relevant
+  // conditions and surface loud warnings instead of silent numbers:
+  //  1. non-dividend, non-split corporate actions on identities with
+  //     realised matches in the tax year;
+  //  2. split rows in a shape the replay can NOT apply (no "X for Y" text
+  //     and no complete −old/+new pair);
+  //  3. sells whose quantity is not fully covered by matched lots (missing
+  //     history or an unmodeled corporate action ate the basis).
+  const corporateActionAlerts: string[] = [];
+  const yearEnd = `${taxYear}-12-31`;
+  const matchedIdentities = new Map<string, string>(); // identity → display symbol
+  for (const m of matches) matchedIdentities.set(m.isin ?? m.symbol, m.symbol);
+
+  type CaGroup = { symbol: string; descriptions: Set<string>; hasNeg: boolean; hasPos: boolean; hasRatioText: boolean; splitRows: number };
+  const caByIdentity = new Map<string, CaGroup>();
+  for (const t of tx) {
+    if (t.eventType !== "CORPORATE_ACTION" || !inScope(t.brokerAccountId)) continue;
+    if (t.eventDate > yearEnd) continue;
+    const desc = t.description ?? "";
+    if (/dividend/i.test(desc)) continue; // FF logs plain dividends here too
+    const id = t.isin ?? t.symbol;
+    if (!id) continue;
+    const g = caByIdentity.get(id) ?? { symbol: t.symbol ?? id, descriptions: new Set(), hasNeg: false, hasPos: false, hasRatioText: false, splitRows: 0 };
+    if (/split/i.test(desc)) {
+      g.splitRows++;
+      const q = Number(t.quantity ?? NaN);
+      if (Number.isFinite(q) && q < 0) g.hasNeg = true;
+      if (Number.isFinite(q) && q > 0) g.hasPos = true;
+      if (/\d+(?:\.\d+)?\s*for\s*\d+(?:\.\d+)?/i.test(desc)) g.hasRatioText = true;
+    } else {
+      g.descriptions.add(desc.slice(0, 60));
+    }
+    caByIdentity.set(id, g);
+  }
+  for (const [id, g] of caByIdentity) {
+    if (!matchedIdentities.has(id)) continue; // only warn when THIS report's numbers are affected
+    const sym = matchedIdentities.get(id) ?? g.symbol;
+    if (g.descriptions.size > 0) {
+      corporateActionAlerts.push(
+        `Corporate action on "${sym}" is not modeled by the FIFO engine (${[...g.descriptions][0]}…). `
+        + `Its realised gains/losses in ${taxYear} may carry a wrong cost basis — verify before filing.`,
+      );
+    }
+    if (g.splitRows > 0 && !g.hasRatioText && !(g.hasNeg && g.hasPos)) {
+      corporateActionAlerts.push(
+        `Share split on "${sym}" is in a form the FIFO engine could not apply (no "X for Y" ratio and no `
+        + `complete −old/+new pair). Its ${taxYear} gains/losses may use the pre-split basis — verify before filing.`,
+      );
+    }
+  }
+
+  // Sell-coverage: |sold qty| in the year vs qty matched against lots.
+  const soldQty = new Map<string, { symbol: string; qty: number }>();
+  for (const t of tx) {
+    if (t.eventType !== "TRADE" || !inScope(t.brokerAccountId)) continue;
+    if (!t.eventDate.startsWith(yr)) continue;
+    const q = Number(t.quantity ?? 0);
+    if (!(q < 0)) continue;
+    const id = t.isin ?? t.symbol;
+    if (!id) continue;
+    const cur = soldQty.get(id) ?? { symbol: t.symbol ?? id, qty: 0 };
+    cur.qty += -q;
+    soldQty.set(id, cur);
+  }
+  const matchedQty = new Map<string, number>();
+  for (const m of matches) {
+    const id = m.isin ?? m.symbol;
+    matchedQty.set(id, (matchedQty.get(id) ?? 0) + Number(m.qty ?? 0));
+  }
+  for (const [id, s] of soldQty) {
+    const covered = matchedQty.get(id) ?? 0;
+    if (s.qty - covered > 1e-6) {
+      corporateActionAlerts.push(
+        `${(s.qty - covered).toFixed(4).replace(/\.?0+$/, "")} of ${s.qty} "${s.symbol}" shares sold in ${taxYear} `
+        + `have NO matched acquisition lots — the cost basis is incomplete (missing statement history or an `
+        + `unmodeled corporate action). The gain for the uncovered part is missing from this draft entirely.`,
+      );
+    }
+  }
+
   return {
     taxYear,
     settings: {
@@ -343,6 +426,7 @@ export function buildKapInputs(
     withholding,
     classification,
     accumulatingFunds,
+    corporateActionAlerts: corporateActionAlerts.length ? corporateActionAlerts : undefined,
   };
 }
 
