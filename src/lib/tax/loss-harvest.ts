@@ -14,7 +14,7 @@
  */
 import type { PositionRow } from "@/lib/data/positions";
 
-export const ABGELT_RATE = 0.26375;
+import { ABGELT_RATE } from "@/lib/tax/constants";
 
 export type HarvestBucket = "aktien" | "sonstige";
 

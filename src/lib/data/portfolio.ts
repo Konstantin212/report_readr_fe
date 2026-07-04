@@ -5,6 +5,7 @@ import { brokerAccounts, imports, taxReportLines, taxReports, transactions } fro
 import type { Broker, EventType, NormalizedEvent } from "@/lib/domain/types";
 import { buildLedgerSummary, type LedgerSummary } from "@/lib/ledger/summary";
 import type { LegacyGermanTaxDraft as GermanTaxDraft } from "@/lib/tax/german-tax";
+import { SAVER_ALLOWANCE_DEFAULT } from "@/lib/tax/constants";
 
 export type StorageMode = "DATABASE" | "LOCAL";
 
@@ -159,7 +160,7 @@ export async function getTaxDraft(ownerUserId: string, taxYear: number): Promise
   if (!hasDatabase()) {
     return {
       storageMode: "LOCAL",
-      draft: buildAnlageKap({ taxYear, settings: { filingStatus: "SINGLE", saverAllowance: "1000" }, dividends: [], interest: [], matches: [] }),
+      draft: buildAnlageKap({ taxYear, settings: { filingStatus: "SINGLE", saverAllowance: SAVER_ALLOWANCE_DEFAULT }, dividends: [], interest: [], matches: [] }),
     };
   }
   const inputs = await loadTaxInputs(ownerUserId, taxYear);

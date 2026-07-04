@@ -10,8 +10,8 @@ import {
 } from "@/lib/tax/german-tax";
 import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
 import { classifyKind, classifySector, type AssetKind, type FundSubtype } from "@/lib/analytics/sector-map";
-import { loadClassificationOverrides, type ClassificationOverride } from "@/lib/analytics/classification";
-import { getUserInstruments } from "@/lib/marketdata/store";
+import { loadClassificationContext, type ClassificationOverride } from "@/lib/analytics/classification";
+import { ABGELT_RATE, SAVER_ALLOWANCE_DEFAULT } from "@/lib/tax/constants";
 
 /** {kind, subtype} record passed to the pure KAP builder (T-wire), keyed by
  *  BOTH symbol and ISIN (the two key spaces can't collide — ISINs are 12-char
@@ -95,7 +95,6 @@ export async function getAvailableTaxYears(ownerUserId: string): Promise<number[
   return [...years].sort((a, b) => b - a);
 }
 
-const ABGELT_RATE = 0.26375; // 25 % AbgSt + 5.5 % SolZ
 
 /**
  * Returns true for transaction sources that look like dividend-accrual
@@ -166,14 +165,14 @@ export type TaxData = {
 
 export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promise<BuildAnlageKapInput> {
   const db = getDb();
-  const [settingsRows, tx, allMatches, accountRows, overrides, instrumentRows] = await Promise.all([
+  const [settingsRows, tx, allMatches, accountRows, classificationCtx] = await Promise.all([
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
-    loadClassificationOverrides(ownerUserId),
-    getUserInstruments(ownerUserId),
+    loadClassificationContext(ownerUserId),
   ]);
+  const { overrides, instrumentRows } = classificationCtx;
   const { stockAccountIds, brokerById } = deriveAccountScope(accountRows);
   return buildKapInputs(
     taxYear,
@@ -417,7 +416,7 @@ export function buildKapInputs(
     taxYear,
     settings: {
       filingStatus: (settings?.filingStatus as "SINGLE" | "JOINT") ?? "SINGLE",
-      saverAllowance: settings?.saverAllowance ?? "1000",
+      saverAllowance: settings?.saverAllowance ?? SAVER_ALLOWANCE_DEFAULT,
       taxableIncomeEur: settings?.taxableIncomeEur ?? null,
     },
     dividends,
@@ -433,14 +432,14 @@ export function buildKapInputs(
 export async function getTaxData(ownerUserId: string, year: number): Promise<TaxData> {
   const db = getDb();
   const yrStr = String(year);
-  const [accountRows, allMatches, allTx, settingsRows, overrides, instrumentRows] = await Promise.all([
+  const [accountRows, allMatches, allTx, settingsRows, classificationCtx] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
-    loadClassificationOverrides(ownerUserId),
-    getUserInstruments(ownerUserId),
+    loadClassificationContext(ownerUserId),
   ]);
+  const { overrides, instrumentRows } = classificationCtx;
   // Anlage KAP is §20 EStG (capital income from securities). Crypto sale
   // gains are §23 EStG (private sales) and belong on Anlage SO; staking
   // is §22 Nr. 3. Exclude COINBASE broker_account rows so crypto matches
@@ -464,7 +463,7 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   const interestEur = yrInterest.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
 
   const settings = settingsRows[0];
-  const allowance = Number(settings?.saverAllowance ?? "1000");
+  const allowance = Number(settings?.saverAllowance ?? SAVER_ALLOWANCE_DEFAULT);
 
   // §20 Abs. 6 EStG bucket isolation: Aktien (individual-stock) losses
   // cannot offset Sonstige (ETF/bond/dividend/interest) income. We split

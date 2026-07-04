@@ -75,12 +75,27 @@ export function buildClassificationOverrides(
   return out;
 }
 
-export async function loadClassificationOverrides(
-  ownerUserId: string,
-): Promise<Map<string, ClassificationOverride>> {
+export type ClassificationContext = {
+  overrides: Map<string, ClassificationOverride>;
+  instrumentRows: Awaited<ReturnType<typeof getUserInstruments>>;
+};
+
+/**
+ * Load the override map AND return the instrument rows it was built from,
+ * so callers that also need the ISIN↔symbol rows (the tax loaders) don't
+ * re-query `getUserInstruments` — on Neon's HTTP driver each query is its
+ * own round-trip.
+ */
+export async function loadClassificationContext(ownerUserId: string): Promise<ClassificationContext> {
   const [instrumentRows, metaRows] = await Promise.all([
     getUserInstruments(ownerUserId),
     getAllMeta(),
   ]);
-  return buildClassificationOverrides(instrumentRows, metaRows);
+  return { overrides: buildClassificationOverrides(instrumentRows, metaRows), instrumentRows };
+}
+
+export async function loadClassificationOverrides(
+  ownerUserId: string,
+): Promise<Map<string, ClassificationOverride>> {
+  return (await loadClassificationContext(ownerUserId)).overrides;
 }
