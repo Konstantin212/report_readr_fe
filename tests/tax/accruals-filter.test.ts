@@ -13,7 +13,7 @@
  * counts. Accrued-but-unpaid dividends are next year's income.
  */
 import { describe, it, expect } from "vitest";
-import { isAccrualSource } from "@/lib/data/tax";
+import { isAccrualSource } from "@/lib/tax/kap-inputs";
 
 describe("isAccrualSource", () => {
   it("matches the canonical IBKR accruals section name", () => {

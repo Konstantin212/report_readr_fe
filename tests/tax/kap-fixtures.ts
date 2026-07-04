@@ -6,7 +6,7 @@
  * row types. No DB — the loaders under test are pure once the rows are in
  * memory (repo convention: pure-function tests only).
  */
-import { buildKapInputs, deriveAccountScope } from "@/lib/data/tax";
+import { buildKapInputs, deriveAccountScope } from "@/lib/tax/kap-inputs";
 import type { transactions, realizedMatches, brokerAccounts, userSettings } from "@/lib/db/schema";
 import type { BuildAnlageKapInput } from "@/lib/tax/german-tax";
 

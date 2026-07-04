@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { buildKapAndKapInv } from "@/lib/tax/german-tax";
-import { buildReconciliation } from "@/lib/data/tax";
+import { buildReconciliation } from "@/lib/tax/kap-inputs";
 import { buildInputs, accounts, dividend, match, ACCT } from "./kap-fixtures";
 
 describe("KAP reconciliation subtotals (T5)", () => {

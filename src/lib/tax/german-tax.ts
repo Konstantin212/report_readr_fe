@@ -198,33 +198,45 @@ function isNonZero(z: ZeileValue): boolean {
 
 type ClassificationMap = BuildAnlageKapInput["classification"];
 
-/** Subtype resolution order (T1): ISIN-keyed classification → symbol-keyed
- *  classification → FUND_SUBTYPE_MAP → "unknown" (routes to Z8_sonstige +
- *  warning). A `null` override subtype still falls through to the hardcoded
- *  map (e.g. US ETFs SPY/VOO/SCHD, which justETF can't classify but are
- *  Aktienfonds per §2 Abs.6 InvStG). */
+/** Resolve a classification entry with ISIN-first, symbol-fallback
+ *  precedence. ISIN comes FIRST because ticker symbols collide across
+ *  listings — the user's real portfolio has Citigroup common stock
+ *  (US1729674242) and a Citigroup bond (US172967MZ11) BOTH under symbol
+ *  "C"; only the ISIN separates §20 Aktien losses (Z23) from sonstige
+ *  losses (Z22). Shared by kindFor / subtypeFor so the precedence rule
+ *  lives in exactly one place. */
+export function resolveClassification(
+  classification: ClassificationMap,
+  ticker: string,
+  isin?: string,
+): NonNullable<ClassificationMap>[string] | undefined {
+  if (!classification) return undefined;
+  return (isin ? classification[isin] : undefined) ?? classification[ticker];
+}
+
+/** Subtype resolution order (T1): classification override (ISIN-first) →
+ *  FUND_SUBTYPE_MAP → "unknown" (routes to Z8_sonstige + warning). A `null`
+ *  override subtype still falls through to the hardcoded map (e.g. US ETFs
+ *  SPY/VOO/SCHD, which justETF can't classify but are Aktienfonds per §2
+ *  Abs.6 InvStG). */
 function subtypeFor(
   ticker: string,
   classification?: ClassificationMap,
   isin?: string,
 ): FundSubtype | "unknown" {
-  const override = (isin ? classification?.[isin] : undefined) ?? classification?.[ticker];
+  const override = resolveClassification(classification, ticker, isin);
   if (override?.subtype) return override.subtype;
   return fundSubtype(ticker);
 }
 
-/** Kind resolution: ISIN-keyed classification → symbol-keyed classification
- *  → the hardcoded classifyKind() fallback. ISIN comes FIRST because ticker
- *  symbols collide across listings — the user's real portfolio has Citigroup
- *  common stock (US1729674242) and a Citigroup bond (US172967MZ11) BOTH
- *  under symbol "C"; only the ISIN separates §20 Aktien losses (Z23) from
- *  sonstige losses (Z22). */
+/** Kind resolution: classification override (ISIN-first) → the hardcoded
+ *  classifyKind() fallback. */
 function kindFor(
   ticker: string,
   classification?: ClassificationMap,
   isin?: string,
 ): AssetKind {
-  const override = (isin ? classification?.[isin] : undefined) ?? classification?.[ticker];
+  const override = resolveClassification(classification, ticker, isin);
   if (override) return override.kind;
   return classifyKind(ticker, classifySector(ticker));
 }
