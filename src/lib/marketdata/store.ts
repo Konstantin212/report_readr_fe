@@ -186,6 +186,20 @@ export async function getSymbolsByIsin(isin: string): Promise<string[]> {
   return [...set];
 }
 
+/**
+ * The user's instrument rows (symbol + isin) — the ISIN↔symbol bridge
+ * that `buildClassificationOverrides` joins against global metadata.
+ */
+export async function getUserInstruments(
+  ownerUserId: string,
+): Promise<{ symbol: string | null; isin: string | null }[]> {
+  const db = getDb();
+  return db
+    .select({ symbol: instruments.symbol, isin: instruments.isin })
+    .from(instruments)
+    .where(eq(instruments.ownerUserId, ownerUserId));
+}
+
 /** Upsert EOD quotes into quote_cache, labelling the source. */
 export async function writeQuotes(
   quotes: { symbol: string; date: string; close: string; currency: string; source: string }[],
