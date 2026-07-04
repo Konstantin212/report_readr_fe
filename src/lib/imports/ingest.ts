@@ -90,6 +90,44 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
   // one-INSERT-per-event loop blew past the 60 s Hobby function limit.
   // Postgres caps parameters at 65 535; with ~24 columns per row we stay
   // comfortably under that at chunk size 500 (≈12 000 params per query).
+  //
+  // Secondary "enriched-twin" guard: the fingerprint hashes symbol/isin/
+  // source among other fields, so when a PARSER improvement starts filling
+  // a previously-missing field (e.g. IBKR dividends gaining symbol+ISIN,
+  // FF corporate actions gaining ISIN), a re-upload of the same statement
+  // produces the same economic event with a NEW fingerprint — and the
+  // constraint above happily inserts a duplicate (real incident: doubled
+  // IBKR ETF dividends and a twice-applied SCHD split). For the enrichable
+  // event types we therefore also skip rows whose (date, type, currency,
+  // amount, description) already exists on this account. TRADE rows are
+  // excluded from the guard: their content is stable and two identical
+  // same-day trades are legitimate.
+  const SOFT_DEDUP_TYPES = new Set(["DIVIDEND", "INTEREST", "WITHHOLDING_TAX", "CORPORATE_ACTION", "FEE"]);
+  const softKey = (r: {
+    eventDate: string;
+    eventType: string;
+    currency?: string | null;
+    amount?: string | null;
+    quantity?: string | null;
+    description?: string | null;
+  }) =>
+    [r.eventDate, r.eventType, r.currency ?? "", r.amount ?? "", r.quantity ?? "", (r.description ?? "").trim()].join("|");
+  const existingSoftKeys = new Set(
+    (await db
+      .select({
+        eventDate: s.transactions.eventDate,
+        eventType: s.transactions.eventType,
+        currency: s.transactions.currency,
+        amount: s.transactions.amount,
+        quantity: s.transactions.quantity,
+        description: s.transactions.description,
+      })
+      .from(s.transactions)
+      .where(and(eq(s.transactions.ownerUserId, ownerUserId), eq(s.transactions.brokerAccountId, brokerAccountId))))
+      .filter((r) => SOFT_DEDUP_TYPES.has(r.eventType))
+      .map(softKey),
+  );
+
   let insertedCount = 0;
   let reviewCount = 0;
   const rowsToInsert = payload.events.map((ev) => {
@@ -131,9 +169,16 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
     };
   });
 
+  // Soft-skipped rows fall out of `insertedCount`, so they surface as
+  // duplicates in the import summary — which is what they are.
+  const softDeduped = rowsToInsert.filter((r) => {
+    if (!SOFT_DEDUP_TYPES.has(r.eventType)) return true;
+    return !existingSoftKeys.has(softKey(r));
+  });
+
   const CHUNK = 500;
-  for (let i = 0; i < rowsToInsert.length; i += CHUNK) {
-    const slice = rowsToInsert.slice(i, i + CHUNK);
+  for (let i = 0; i < softDeduped.length; i += CHUNK) {
+    const slice = softDeduped.slice(i, i + CHUNK);
     const r = await db
       .insert(s.transactions)
       .values(slice)

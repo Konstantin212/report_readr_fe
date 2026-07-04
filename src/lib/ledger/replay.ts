@@ -81,6 +81,16 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
   // phantom realized loss (the SCHD −€1,531 production bug).
   const pendingSplits = new Map<string, { remove?: Decimal; add?: Decimal }>();
 
+  // Idempotency: the same physical split can appear MORE THAN ONCE in the
+  // event stream — FF exports it in several arrays, and re-uploading
+  // overlapping statements can insert content-variant duplicates (e.g. the
+  // same -34/+102 pair with and without ISIN after a parser enrichment
+  // changed the dedup fingerprint). Applying a split twice compounds the
+  // ratio and manufactures phantom shares (a real 68-share SCHD zombie in
+  // production). One (identity, date, signedQty | ratio-text) split leg is
+  // therefore processed at most once.
+  const seenSplitLegs = new Set<string>();
+
   // Identity fallback: corporate-action rows often carry only the symbol
   // while TRADE lots are keyed by ISIN (identityOf = isin ?? symbol). Try
   // the event's own identity, then the other key, then scan for a lot list
@@ -113,6 +123,13 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
     if (e.type === "CORPORATE_ACTION" && /split/i.test(e.description ?? "")) {
       const id = identityOf(e);
       if (!id) continue;
+
+      // Key by the split's OBSERVABLE identity (symbol-normalized id would
+      // differ between an isin-carrying and isin-less duplicate, so use the
+      // symbol too), the date, and the leg quantity / ratio text.
+      const legKey = `${e.symbol ?? id}|${e.date}|${e.quantity ?? ""}|${(e.description ?? "").toLowerCase()}`;
+      if (seenSplitLegs.has(legKey)) continue;
+      seenSplitLegs.add(legKey);
 
       // IBKR single-row form: ratio in the description ("Split 3 for 1",
       // reverse: "Split 1 for 10").

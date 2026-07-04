@@ -201,6 +201,32 @@ describe("FIFO replay — share splits (CORPORATE_ACTION pairs)", () => {
     expect(totalGain).toBeCloseTo(2464.84 - 2305.46 - 77.86, 1);
   });
 
+  it("applies a duplicated split pair only ONCE (re-upload fingerprint variants)", () => {
+    // Production incident: re-uploading an overlapping FF statement after a
+    // parser enrichment (ISIN backfill) changed the dedup fingerprints, so
+    // the SAME -34/+102 pair existed twice in the DB. Double-applying the
+    // split manufactured a 68-share zombie position.
+    const ISIN = "US8085247976";
+    const withIsin = (e: NormalizedEvent): NormalizedEvent => ({ ...e, isin: ISIN });
+    const events: NormalizedEvent[] = [
+      withIsin(trade("b1", "2023-06-14", "DUP", "34", "2305.46")),
+      // pair copy 1 — no isin (old ingest)
+      split("ca1-remove", "2024-10-11", "DUP", "-34", "split"),
+      split("ca1-add", "2024-10-11", "DUP", "102", "split"),
+      // pair copy 2 — with isin (re-upload after ISIN backfill)
+      withIsin(split("ca2-remove", "2024-10-11", "DUP", "-34", "split")),
+      withIsin(split("ca2-add", "2024-10-11", "DUP", "102", "split")),
+      withIsin(trade("b6", "2024-10-11", "DUP", "3", "77.86")),
+      withIsin(trade("s1", "2025-11-11", "DUP", "-105", "2464.84")),
+    ];
+
+    const { lots, matches } = replay(events);
+
+    expect(lots).toHaveLength(0); // the zombie regression guard
+    expect(sum(matches.map((m) => m.qty))).toBe(105);
+    expect(sum(matches.map((m) => m.costEur))).toBeCloseTo(2305.46 + 77.86, 1);
+  });
+
   it("applies an IBKR single-row split (\"Split 3 for 1\", qty = net delta)", () => {
     // IBKR reports splits as ONE row: ratio in the description, Quantity =
     // net share delta (34 shares → 102 shares ⇒ +68).
