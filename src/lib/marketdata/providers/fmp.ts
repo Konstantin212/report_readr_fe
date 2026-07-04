@@ -82,7 +82,11 @@ export const fmpProvider: MetadataProvider & QuoteProvider = {
 
   async fetchMeta(ref: InstrumentRef): Promise<MetaResult> {
     const apiKey = process.env.FMP_API_KEY;
-    if (!apiKey) return { status: "ERROR", error: "FMP not configured" };
+    // No key is a config state, not a transient failure: return NOT_FOUND so
+    // the router advances to the next provider (Yahoo) instead of stopping
+    // the chain (ERROR would strand every US instrument if FMP were ever
+    // unconfigured). Genuine fetch/HTTP failures below still return ERROR.
+    if (!apiKey) return { status: "NOT_FOUND" };
 
     const url =
       `${PROFILE_ENDPOINT}?symbol=${encodeURIComponent(ref.symbol)}` +

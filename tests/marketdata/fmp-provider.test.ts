@@ -95,11 +95,11 @@ describe("fmpProvider.fetchMeta", () => {
     expect(calledUrl).toContain("apikey=test");
   });
 
-  it("returns ERROR 'FMP not configured' when FMP_API_KEY is unset (no HTTP call)", async () => {
+  it("returns NOT_FOUND (not ERROR) when FMP_API_KEY is unset, so the chain falls through to the next provider", async () => {
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy as typeof globalThis.fetch;
     const res = await fmpProvider.fetchMeta(REF);
-    expect(res).toEqual({ status: "ERROR", error: "FMP not configured" });
+    expect(res).toEqual({ status: "NOT_FOUND" });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
