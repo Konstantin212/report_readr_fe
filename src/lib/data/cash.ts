@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import Decimal from "decimal.js";
 import { getDb } from "@/lib/db/client";
 import { brokerAccounts, transactions, fxRates } from "@/lib/db/schema";
@@ -14,20 +14,56 @@ const FLAG: Record<string, string> = {
   EUR: "🇪🇺", USD: "🇺🇸", GBP: "🇬🇧", HKD: "🇭🇰", CHF: "🇨🇭", JPY: "🇯🇵", SEK: "🇸🇪",
 };
 
+type Db = ReturnType<typeof getDb>;
+type LatestFx = Map<string, { rate: number; date: string }>;
+
+/**
+ * Latest ECB rate per currency. fx_rates holds ~50k daily rows; the app
+ * only ever needs the newest rate per currency, so pull one row per
+ * currency with DISTINCT ON instead of the whole table (the difference
+ * between ~12 rows and ~51k rows on every positions/cash render).
+ */
+export async function loadLatestFxPerCurrency(db: Db): Promise<LatestFx> {
+  const rows = await db
+    .selectDistinctOn([fxRates.fromCurrency], {
+      fromCurrency: fxRates.fromCurrency,
+      rate: fxRates.rate,
+      date: fxRates.date,
+    })
+    .from(fxRates)
+    .orderBy(fxRates.fromCurrency, desc(fxRates.date));
+  const m: LatestFx = new Map();
+  for (const r of rows) m.set(r.fromCurrency, { rate: Number(r.rate), date: r.date });
+  return m;
+}
+
 export async function getCashBalances(
   ownerUserId: string,
   broker: "all" | "ff" | "ibkr" = "all",
 ): Promise<CashByCurrency[]> {
   const db = getDb();
-  const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
-  // Three independent reads — fan out concurrently. accountRows is needed
-  // for filtering but doesn't depend on the other two; same for allTx and
-  // allFx. Previously sequential at ~3 × 100 ms.
-  const [accountRows, allTx, allFx] = await Promise.all([
+  const [accountRows, allTx, latestFx] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
-    db.select().from(fxRates),
+    loadLatestFxPerCurrency(db),
   ]);
+  return computeCashBalances({ accountRows, txs: allTx, latestFx, broker });
+}
+
+/**
+ * Pure cash-balance computation from already-loaded rows. `getPositionsData`
+ * calls this directly with the accountRows / transactions / latest-FX it has
+ * already fetched, so the positions page no longer re-queries fx_rates (51k
+ * rows) and all transactions a second time just for the cash card.
+ */
+export function computeCashBalances(opts: {
+  accountRows: Array<typeof brokerAccounts.$inferSelect>;
+  txs: Array<typeof transactions.$inferSelect>;
+  latestFx: LatestFx;
+  broker?: "all" | "ff" | "ibkr";
+}): CashByCurrency[] {
+  const { accountRows, txs: allTx, latestFx, broker = "all" } = opts;
+  const accountFilter = broker === "all" ? null : broker === "ff" ? "FREEDOM_FINANCE" : "INTERACTIVE_BROKERS";
   const accountIds = accountFilter
     ? accountRows.filter(a => a.broker === accountFilter).map(a => a.id)
     : accountRows.map(a => a.id);
@@ -96,20 +132,13 @@ export async function getCashBalances(
     totals.set(currency, (totals.get(currency) ?? new Decimal(0)).plus(signed));
   }
 
-  // Latest fx per currency for EUR conversion
-  const byCurrencyLatest = new Map<string, { rate: number; date: string }>();
-  for (const r of allFx) {
-    const prev = byCurrencyLatest.get(r.fromCurrency);
-    if (!prev || r.date > prev.date) byCurrencyLatest.set(r.fromCurrency, { rate: Number(r.rate), date: r.date });
-  }
-
   const out: CashByCurrency[] = [];
   for (const [currency, total] of totals) {
     const amount = Number(total);
     if (Math.abs(amount) < 0.005) continue;          // hide near-zero balances
     let amountEur = amount;
     if (currency !== "EUR") {
-      const fx = byCurrencyLatest.get(currency);
+      const fx = latestFx.get(currency);
       amountEur = fx ? amount / fx.rate : 0;
     }
     out.push({ currency, amount, amountEur, flag: FLAG[currency] });

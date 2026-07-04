@@ -2,14 +2,14 @@ import { eq } from "drizzle-orm";
 import Decimal from "decimal.js";
 import { getDb } from "@/lib/db/client";
 import {
-  brokerAccounts, lots, quoteCache, quoteHistory, fxRates, transactions, instruments,
+  brokerAccounts, lots, quoteCache, quoteHistory, transactions, instruments,
 } from "@/lib/db/schema";
 import { classifySector, classifyKind } from "@/lib/analytics/sector-map";
 import { loadClassificationOverrides } from "@/lib/analytics/classification";
 import { getMetaByIsins } from "@/lib/marketdata/store";
 import { syntheticIsin } from "@/lib/marketdata/types";
 import type { InstrumentMetaView } from "@/components/pulse/instrument-source-card";
-import { getCashBalances } from "@/lib/data/cash";
+import { computeCashBalances, loadLatestFxPerCurrency } from "@/lib/data/cash";
 import { yieldOnCost } from "@/lib/analytics/yield-on-cost";
 import { computeUnrealizedPnL, type ResolvedLot } from "@/lib/positions/unrealized-pnl";
 
@@ -174,11 +174,11 @@ export async function getPositionsData(
   // scrape has re-classified land in the right table instead of the
   // hardcoded symbol-map's default. It runs its own two queries; folding
   // it into this batch keeps it off the critical path.
-  const [accountRows, allLots, allQuotes, allFx, allTxs, instrumentRows, detailHistory, overrides] = await Promise.all([
+  const [accountRows, allLots, allQuotes, latestFx, allTxs, instrumentRows, detailHistory, overrides] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
     db.select().from(quoteCache),
-    db.select().from(fxRates),
+    loadLatestFxPerCurrency(db),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId)),
     detailHistoryPromise,
@@ -238,13 +238,6 @@ export async function getPositionsData(
   // instrumentRows fetched above in the parallel batch.
   const instrumentByIsin = new Map(instrumentRows.filter(i => i.isin).map(i => [i.isin!, i]));
   const instrumentBySymbol = new Map(instrumentRows.filter(i => i.symbol).map(i => [i.symbol!, i]));
-
-  // Latest FX per currency
-  const latestFx = new Map<string, { rate: number; date: string }>();
-  for (const r of allFx) {
-    const prev = latestFx.get(r.fromCurrency);
-    if (!prev || r.date > prev.date) latestFx.set(r.fromCurrency, { rate: Number(r.rate), date: r.date });
-  }
 
   const latestQuote = new Map<string, {
     close: number;
@@ -593,7 +586,9 @@ export async function getPositionsData(
     bond: filteredRows.filter(r => r.kind === "bond"),
     other: filteredRows.filter(r => r.kind === "other"),
   };
-  const cash = await getCashBalances(ownerUserId, broker);
+  // Cash reuses the accountRows / transactions / latest-FX already loaded
+  // above — no second fx_rates (51k) + transactions round-trip.
+  const cash = computeCashBalances({ accountRows, txs: allTxs, latestFx, broker });
 
   return {
     rows: filteredRows,
