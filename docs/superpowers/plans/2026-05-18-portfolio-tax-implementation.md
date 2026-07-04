@@ -466,13 +466,13 @@ git commit -m "test(db): schema export sanity"
 - Create: `tests/fixtures/README.md`
 - (No change needed to `src/lib/brokers/ibkr.ts` — it already parses these files correctly.)
 
-The real IBKR CSVs live in `C:\Users\Kostan\Downloads\ibkr reports\U00000000_{2023,2024,2025}_*.csv`. We copy a redacted sample into the repo to make the test hermetic.
+The real IBKR CSVs live in `C:\Users\<user>\Downloads\ibkr reports\U00000000_{2023,2024,2025}_*.csv`. We copy a redacted sample into the repo to make the test hermetic.
 
 - [ ] **Step 1: Copy the 2025 CSV into fixtures and redact account number**
 
 ```bash
 mkdir -p tests/fixtures/brokers
-cp "C:\Users\Kostan\Downloads\ibkr reports\U00000000_2025_2025.csv" tests/fixtures/brokers/ibkr-2025.csv
+cp "C:\Users\<user>\Downloads\ibkr reports\U00000000_2025_2025.csv" tests/fixtures/brokers/ibkr-2025.csv
 # Replace the account number with a placeholder
 node -e "let fs=require('fs');let p='tests/fixtures/brokers/ibkr-2025.csv';fs.writeFileSync(p, fs.readFileSync(p,'utf8').replace(/U00000000/g,'U00000000').replace(/Test User/gi,'Test User'))"
 ```

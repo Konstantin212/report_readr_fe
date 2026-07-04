@@ -8,11 +8,11 @@
 
 A small, multi-user web app that ingests broker statements from **Freedom Finance** (JSON) and **Interactive Brokers** (Activity Statement CSV), normalizes them into one event-sourced ledger, surfaces portfolio analytics, and produces a **German Anlage KAP** draft (PDF + CSV) that the user copies into ELSTER's web form. To be hosted on **Vercel Hobby (free tier)**, used by ~3–5 friends with sign-in, retaining no broker files — only the extracted normalized events.
 
-UI direction is **Pulse** (Direction A from the design handoff bundle in `C:\Users\Kostan\Downloads\test-handoff.zip`): seven screens — Upload, Dashboard, Performance, Positions, Dividends, Tax report, Settings. Dark `#0b0d10` background, neon mint/amber/magenta accents, Geist + Geist Mono typography, 1320 px fixed-width canvas.
+UI direction is **Pulse** (Direction A from the design handoff bundle in `C:\Users\<user>\Downloads\test-handoff.zip`): seven screens — Upload, Dashboard, Performance, Positions, Dividends, Tax report, Settings. Dark `#0b0d10` background, neon mint/amber/magenta accents, Geist + Geist Mono typography, 1320 px fixed-width canvas.
 
 Sample data verified in-session:
-- IBKR Activity CSVs at `C:\Users\Kostan\Downloads\ibkr reports\U00000000_{2023,2024,2025}_*.csv` — multi-section CSV (Statement, Account Info, Trades, Dividends, Interest, Cash Report, Deposits & Withdrawals, Corporate Actions, Mark-to-Market, Realized & Unrealized).
-- Freedom Finance JSON at `C:\Users\Kostan\Downloads\900000_..._all.json` — 850 KB with keys `trades.detailed`, `cash_flows.detailed`, `commissions.detailed`, `corporate_actions.detailed`, plus account/period metadata.
+- IBKR Activity CSVs at `C:\Users\<user>\Downloads\ibkr reports\U00000000_{2023,2024,2025}_*.csv` — multi-section CSV (Statement, Account Info, Trades, Dividends, Interest, Cash Report, Deposits & Withdrawals, Corporate Actions, Mark-to-Market, Realized & Unrealized).
+- Freedom Finance JSON at `C:\Users\<user>\Downloads\900000_..._all.json` — 850 KB with keys `trades.detailed`, `cash_flows.detailed`, `commissions.detailed`, `corporate_actions.detailed`, plus account/period metadata.
 
 ### Captured user decisions
 - **ELSTER scope:** PDF + CSV draft for manual entry. No ERiC integration.
