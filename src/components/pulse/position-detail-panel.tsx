@@ -1,6 +1,5 @@
 "use client";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { usePnlMode } from "./pnl-mode";
@@ -68,8 +67,7 @@ export type DetailData = {
  * never squeezes the positions list. Close via the X button, the
  * backdrop, or ESC.
  */
-export function PositionDetailPanel({ d, closeHref }: { d: DetailData; closeHref: string }) {
-  const router = useRouter();
+export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: () => void }) {
   const { mode } = usePnlMode();
   const v = d.views[mode];
   const fmtEur = (v: number, dec = 2) =>
@@ -80,18 +78,17 @@ export function PositionDetailPanel({ d, closeHref }: { d: DetailData; closeHref
   };
   const palette = ["var(--accent-mint, #7CFFB2)", "var(--accent-amber, #FFD24A)", "var(--accent-pink, #FF5DA2)"];
 
-  const close = () => router.push(closeHref as never);
+  const close = onClose;
 
   // ESC closes. Listening at the document level so the panel doesn't
   // need focus to react.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closeHref]);
+  }, [onClose]);
 
   return (
     <>

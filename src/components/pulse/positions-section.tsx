@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { Card } from "./card";
 import { usePnlMode, PnlModeToggle } from "./pnl-mode";
 import { classifyQuoteFreshness } from "@/lib/quotes/freshness";
@@ -185,30 +184,21 @@ export function PositionsSection({
   title,
   count,
   rows,
-  basePath,
-  preservedQuery,
+  onSelect,
   selectedSymbol,
   showToggle = false,
 }: {
   title: string;
   count: number;
   rows: Row[];
-  /** URL path for the link target on each row (e.g. "/positions"). */
-  basePath: string;
-  /** Query params to preserve when navigating between rows
-   *  (broker filter, sector filter, …). The component appends `symbol`. */
-  preservedQuery: Record<string, string>;
+  /** Called with the row's symbol when the user clicks it. Selection is
+   *  client state (instant open) — no navigation, no server round-trip. */
+  onSelect: (symbol: string) => void;
   selectedSymbol?: string | null;
   /** Render the Broker/Net toggle in the section header. Show on the first
    *  section only so the page doesn't repeat the same control. */
   showToggle?: boolean;
 }) {
-  const hrefFor = (symbol: string) => {
-    const usp = new URLSearchParams(preservedQuery);
-    usp.set("symbol", symbol);
-    const s = usp.toString();
-    return `${basePath}${s ? `?${s}` : ""}`;
-  };
   const { mode } = usePnlMode();
   if (rows.length === 0) return null;
   // Computed once per render so every row's freshness check uses the
@@ -272,11 +262,12 @@ export function PositionsSection({
         // Tailwind's JIT can't pre-extract from a conditional className.
         const staleStyle = isStale ? { boxShadow: "inset 0px -14px 21px -16px #FFE61C" } : undefined;
         return (
-          <Link
+          <button
             key={r.symbol}
-            href={hrefFor(r.symbol) as never}
+            type="button"
+            onClick={() => onSelect(r.symbol)}
             style={staleStyle}
-            className={`flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
+            className={`w-full text-left flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
               isSelected ? "bg-panel2 border-l-mint" : bk.borderLeft
             } border-b border-border last:border-b-0`}
           >
@@ -360,7 +351,7 @@ export function PositionsSection({
             <span className={`hidden lg:block text-right font-mono font-semibold text-xs ${plPctColor}`}>
               {fmtPct(v.plPct)}
             </span>
-          </Link>
+          </button>
         );
       })}
     </Card>
