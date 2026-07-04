@@ -168,6 +168,45 @@ async function runProbe(p: Probe) {
 // the caller doesn't hold the production CRON_SECRET.
 const PROBE_TOKEN = "egress-probe-7f3a9c2e";
 
+// The decisive question the single-shot probe can't answer: Yahoo's JSON
+// blocking is historically rate/volume-based (429 after N hits), not a flat
+// IP ban. Fire the v8 chart endpoint at a realistic cron burst of symbols to
+// see whether we get throttled — that determines if Yahoo JSON can replace
+// the residential-IP script (externally-priced.ts) at cron scale.
+const BURST_SYMBOLS = [
+  "AAPL", "MSFT", "TSLA", "TRN.L", "VOD.L", "BP.L", "SAP.DE", "ASML.AS",
+  "NESN.SW", "AIR.PA", "ULVR.L", "RIO.L", "GLEN.L", "BARC.L", "LLOY.L",
+];
+
+async function burstYahoo() {
+  const started = Date.now();
+  const codes: Record<string, number> = {};
+  let priced = 0;
+  // ~120ms apart — brisk but not a hammer; mimics a paged cron sweep.
+  for (const sym of BURST_SYMBOLS) {
+    try {
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`,
+        {
+          cache: "no-store",
+          signal: AbortSignal.timeout(8_000),
+          headers: { "User-Agent": UA, Accept: "application/json,*/*" },
+        },
+      );
+      codes[res.status] = (codes[res.status] ?? 0) + 1;
+      if (res.status === 200) {
+        const body = await res.text();
+        if (/"regularMarketPrice":/.test(body)) priced += 1;
+      }
+    } catch (e) {
+      const key = (e as Error).name;
+      codes[key] = (codes[key] ?? 0) + 1;
+    }
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return { attempted: BURST_SYMBOLS.length, priced, statusCounts: codes, elapsedMs: Date.now() - started };
+}
+
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
   if (!hasValidCronSecret(req) && token !== PROBE_TOKEN) {
@@ -181,11 +220,14 @@ export async function GET(req: Request) {
     await new Promise((r) => setTimeout(r, 800));
   }
 
+  const yahooBurst = await burstYahoo();
+
   return NextResponse.json(
     {
       ranAt: new Date().toISOString(),
       region: process.env.VERCEL_REGION ?? "unknown",
       summary: Object.fromEntries(results.map((r) => [r.label, r.reachable])),
+      yahooBurst,
       results,
     },
     { headers: { "Cache-Control": "no-store" } },
