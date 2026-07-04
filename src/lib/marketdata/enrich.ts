@@ -16,6 +16,7 @@
  */
 import type {
   InstrumentMeta,
+  InstrumentMetaFields,
   InstrumentMetaGate,
   InstrumentRef,
   ManualLink,
@@ -23,6 +24,7 @@ import type {
   ProviderId,
   QuoteResult,
 } from "./types";
+import type { AssetKind } from "@/lib/analytics/sector-map";
 import { isSyntheticIsin } from "./types";
 import { planEnrichment, planQuote } from "./router";
 import { justEtfProvider, fetchEtfQuote } from "./providers/justetf";
@@ -219,6 +221,16 @@ export async function enrichSingle(
   manual: ManualLink | null,
   manualUrl?: string,
 ): Promise<InstrumentMeta | null> {
+  // Manual Yahoo link with an explicit listing (e.g. TRN.L): the user is
+  // pinning the exact symbol precisely because ISIN auto-resolution failed
+  // (Yahoo's search endpoint can be blocked from data-center IPs). Use the
+  // pasted symbol to price directly off the chart endpoint (reliable) and
+  // pin it as the quote listing — don't re-run the ISIN search as the
+  // primary path. The search is best-effort, only to enrich sector/kind.
+  if (manual && manual.provider === "yahoo" && manual.yahooSymbol) {
+    return enrichManualYahoo(ref, manual.yahooSymbol, manualUrl);
+  }
+
   const plan = planEnrichment(ref, manual);
   for (const id of plan) {
     let result;
@@ -249,6 +261,62 @@ export async function enrichSingle(
     }
   }
   await upsertMeta({ isin: ref.isin, status: "NOT_FOUND", markScraped: true, manualUrl });
+  const [m] = await getMetaByIsins([ref.isin]);
+  return m ?? null;
+}
+
+/**
+ * Resolve + price an instrument from a user-pasted Yahoo listing symbol.
+ * The chart endpoint (query1) is the reliable one; the search endpoint
+ * (query2) is only attempted best-effort for sector/kind so a search
+ * failure never blocks the price the user is actually pinning.
+ */
+async function enrichManualYahoo(
+  ref: InstrumentRef,
+  yahooSymbol: string,
+  manualUrl?: string,
+): Promise<InstrumentMeta | null> {
+  let assetKind: AssetKind = "stock";
+  let fields: Partial<InstrumentMetaFields> = {};
+  try {
+    const r = await yahooProvider.fetchMeta(ref);
+    if (r.status === "OK") {
+      assetKind = r.assetKind;
+      fields = r.fields;
+    }
+  } catch {
+    // best-effort — ignore search failures, we still have the pasted symbol
+  }
+  // The pasted listing is authoritative for pricing.
+  fields = { ...fields, yahooSymbol: fields.yahooSymbol ?? yahooSymbol, yahooQuoteSymbol: yahooSymbol };
+
+  await upsertMeta({
+    isin: ref.isin,
+    status: "OK",
+    source: "YAHOO",
+    assetKind,
+    fields,
+    manualUrl,
+    markScraped: true,
+  });
+
+  // Price it directly off the pinned symbol and fan out to the user's
+  // symbol(s) for this ISIN.
+  const q = await fetchYahooQuoteByMeta({ ...ref, symbol: yahooSymbol }, null);
+  if (q) {
+    const symbols = new Set<string>(await getSymbolsByIsin(ref.isin));
+    if (ref.symbol) symbols.add(ref.symbol);
+    await writeQuotes(
+      [...symbols].map((symbol) => ({
+        symbol,
+        close: q.close,
+        currency: q.currency,
+        date: q.date,
+        source: q.source,
+      })),
+    );
+  }
+
   const [m] = await getMetaByIsins([ref.isin]);
   return m ?? null;
 }
