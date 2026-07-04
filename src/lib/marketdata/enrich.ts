@@ -276,32 +276,10 @@ async function enrichManualYahoo(
   yahooSymbol: string,
   manualUrl?: string,
 ): Promise<InstrumentMeta | null> {
-  let assetKind: AssetKind = "stock";
-  let fields: Partial<InstrumentMetaFields> = {};
-  try {
-    const r = await yahooProvider.fetchMeta(ref);
-    if (r.status === "OK") {
-      assetKind = r.assetKind;
-      fields = r.fields;
-    }
-  } catch {
-    // best-effort — ignore search failures, we still have the pasted symbol
-  }
-  // The pasted listing is authoritative for pricing.
-  fields = { ...fields, yahooSymbol: fields.yahooSymbol ?? yahooSymbol, yahooQuoteSymbol: yahooSymbol };
-
-  await upsertMeta({
-    isin: ref.isin,
-    status: "OK",
-    source: "YAHOO",
-    assetKind,
-    fields,
-    manualUrl,
-    markScraped: true,
-  });
-
-  // Price it directly off the pinned symbol and fan out to the user's
-  // symbol(s) for this ISIN.
+  // PRICE FIRST. The price is what the user is pinning, and Yahoo throttles
+  // the data-center IP — so spend the first (un-rate-limited) request on the
+  // chart endpoint. The classification search runs after and is best-effort;
+  // a search failure must never cost us the price.
   const q = await fetchYahooQuoteByMeta({ ...ref, symbol: yahooSymbol }, null);
   if (q) {
     const symbols = new Set<string>(await getSymbolsByIsin(ref.isin));
@@ -316,6 +294,33 @@ async function enrichManualYahoo(
       })),
     );
   }
+
+  // Best-effort classification (sector/kind) via the ISIN search. Often
+  // blocked from the data-center IP — if so we still keep the pinned symbol.
+  let assetKind: AssetKind = "stock";
+  let fields: Partial<InstrumentMetaFields> = {};
+  try {
+    const r = await yahooProvider.fetchMeta(ref);
+    if (r.status === "OK") {
+      assetKind = r.assetKind;
+      fields = r.fields;
+    }
+  } catch {
+    // ignore — the pasted symbol is enough to price
+  }
+  fields = { ...fields, yahooSymbol: fields.yahooSymbol ?? yahooSymbol, yahooQuoteSymbol: yahooSymbol };
+
+  await upsertMeta({
+    isin: ref.isin,
+    status: "OK",
+    source: "YAHOO",
+    assetKind,
+    fields,
+    // Record whether the price actually landed, so a stale row is diagnosable.
+    error: q ? null : "quote fetch returned no data (provider likely throttled)",
+    manualUrl,
+    markScraped: true,
+  });
 
   const [m] = await getMetaByIsins([ref.isin]);
   return m ?? null;

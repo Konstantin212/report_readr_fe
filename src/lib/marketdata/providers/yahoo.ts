@@ -183,14 +183,28 @@ export function parseChartMeta(json: unknown): QuoteResult {
   return { close, currency, date, source: "YAHOO" };
 }
 
-async function getJson(url: string): Promise<{ ok: boolean; json: unknown }> {
-  const res = await fetch(url, {
-    headers: YAHOO_HEADERS,
-    cache: "no-store",
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  if (!res.ok) return { ok: false, json: null };
-  return { ok: true, json: await res.json() };
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Yahoo's JSON hosts rate-limit bursts with HTTP 429 (transient, recovers
+ * in a second or two). Retry a 429 a couple of times with linear backoff
+ * before giving up so a single throttled window doesn't lose the quote.
+ */
+async function getJson(url: string, attempts = 2): Promise<{ ok: boolean; json: unknown }> {
+  for (let i = 0; i < attempts; i++) {
+    const res = await fetch(url, {
+      headers: YAHOO_HEADERS,
+      cache: "no-store",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (res.ok) return { ok: true, json: await res.json() };
+    if (res.status === 429 && i < attempts - 1) {
+      await sleep(900 * (i + 1));
+      continue;
+    }
+    return { ok: false, json: null };
+  }
+  return { ok: false, json: null };
 }
 
 /**
