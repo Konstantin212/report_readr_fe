@@ -7,6 +7,11 @@ import type { InstrumentRef } from "@/lib/marketdata/types";
 
 export const maxDuration = 60;
 
+// Reject oversized bodies before buffering the JSON. A real multi-year
+// statement export is a few MB at most; 25 MB is a generous ceiling that
+// still blocks a hostile client from forcing us to buffer arbitrary data.
+const MAX_BODY_BYTES = 25 * 1024 * 1024;
+
 /** Distinct {isin, symbol, currency} refs from the import events, ISIN required. */
 function collectRefs(body: unknown): InstrumentRef[] {
   const events = (body as { events?: unknown })?.events;
@@ -26,17 +31,29 @@ function collectRefs(body: unknown): InstrumentRef[] {
 
 export async function POST(req: Request) {
   const user = await requireCurrentUser();
-  const body = await req.json();
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "Import payload too large." }, { status: 413 });
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
   try {
     const summary = await ingestParsedImport(user.id, body);
 
     // Fire-and-forget: backfill price history for any symbols seen in this import.
     // Doesn't block the response — the user sees "PARSED" immediately; charts fill in
     // as Yahoo returns history (~700 ms per symbol, throttled).
-    const symbols = Array.isArray(body?.events)
+    const bodyEvents = (body as { events?: unknown })?.events;
+    const symbols = Array.isArray(bodyEvents)
       ? Array.from(
           new Set(
-            (body.events as Array<{ symbol?: string }>)
+            (bodyEvents as Array<{ symbol?: string }>)
               .map((e) => e.symbol)
               .filter((s): s is string => Boolean(s)),
           ),

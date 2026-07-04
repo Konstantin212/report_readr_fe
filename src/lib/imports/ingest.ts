@@ -18,7 +18,7 @@ export type IngestSummary = {
   reviewCount: number;
 };
 
-export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload): Promise<IngestSummary> {
+export async function ingestParsedImport(ownerUserId: string, raw: unknown): Promise<IngestSummary> {
   const parsed = ingestPayloadSchema.safeParse(raw);
   if (!parsed.success) throw new Error("INVALID_PAYLOAD: " + parsed.error.message);
   const payload = parsed.data;
