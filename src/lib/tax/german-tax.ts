@@ -129,8 +129,18 @@ export type BuildAnlageKapInput = {
    *  hardcoded sector/subtype maps, so enriched instrument_meta (e.g. a US
    *  equity ETF resolved to kind:"etf") reroutes correctly. `subtype: null`
    *  falls through to FUND_SUBTYPE_MAP. Keeps the builder pure — the
-   *  override is just data in its input. */
-  classification?: Record<string, { kind: AssetKind; subtype: FundSubtype | null }>;
+   *  override is just data in its input. Keys are symbols AND ISINs. */
+  classification?: Record<
+    string,
+    { kind: AssetKind; subtype: FundSubtype | null; accumulating?: boolean }
+  >;
+  /** Vorabpauschale guard (§18/§19 InvStG): accumulating funds detected by
+   *  the loader. `heldAtPriorYearEnd` — held on 31.12.(taxYear−1), so their
+   *  Vorabpauschale is income of THIS tax year (Zufluss: first working day)
+   *  and is missing from foreign-broker data. `soldInYear` — their FIFO
+   *  gain must be reduced by previously taxed Vorabpauschalen. v1 emits
+   *  warnings only; docs/vorabpauschale-design.md describes the full v2. */
+  accumulatingFunds?: { heldAtPriorYearEnd: string[]; soldInYear: string[] };
 };
 
 // ---------------------------------------------------------------------------
@@ -468,6 +478,30 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         `Net fund-sale loss in ${SECTION2_FORM_TARGET[key]} (${section2[key].toFixed(2)} €). Clamped to 0 for ELSTER — verify the loss carry-forward with your Steuerberater.`,
       );
     }
+  }
+
+  // --- Vorabpauschale guard (§18/§19 InvStG) ------------------------------
+  // Accumulating funds owe tax on a fictitious minimum yield every year —
+  // income foreign brokers neither report nor withhold, so it can never be
+  // derived from the statement alone. v1 refuses to stay silent: every
+  // affected number carries a loud, specific warning. Full computation is
+  // designed in docs/vorabpauschale-design.md (needs year-boundary NAVs +
+  // a per-lot ledger for the §19 sale reduction).
+  const priorYear = input.taxYear - 1;
+  for (const sym of input.accumulatingFunds?.heldAtPriorYearEnd ?? []) {
+    warnings.push(
+      `"${sym}" is an ACCUMULATING fund held on 31.12.${priorYear}. Its Vorabpauschale for ${priorYear} `
+      + `is taxable income of ${input.taxYear} (§18 InvStG — deemed received on the first working day) and is `
+      + `NOT included in this draft. Compute it (Jan-1 value × Basiszins(${priorYear}) × 0.7, capped at the `
+      + `year's value gain) and enter it on Anlage KAP-INV in the Vorabpauschale block for its fund type.`,
+    );
+  }
+  for (const sym of input.accumulatingFunds?.soldInYear ?? []) {
+    warnings.push(
+      `"${sym}" is an ACCUMULATING fund sold in ${input.taxYear}. §19 InvStG: reduce the sale gain by the `
+      + `Vorabpauschalen already taxed in prior holding years — this draft shows the UNREDUCED FIFO gain. `
+      + `Verify with your Steuerberater before filing.`,
+    );
   }
 
   const kapInvPresent =

@@ -23,7 +23,10 @@ import { getUserInstruments } from "@/lib/marketdata/store";
  *  Citigroup common stock (US1729674242, FF) and a Citigroup bond
  *  (US172967MZ11, IBKR) BOTH under symbol "C" — only the ISIN separates
  *  Aktien losses (Z23) from sonstige losses (Z22). */
-type ClassificationRecord = Record<string, { kind: AssetKind; subtype: FundSubtype | null }>;
+type ClassificationRecord = Record<
+  string,
+  { kind: AssetKind; subtype: FundSubtype | null; accumulating?: boolean }
+>;
 
 const VALID_KINDS: ReadonlySet<string> = new Set(["stock", "etf", "bond", "other"]);
 
@@ -32,7 +35,15 @@ export function toClassificationRecord(
   instrumentRows: Array<{ symbol: string | null; isin: string | null; kind: string | null }> = [],
 ): ClassificationRecord {
   const out: ClassificationRecord = {};
-  for (const [symbol, o] of overrides) out[symbol] = { kind: o.kind, subtype: o.subtype };
+  for (const [symbol, o] of overrides)
+    out[symbol] = {
+      kind: o.kind,
+      subtype: o.subtype,
+      // justETF-scraped distribution policy — drives the Vorabpauschale
+      // guard (§18 InvStG): accumulating funds owe tax on a fictitious
+      // yield that foreign broker statements never show.
+      accumulating: o.distribution?.policy === "ACCUMULATING" || undefined,
+    };
   for (const row of instrumentRows) {
     if (!row.isin || out[row.isin]) continue;
     const symbolEntry = row.symbol ? out[row.symbol] : undefined;
@@ -282,6 +293,40 @@ export function buildKapInputs(
       closedAt: m.closedAt,
       broker: brokerFor(m.brokerAccountId),
     }));
+
+  // Vorabpauschale guard (§18/§19 InvStG). Foreign brokers neither report
+  // nor withhold the Vorabpauschale, so an accumulating fund makes the raw
+  // statement silently incomplete. Detect two exposures and let the builder
+  // attach loud warnings (the draft must never look "done" while missing
+  // taxable income):
+  //  - held at Dec-31 of (taxYear−1): its Vorabpauschale for (taxYear−1) is
+  //    deemed received on the first working day of taxYear → belongs in
+  //    THIS report;
+  //  - sold during taxYear: the FIFO gain must be reduced by previously
+  //    taxed Vorabpauschalen (§19) — we show the unreduced gain.
+  const isAccumulating = (symbol: string | null, isin: string | null): boolean =>
+    Boolean((isin && classification[isin]?.accumulating) || (symbol && classification[symbol]?.accumulating));
+  const priorYearEnd = `${taxYear - 1}-12-31`;
+  const accNetQty = new Map<string, { symbol: string; qty: number }>();
+  for (const t of tx) {
+    if (t.eventType !== "TRADE" || !inScope(t.brokerAccountId)) continue;
+    if (t.eventDate > priorYearEnd) continue;
+    if (!isAccumulating(t.symbol, t.isin)) continue;
+    const id = t.isin ?? t.symbol;
+    if (!id) continue;
+    const cur = accNetQty.get(id) ?? { symbol: t.symbol ?? id, qty: 0 };
+    cur.qty += Number(t.quantity ?? 0);
+    accNetQty.set(id, cur);
+  }
+  const heldAtPriorYearEnd = [...accNetQty.values()].filter(v => v.qty > 1e-9).map(v => v.symbol);
+  const soldInYear = [...new Set(
+    matches.filter(m => isAccumulating(m.symbol, m.isin ?? null)).map(m => m.symbol),
+  )];
+  const accumulatingFunds =
+    heldAtPriorYearEnd.length || soldInYear.length
+      ? { heldAtPriorYearEnd, soldInYear }
+      : undefined;
+
   return {
     taxYear,
     settings: {
@@ -293,6 +338,7 @@ export function buildKapInputs(
     matches,
     withholding,
     classification,
+    accumulatingFunds,
   };
 }
 
