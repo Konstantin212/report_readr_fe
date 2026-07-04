@@ -4,19 +4,35 @@ import { getDb } from "@/lib/db/client";
 import { brokerAccounts, realizedMatches, transactions } from "@/lib/db/schema";
 
 /**
- * Anlage SO §22 Nr. 3 EStG ("sonstige Leistungen") draft builder.
+ * Anlage SO draft builder — two independent German income buckets:
  *
- * Scope (Phase 1): staking rewards received in the tax year. Each payout
- * is taxed as income at the EUR fair value at the moment of receipt, and
- * an annual €256 Freigrenze applies — a cliff, not an allowance. Below
- * €256 nothing is owed; at €256 the entire sum becomes taxable.
+ *  §22 Nr. 3 EStG ("sonstige Leistungen"): staking rewards received in the
+ *  tax year, each taxed at the EUR fair value at the moment of receipt.
+ *  Own annual €256 Freigrenze — a cliff, not an allowance: below €256
+ *  nothing is owed; at €256 the entire sum becomes taxable.
  *
- * Out of scope (Phase 2): §23 EStG private sale gains (crypto held <1
- * year that you sell). User has not sold anything; we don't compute
- * this. The PDF/CSV documents §22 only and the UI flags this scope.
+ *  §23 EStG (private Veräußerungsgeschäfte): crypto sold within one year of
+ *  acquisition. Short-term matches net against each other (gains and losses
+ *  within §23 offset); the result carries its OWN Freigrenze — €600 through
+ *  2023, €1000 from 2024 — again a cliff. Coins held longer than a year are
+ *  tax-free and reported for completeness only.
+ *
+ * These two buckets are legally SEPARATE: they sit on different Anlage SO
+ * lines, carry different Freigrenzen, and a §23 loss may not reduce §22
+ * income (§23 Abs. 3 S. 7-8 EStG — §23 losses only offset §23 gains and
+ * otherwise carry forward). Do NOT sum them into one threshold. The pure
+ * calculator below encodes this; buildAnlageSo just feeds it DB rows.
  */
 
-export const FREIGRENZE_EUR = 256;
+/** §22 Nr. 3 EStG annual Freigrenze (cliff). */
+export const FREIGRENZE_22_EUR = 256;
+/** Back-compat alias — the §22 Freigrenze. */
+export const FREIGRENZE_EUR = FREIGRENZE_22_EUR;
+
+/** §23 EStG Freigrenze: raised from €600 to €1000 effective 2024. */
+export function freigrenze23For(taxYear: number): number {
+  return taxYear >= 2024 ? 1000 : 600;
+}
 
 export type AnlageSoEvent = {
   date: string;
@@ -41,24 +57,92 @@ export type Section23Match = {
   isLongTerm: boolean;
 };
 
-export type AnlageSoDraft = {
-  taxYear: number;
-  taxpayerName: string | null;
-  total: {
+export type AnlageSoTotals = {
+  /** §22 Nr. 3 — staking income, its own €256 cliff. */
+  section22: {
     stakingIncomeEur: number;
     eventCount: number;
-    section23ShortTermGainEur: number;
-    section23LongTermTaxFreeEur: number;
-    section23MatchCount: number;
     freigrenzeEur: number;
     freigrenzeReached: boolean;
     taxableEur: number;
   };
+  /** §23 — private-sale gains, its own €600/€1000 cliff. */
+  section23: {
+    /** Net of short-term gains AND losses (long-term excluded). */
+    shortTermNetGainEur: number;
+    longTermTaxFreeEur: number;
+    matchCount: number;
+    freigrenzeEur: number;
+    freigrenzeReached: boolean;
+    taxableEur: number;
+    /** Magnitude of a §23 net loss, eligible for carryforward. */
+    lossCarryforwardEur: number;
+  };
+  /** §22 + §23 taxable, for display only — they file on separate lines. */
+  totalTaxableEur: number;
+};
+
+export type AnlageSoDraft = {
+  taxYear: number;
+  taxpayerName: string | null;
+  total: AnlageSoTotals;
   perCoin: { symbol: string; eventCount: number; quantity: number; totalEur: number }[];
   events: AnlageSoEvent[];
   section23Matches: Section23Match[];
   generatedAt: string;
 };
+
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+/**
+ * Pure calculator for the two Anlage SO buckets. Kept free of DB access so
+ * the German-law logic (separate Freigrenzen, no cross-bucket offset) is
+ * unit-testable in isolation, mirroring the pure core of german-tax.ts.
+ */
+export function computeAnlageSoTotals(
+  stakingIncomeEur: number,
+  eventCount: number,
+  section23Matches: Section23Match[],
+  taxYear: number,
+): AnlageSoTotals {
+  const staking = round2(stakingIncomeEur);
+  const s22Reached = staking >= FREIGRENZE_22_EUR;
+
+  const shortTermNetGain = round2(
+    section23Matches.filter((m) => !m.isLongTerm).reduce((s, m) => s + m.gainEur, 0),
+  );
+  const longTermTaxFree = round2(
+    section23Matches.filter((m) => m.isLongTerm).reduce((s, m) => s + m.gainEur, 0),
+  );
+  const freigrenze23 = freigrenze23For(taxYear);
+  // A §23 loss is never "above the Freigrenze" — the cliff only gates
+  // positive net gains; a negative net is a carryforward, not taxable.
+  const s23Reached = shortTermNetGain >= freigrenze23;
+  const s23Taxable = s23Reached ? shortTermNetGain : 0;
+  const s23LossCarryforward = shortTermNetGain < 0 ? round2(-shortTermNetGain) : 0;
+
+  const s22Taxable = s22Reached ? staking : 0;
+
+  return {
+    section22: {
+      stakingIncomeEur: staking,
+      eventCount,
+      freigrenzeEur: FREIGRENZE_22_EUR,
+      freigrenzeReached: s22Reached,
+      taxableEur: s22Taxable,
+    },
+    section23: {
+      shortTermNetGainEur: shortTermNetGain,
+      longTermTaxFreeEur: longTermTaxFree,
+      matchCount: section23Matches.length,
+      freigrenzeEur: freigrenze23,
+      freigrenzeReached: s23Reached,
+      taxableEur: s23Taxable,
+      lossCarryforwardEur: s23LossCarryforward,
+    },
+    totalTaxableEur: round2(s22Taxable + s23Taxable),
+  };
+}
 
 export async function buildAnlageSo(ownerUserId: string, taxYear: number, taxpayerName: string | null): Promise<AnlageSoDraft> {
   const yearStart = `${taxYear}-01-01`;
@@ -144,17 +228,7 @@ export async function buildAnlageSo(ownerUserId: string, taxYear: number, taxpay
     };
   });
 
-  const section23ShortTermGainEur = section23Matches
-    .filter((m) => !m.isLongTerm)
-    .reduce((s, m) => s + m.gainEur, 0);
-  const section23LongTermTaxFreeEur = section23Matches
-    .filter((m) => m.isLongTerm)
-    .reduce((s, m) => s + m.gainEur, 0);
-
-  // Combined §22 (staking income) + §23 (short-term sale gains) is
-  // what the €256 Freigrenze applies to in aggregate.
-  const combinedBaseEur = stakingIncomeEur + section23ShortTermGainEur;
-  const freigrenzeReached = combinedBaseEur >= FREIGRENZE_EUR;
+  const total = computeAnlageSoTotals(stakingIncomeEur, events.length, section23Matches, taxYear);
 
   const perCoinMap = new Map<string, { eventCount: number; quantity: number; totalEur: number }>();
   for (const e of events) {
@@ -171,16 +245,7 @@ export async function buildAnlageSo(ownerUserId: string, taxYear: number, taxpay
   return {
     taxYear,
     taxpayerName,
-    total: {
-      stakingIncomeEur,
-      eventCount: events.length,
-      section23ShortTermGainEur,
-      section23LongTermTaxFreeEur,
-      section23MatchCount: section23Matches.length,
-      freigrenzeEur: FREIGRENZE_EUR,
-      freigrenzeReached,
-      taxableEur: freigrenzeReached ? combinedBaseEur : 0,
-    },
+    total,
     perCoin,
     events,
     section23Matches,

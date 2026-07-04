@@ -132,7 +132,10 @@ export async function getCryptoSummary(ownerUserId: string): Promise<CryptoSumma
       totalEur: stakingTotal,
       perCoin,
       freigrenzeEur: FREIGRENZE_EUR,
-      freigrenzeReached: stakingTotal + shortGain >= FREIGRENZE_EUR,
+      // §22 Nr. 3 cliff applies to staking income ALONE. §23 sale gains have
+      // their own separate €1000 Freigrenze (see anlage-so.ts) and must not
+      // be mixed into this threshold.
+      freigrenzeReached: stakingTotal >= FREIGRENZE_EUR,
     },
     realizedYtd: {
       year,

@@ -23,8 +23,11 @@ export default async function AnlageSoPage({
   const page = Math.max(1, Number(sp.page ?? "1") || 1);
   const draft = await buildAnlageSo(user.id, yearNum, user.name ?? null);
 
-  const combinedBaseEur = draft.total.stakingIncomeEur + draft.total.section23ShortTermGainEur;
-  const pct = draft.total.freigrenzeEur > 0 ? Math.min(100, (combinedBaseEur / draft.total.freigrenzeEur) * 100) : 0;
+  const s22 = draft.total.section22;
+  const s23 = draft.total.section23;
+  const s22Pct = s22.freigrenzeEur > 0 ? Math.min(100, (s22.stakingIncomeEur / s22.freigrenzeEur) * 100) : 0;
+  const s23Pct = s23.freigrenzeEur > 0 ? Math.min(100, (Math.max(0, s23.shortTermNetGainEur) / s23.freigrenzeEur) * 100) : 0;
+  const anyTaxable = draft.total.totalTaxableEur > 0;
 
   return (
     <main className="space-y-4">
@@ -56,35 +59,35 @@ export default async function AnlageSoPage({
               metrics={[
                 {
                   label: "§22 Staking",
-                  value: fmtEur(draft.total.stakingIncomeEur),
-                  subline: `${draft.total.eventCount} payouts`,
-                  accent: "mint",
+                  value: fmtEur(s22.stakingIncomeEur),
+                  subline: `${s22.eventCount} payouts · €${s22.freigrenzeEur} cliff`,
+                  accent: s22.freigrenzeReached ? "bad" : "mint",
                   valueSize: "lg",
                 },
                 {
                   label: "§23 Short-term",
-                  value: fmtEur(draft.total.section23ShortTermGainEur, { sign: draft.total.section23ShortTermGainEur !== 0 }),
-                  subline: draft.total.section23MatchCount === 0
+                  value: fmtEur(s23.shortTermNetGainEur, { sign: s23.shortTermNetGainEur !== 0 }),
+                  subline: s23.matchCount === 0
                     ? "no sales"
-                    : `${draft.total.section23MatchCount} match${draft.total.section23MatchCount === 1 ? "" : "es"}`,
+                    : `${s23.matchCount} match${s23.matchCount === 1 ? "" : "es"} · €${s23.freigrenzeEur} cliff`,
                   accent: "auto",
-                  sign: draft.total.section23ShortTermGainEur,
+                  sign: s23.shortTermNetGainEur,
                   valueSize: "lg",
                 },
                 {
-                  label: "Taxable amount",
-                  value: fmtEur(draft.total.taxableEur),
-                  subline: draft.total.freigrenzeReached
-                    ? "Above €256 — full sum taxable"
-                    : "Below €256 — €0 tax owed",
-                  accent: draft.total.freigrenzeReached ? "bad" : "mint",
+                  label: "Taxable total",
+                  value: fmtEur(draft.total.totalTaxableEur),
+                  subline: anyTaxable
+                    ? "§22 + §23 (separate lines)"
+                    : "Both below cliff — €0 owed",
+                  accent: anyTaxable ? "bad" : "mint",
                   valueSize: "lg",
                 },
                 {
                   label: "ELSTER box",
                   value: "Anlage SO",
-                  subline: draft.total.freigrenzeReached
-                    ? "Enter sums above · §22 Nr. 3 + §23"
+                  subline: anyTaxable
+                    ? "Enter sums above"
                     : "Skip — record kept for audit",
                   accent: "amber",
                   valueSize: "lg",
@@ -96,30 +99,56 @@ export default async function AnlageSoPage({
 
         <Card>
           <div className="flex justify-between items-center">
-            <div className="font-semibold text-sm">Freigrenze</div>
-            <div className="font-mono text-[11px] text-muted">€256 cliff</div>
+            <div className="font-semibold text-sm">Freigrenzen</div>
+            <div className="font-mono text-[11px] text-muted">two separate cliffs</div>
           </div>
+
+          {/* §22 Nr. 3 — €256 cliff on staking income alone */}
           <div className="mt-4 font-mono text-[11px] text-muted flex justify-between">
-            <span>Used</span>
+            <span>§22 Nr. 3 staking</span>
             <span>
-              <span className="text-ink font-semibold">{fmtEur(combinedBaseEur, { dec: 0 })}</span> of €{draft.total.freigrenzeEur}
+              <span className="text-ink font-semibold">{fmtEur(s22.stakingIncomeEur, { dec: 0 })}</span> of €{s22.freigrenzeEur}
             </span>
           </div>
           <div className="mt-2">
             <ProgressBar
-              pct={pct}
-              fill={draft.total.freigrenzeReached ? "var(--accent-bad, #FF5DA2)" : "var(--accent-mint, #7CFFB2)"}
+              pct={s22Pct}
+              fill={s22.freigrenzeReached ? "var(--accent-bad, #FF5DA2)" : "var(--accent-mint, #7CFFB2)"}
               height={10}
             />
           </div>
-          <div className={`mt-2 font-mono text-[11px] ${draft.total.freigrenzeReached ? "text-bad" : "text-mint"}`}>
-            {draft.total.freigrenzeReached
-              ? `Above threshold — file Anlage SO with the full ${fmtEur(combinedBaseEur, { dec: 0 })}`
-              : `${fmtEur(draft.total.freigrenzeEur - combinedBaseEur, { dec: 0 })} of tax-free room remaining`}
+          <div className={`mt-1 font-mono text-[11px] ${s22.freigrenzeReached ? "text-bad" : "text-mint"}`}>
+            {s22.freigrenzeReached
+              ? `Above — file the full ${fmtEur(s22.stakingIncomeEur, { dec: 0 })}`
+              : `${fmtEur(s22.freigrenzeEur - s22.stakingIncomeEur, { dec: 0 })} tax-free room left`}
           </div>
+
+          {/* §23 — €600/€1000 cliff on net short-term sale gains */}
+          <div className="mt-4 font-mono text-[11px] text-muted flex justify-between">
+            <span>§23 private sales</span>
+            <span>
+              <span className="text-ink font-semibold">{fmtEur(s23.shortTermNetGainEur, { dec: 0, sign: s23.shortTermNetGainEur !== 0 })}</span> of €{s23.freigrenzeEur}
+            </span>
+          </div>
+          <div className="mt-2">
+            <ProgressBar
+              pct={s23Pct}
+              fill={s23.freigrenzeReached ? "var(--accent-bad, #FF5DA2)" : "var(--accent-mint, #7CFFB2)"}
+              height={10}
+            />
+          </div>
+          <div className={`mt-1 font-mono text-[11px] ${s23.freigrenzeReached ? "text-bad" : "text-mint"}`}>
+            {s23.lossCarryforwardEur > 0
+              ? `Net loss ${fmtEur(s23.lossCarryforwardEur, { dec: 0 })} — carries forward (§23 only)`
+              : s23.freigrenzeReached
+                ? `Above — file the full ${fmtEur(s23.shortTermNetGainEur, { dec: 0 })}`
+                : `${fmtEur(s23.freigrenzeEur - Math.max(0, s23.shortTermNetGainEur), { dec: 0 })} tax-free room left`}
+          </div>
+
           <div className="mt-3 font-mono text-[10px] text-dim leading-relaxed">
-            Note: the Freigrenze is shared across all §22 Nr. 3 income — staking + occasional Kleinanzeigen sales over the
-            threshold + freelance gigs &lt; €256, etc. If you have any, add them before deciding.
+            Note: the two Freigrenzen are independent. §22 (€256) covers all your sonstige Leistungen (staking + e.g.
+            occasional Kleinanzeigen sales); §23 (€{s23.freigrenzeEur}) covers all private-sale gains. A §23 loss does
+            not lower §22 income.
           </div>
           <div className="flex gap-2 mt-3 flex-wrap">
             <a
@@ -141,7 +170,7 @@ export default async function AnlageSoPage({
       <StakingPerCoinTable
         rows={draft.perCoin}
         year={yearNum}
-        totalEur={draft.total.stakingIncomeEur}
+        totalEur={s22.stakingIncomeEur}
       />
 
       <Section23Table

@@ -38,46 +38,47 @@ const styles = StyleSheet.create({
 });
 
 export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
-  const totalLabel = formatEur(draft.total.stakingIncomeEur);
+  const s22 = draft.total.section22;
+  const s23 = draft.total.section23;
   const Doc = (
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.h1}>Anlage SO — Steuerjahr {draft.taxYear}</Text>
         <Text style={styles.sub}>
-          §22 Nr. 3 EStG — Einkünfte aus sonstigen Leistungen · Krypto-Staking · Personal evidence record
-          {draft.taxpayerName ? `\nFiler: ${draft.taxpayerName}` : ""}
+          §22 Nr. 3 EStG (sonstige Leistungen · Krypto-Staking) + §23 EStG (private Veräußerungsgeschäfte) · Personal
+          evidence record{draft.taxpayerName ? `\nFiler: ${draft.taxpayerName}` : ""}
         </Text>
 
         <View style={styles.section}>
-          <Text style={styles.sectionH}>Summary</Text>
+          <Text style={styles.sectionH}>§22 Nr. 3 — Staking income</Text>
           <View style={styles.kv}>
             <Text>Total staking income received</Text>
-            <Text>{totalLabel}</Text>
+            <Text>{formatEur(s22.stakingIncomeEur)}</Text>
           </View>
           <View style={styles.kv}>
             <Text>Number of payouts</Text>
-            <Text>{draft.total.eventCount}</Text>
+            <Text>{s22.eventCount}</Text>
           </View>
           <View style={styles.kv}>
             <Text>Freigrenze (§22 Nr. 3 EStG)</Text>
-            <Text>€{draft.total.freigrenzeEur.toFixed(2)}</Text>
+            <Text>€{s22.freigrenzeEur.toFixed(2)}</Text>
           </View>
           <View style={styles.kv}>
             <Text>Status</Text>
-            <Text style={{ color: draft.total.freigrenzeReached ? "#A8231C" : "#1A7F2E" }}>
-              {draft.total.freigrenzeReached ? "ABOVE — taxable in full" : "BELOW — no tax owed"}
+            <Text style={{ color: s22.freigrenzeReached ? "#A8231C" : "#1A7F2E" }}>
+              {s22.freigrenzeReached ? "ABOVE — taxable in full" : "BELOW — no tax owed"}
             </Text>
           </View>
           <View style={styles.kv}>
-            <Text>Taxable amount</Text>
-            <Text>{formatEur(draft.total.taxableEur)}</Text>
+            <Text>Taxable (§22 Nr. 3)</Text>
+            <Text>{formatEur(s22.taxableEur)}</Text>
           </View>
-          {draft.total.freigrenzeReached && (
+          {s22.freigrenzeReached && (
             <View style={styles.warn}>
               <Text style={styles.warnText}>
-                Above €{draft.total.freigrenzeEur}: enter the full €{draft.total.stakingIncomeEur.toFixed(2)} on ELSTER →
-                Anlage SO → Section &quot;Andere Leistungen&quot; (§22 Nr. 3). The €256 Freigrenze applies once across all such
-                income (other 22 Nr. 3 sources combine).
+                Above €{s22.freigrenzeEur}: enter the full €{s22.stakingIncomeEur.toFixed(2)} on ELSTER → Anlage SO →
+                &quot;Leistungen&quot; (§22 Nr. 3). This €256 Freigrenze is separate from the §23 one below and applies
+                once across all your sonstige Leistungen.
               </Text>
             </View>
           )}
@@ -103,30 +104,55 @@ export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
 
         {draft.section23Matches.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionH}>§23 — Private Sale Gains</Text>
+            <Text style={styles.sectionH}>§23 — Private sale gains</Text>
             <View style={styles.kv}>
-              <Text>Short-term taxable gains (held ≤ 365 days)</Text>
-              <Text>{formatEur(draft.total.section23ShortTermGainEur)}</Text>
+              <Text>Net short-term result (held ≤ 365 days)</Text>
+              <Text>{formatEur(s23.shortTermNetGainEur)}</Text>
             </View>
             <View style={styles.kv}>
               <Text>Long-term tax-free gains (held &gt; 365 days)</Text>
-              <Text style={{ color: "#888" }}>{formatEur(draft.total.section23LongTermTaxFreeEur)}</Text>
+              <Text style={{ color: "#888" }}>{formatEur(s23.longTermTaxFreeEur)}</Text>
             </View>
             <View style={styles.kv}>
               <Text>Number of realized matches</Text>
-              <Text>{draft.total.section23MatchCount}</Text>
+              <Text>{s23.matchCount}</Text>
             </View>
+            <View style={styles.kv}>
+              <Text>Freigrenze (§23 EStG, {draft.taxYear})</Text>
+              <Text>€{s23.freigrenzeEur.toFixed(2)}</Text>
+            </View>
+            <View style={styles.kv}>
+              <Text>Taxable (§23)</Text>
+              <Text>{formatEur(s23.taxableEur)}</Text>
+            </View>
+            {s23.lossCarryforwardEur > 0 && (
+              <View style={styles.warn}>
+                <Text style={styles.warnText}>
+                  Net §23 loss of €{s23.lossCarryforwardEur.toFixed(2)}: no tax owed, but declare it so the Finanzamt
+                  records a §23 loss carryforward (Verlustfeststellung). §23 losses only offset §23 gains — never §22
+                  income or other income.
+                </Text>
+              </View>
+            )}
+            {s23.freigrenzeReached && (
+              <View style={styles.warn}>
+                <Text style={styles.warnText}>
+                  Above €{s23.freigrenzeEur}: the full €{s23.shortTermNetGainEur.toFixed(2)} is taxable on ELSTER →
+                  Anlage SO → &quot;Private Veräußerungsgeschäfte&quot;. This threshold is independent of the §22
+                  Freigrenze above.
+                </Text>
+              </View>
+            )}
             <Text style={styles.sub}>
-              Short-term gains add to §22 staking income against the same €256 Freigrenze. Long-term gains are
-              tax-free under §23 EStG (1-year holding rule) — listed here for completeness only.
+              §22 and §23 are separate income types with separate Freigrenzen; they are not combined. Long-term gains
+              are tax-free (1-year holding rule) and listed for completeness only.
             </Text>
           </View>
         )}
 
         <Text style={styles.footer}>
           Generated {new Date(draft.generatedAt).toISOString().slice(0, 16)} UTC. Personal record — not a certified tax
-          filing. Verify with your Steuerberater before submission. Out of scope: §23 EStG private sale gains (held
-          {" <"}1 year).
+          filing. Verify with your Steuerberater before submission.
         </Text>
       </Page>
 
@@ -163,8 +189,8 @@ export async function renderAnlageSoPdf(draft: AnlageSoDraft) {
         <Page size="A4" style={styles.page}>
           <Text style={styles.h1}>§23 — Realized matches (FIFO)</Text>
           <Text style={styles.sub}>
-            Each row is a closed lot. Long-term matches (over 365 days) are tax-free; short-term matches contribute
-            to §23 income against the €256 Freigrenze.
+            Each row is a closed lot. Long-term matches (over 365 days) are tax-free; short-term matches net together
+            and are taxable under §23 only if the net exceeds the €{s23.freigrenzeEur} Freigrenze.
           </Text>
           <View style={styles.tableHead}>
             <Text style={styles.colDate}>Opened</Text>
