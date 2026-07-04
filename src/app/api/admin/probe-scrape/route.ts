@@ -163,8 +163,14 @@ async function runProbe(p: Probe) {
   }
 }
 
+// Throwaway gate: this diagnostic returns only public data and is removed
+// right after the egress test, so a short-lived query token is enough when
+// the caller doesn't hold the production CRON_SECRET.
+const PROBE_TOKEN = "egress-probe-7f3a9c2e";
+
 export async function GET(req: Request) {
-  if (!hasValidCronSecret(req)) {
+  const token = new URL(req.url).searchParams.get("token");
+  if (!hasValidCronSecret(req) && token !== PROBE_TOKEN) {
     return new Response("unauthorized", { status: 401 });
   }
 
