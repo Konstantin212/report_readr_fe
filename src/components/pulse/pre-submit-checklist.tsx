@@ -12,13 +12,15 @@ function buildItems(draft: GermanTaxDraft): ChecklistItem[] {
     {
       mark: draft.kapInv.present ? "yes" : "no",
       text: draft.kapInv.present
-        ? "Anlage KAP-INV attached (you have ETF / Investmentfonds income)"
+        ? "ADD Anlage KAP-INV to the ELSTER form list (you have ETF / Investmentfonds income — there is no KAP checkbox for this)"
         : "Anlage KAP-INV NOT required (no ETF / fund income this year)",
     },
     { mark: "no", text: "Anlage KAP-BET NOT required for this filing" },
     {
-      mark: draft.kap.Z4_kapInvAttached ? "yes" : "no",
-      text: `KAP Zeile 4 checkbox ${draft.kap.Z4_kapInvAttached ? "SET" : "NOT set"} (KAP-INV beigefügt)`,
+      mark: draft.kap.Z4_guenstigerpruefung ? "yes" : "no",
+      text: draft.kap.Z4_guenstigerpruefung
+        ? "KAP Zeile 4 (Antrag auf Günstigerprüfung): TICK — your marginal rate is likely below 25 %, so regular income-tax rates beat the Abgeltungsteuer. All capital income must then be declared."
+        : "KAP Zeile 4 (Antrag auf Günstigerprüfung): leave UNCHECKED — only worthwhile if your marginal income-tax rate is below 25 %.",
     },
     {
       mark: "yes",
@@ -60,6 +62,17 @@ function buildItems(draft: GermanTaxDraft): ChecklistItem[] {
     items.push({
       mark: "yes",
       text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)`,
+    });
+  }
+  // Unused stock losses only survive into future years if the loss
+  // carryforward is formally requested on the Hauptvordruck.
+  if (draft.kap.stockLossCarryforward.euros > 0) {
+    items.push({
+      mark: "warn",
+      text:
+        `TICK "Erklärung zur Feststellung des verbleibenden Verlustvortrags" on the Hauptvordruck — `
+        + `~€${draft.kap.stockLossCarryforward.euros} of stock-sale losses exceed this year's stock gains and `
+        + `would otherwise be lost (§20 Abs.6 S.4: they only ever offset future stock gains).`,
     });
   }
 

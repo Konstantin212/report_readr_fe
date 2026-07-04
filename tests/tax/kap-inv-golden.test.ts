@@ -36,7 +36,9 @@ describe("buildKapAndKapInv — GF's 2025 golden fixture", () => {
   });
 
   it("sets the KAP Z4 'KAP-INV beigefügt' checkbox when KAP-INV has anything", () => {
-    expect(draft.kap.Z4_kapInvAttached).toBe(true);
+    expect(draft.kapInv.present).toBe(true);
+    // Zeile 4 is the Günstigerprüfung request — never set without income data.
+    expect(draft.kap.Z4_guenstigerpruefung).toBe(false);
     expect(draft.kapInv.present).toBe(true);
   });
 
@@ -115,7 +117,8 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
     expect(draft.kap.lines.Z19.cents).toBe("1700.00");
     expect(draft.kap.lines.Z19.euros).toBe(1700);
     expect(draft.kapInv.present).toBe(false);
-    expect(draft.kap.Z4_kapInvAttached).toBe(false);
+    expect(draft.kapInv.present).toBe(false);
+    expect(draft.kap.Z4_guenstigerpruefung).toBe(false);
   });
 
   it("splits stock-sale gains and losses into separate non-negative lines (§20 Abs.6)", () => {
@@ -153,7 +156,9 @@ describe("buildKapAndKapInv — mixed portfolio (KAP + KAP-INV)", () => {
     expect(draft.kap.lines.Z19.euros).toBe(500);
     expect(draft.kapInv.section1.Z4_aktienfonds.cents).toBe("113.18");
     expect(draft.kapInv.section1.Z4_aktienfonds.euros).toBe(113);
-    expect(draft.kap.Z4_kapInvAttached).toBe(true);
+    expect(draft.kapInv.present).toBe(true);
+    // Zeile 4 is the Günstigerprüfung request — never set without income data.
+    expect(draft.kap.Z4_guenstigerpruefung).toBe(false);
     expect(draft.kapInv.present).toBe(true);
   });
 });

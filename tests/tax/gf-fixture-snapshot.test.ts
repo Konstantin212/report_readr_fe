@@ -30,7 +30,9 @@ describe("End-to-end GF 2025 fixture", () => {
     });
 
     // KAP page — everything zero, checkbox set
-    expect(draft.kap.Z4_kapInvAttached).toBe(true);
+    expect(draft.kapInv.present).toBe(true);
+    // Zeile 4 is the Günstigerprüfung request — never set without income data.
+    expect(draft.kap.Z4_guenstigerpruefung).toBe(false);
     expect(draft.kap.lines.Z17.euros).toBe(0);
     expect(draft.kap.lines.Z19.euros).toBe(0);
     expect(draft.kap.lines.Z22.euros).toBe(0);

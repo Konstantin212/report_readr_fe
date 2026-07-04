@@ -292,6 +292,9 @@ export function buildKapInputs(
       gainEur: m.gainEur,
       closedAt: m.closedAt,
       broker: brokerFor(m.brokerAccountId),
+      qty: m.qty ?? undefined,
+      costEur: m.costEur ?? undefined,
+      proceedsEur: m.proceedsEur ?? undefined,
     }));
 
   // Vorabpauschale guard (§18/§19 InvStG). Foreign brokers neither report
@@ -332,6 +335,7 @@ export function buildKapInputs(
     settings: {
       filingStatus: (settings?.filingStatus as "SINGLE" | "JOINT") ?? "SINGLE",
       saverAllowance: settings?.saverAllowance ?? "1000",
+      taxableIncomeEur: settings?.taxableIncomeEur ?? null,
     },
     dividends,
     interest,

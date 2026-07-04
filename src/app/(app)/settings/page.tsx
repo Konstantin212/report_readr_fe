@@ -7,6 +7,7 @@ import { allowedEmails } from "@/lib/db/schema";
 import { listCryptoAccountsForUser } from "@/lib/data/crypto-accounts";
 import { Card } from "@/components/pulse/card";
 import { SettingRow } from "@/components/pulse/setting-row";
+import { TaxIncomeRow } from "@/components/pulse/tax-income-row";
 import { ToggleRow } from "@/components/pulse/toggle-row";
 import { SettingsSidebar } from "@/components/pulse/settings-sidebar";
 import { ResetBrokerButton } from "@/components/pulse/reset-broker-button";
@@ -173,6 +174,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                   <SettingRow label="Sparer-Pauschbetrag" value={`€${settings?.saverAllowance ?? "1000"} / year`} />
                   <SettingRow label="Lot matching" value={settings?.lotMethod ?? "FIFO"} highlight />
                   <SettingRow label="Loss carry-forward" value="—" last />
+                  <TaxIncomeRow
+                    initialIncome={settings?.taxableIncomeEur ?? null}
+                    filingStatus={(settings?.filingStatus as "SINGLE" | "JOINT") ?? "SINGLE"}
+                  />
                 </Card>
                 <Card>
                   <div className="font-semibold text-base mb-3">Currency &amp; FX</div>

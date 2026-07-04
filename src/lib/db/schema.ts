@@ -348,6 +348,10 @@ export const userSettings = pgTable("user_settings", {
   filingStatus: text("filing_status").notNull().default("SINGLE"),
   jurisdiction: text("jurisdiction").notNull().default("DE"),
   saverAllowance: numeric("saver_allowance").notNull().default("1000"),
+  /** Approximate annual taxable income (zu versteuerndes Einkommen, EUR).
+   *  Optional — used only to personalize the KAP Zeile 4 Günstigerprüfung
+   *  recommendation (worthwhile iff the §32a marginal rate is below 25 %). */
+  taxableIncomeEur: numeric("taxable_income_eur"),
   lotMethod: text("lot_method").notNull().default("FIFO"),
   fxSource: text("fx_source").notNull().default("ECB"),
   accentPalette: jsonb("accent_palette").notNull().default(["#7CFFB2","#FFD24A","#FF5DA2"]),

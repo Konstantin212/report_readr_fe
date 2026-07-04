@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { TREATY_CAP, DEFAULT_TREATY_CAP } from "./treaties";
+import { guenstigerpruefungRecommended } from "./marginal-rate";
 import { classifyKind, classifySector, fundSubtype, type FundSubtype, type AssetKind } from "@/lib/analytics/sector-map";
 
 export type KapDividend = {
@@ -22,6 +23,12 @@ export type KapMatch = {
   gainEur: string;
   closedAt: string;
   broker?: string;
+  /** Row-level FIFO detail for the audit trail (Finanzamt-facing evidence:
+   *  the EUR-basis method legitimately diverges from broker USD summaries,
+   *  so each match must be able to show its own cost/proceeds math). */
+  qty?: string;
+  costEur?: string;
+  proceedsEur?: string;
 };
 
 /** Standalone WITHHOLDING_TAX events (T4). Some brokers (IBKR) report the
@@ -40,6 +47,9 @@ export type KapWithholding = {
 export type KapSettings = {
   filingStatus: "SINGLE" | "JOINT";
   saverAllowance: string; // "1000" or "2000"
+  /** Approximate annual taxable income (zvE, EUR) from Settings. Optional —
+   *  personalizes the Zeile 4 Günstigerprüfung recommendation. */
+  taxableIncomeEur?: string | null;
 };
 
 export type KapEvidenceItem = {
@@ -52,6 +62,12 @@ export type KapEvidenceItem = {
   ecbRate?: string;
   /** Origin broker, for the per-broker reconciliation subtotals (T5). */
   broker?: string;
+  /** Row-level FIFO detail on realised-match rows: quantity, EUR cost at
+   *  buy-date FX, EUR proceeds at sale-date FX. Lets a Finanzamt query be
+   *  answered line by line when our numbers differ from broker summaries. */
+  qty?: string;
+  costEur?: string;
+  proceedsEur?: string;
   fingerprint: string;
   /** Which ELSTER form + line this row feeds. Audit aid. */
   formTarget?: FormTarget;
@@ -78,8 +94,19 @@ export type ZeileValue = { cents: string; euros: number };
 export type GermanTaxDraft = {
   taxYear: number;
   kap: {
-    /** Checkbox Zeile 4: "Anlage KAP-INV beigefügt". True iff kapInv.present. */
-    Z4_kapInvAttached: boolean;
+    /** Zeile 4 — "Antrag auf Günstigerprüfung für sämtliche Kapitalerträge".
+     *  ALWAYS false: the app never requests it. Only worthwhile when the
+     *  personal marginal rate is below 25 %; if ticked, ALL capital income
+     *  must be declared. (Attaching Anlage KAP-INV is NOT a KAP checkbox —
+     *  it happens by adding the form to the ELSTER form list; see
+     *  `kapInv.present`. Earlier versions mislabeled this line.) */
+    Z4_guenstigerpruefung: boolean;
+    /** Positive net stock-sale loss (Z23 − Z20, floored at 0). Informational,
+     *  not an ELSTER line: when > 0, the filer should tick "Erklärung zur
+     *  Feststellung des verbleibenden Verlustvortrags" on the Hauptvordruck
+     *  so the unused Aktien loss carries forward (§20 Abs. 6 S. 4 EStG:
+     *  stock losses only ever offset stock gains). */
+    stockLossCarryforward: ZeileValue;
     lines: {
       Z17: ZeileValue; // Sparer-Pauschbetrag against non-KAP income (always 0 — let ELSTER auto-allocate)
       Z19: ZeileValue; // Ausländische Kapitalerträge — total (non-fund dividends + interest + positive realised gains)
@@ -92,7 +119,9 @@ export type GermanTaxDraft = {
     };
   };
   kapInv: {
-    /** True iff any KAP-INV line has non-zero cents. Drives KAP Z4 checkbox + page-3 rendering. */
+    /** True iff any KAP-INV line has non-zero cents. When true the filer
+     *  must ADD Anlage KAP-INV to the ELSTER form list (there is no KAP
+     *  checkbox for this). Drives page-3 rendering. */
     present: boolean;
     section1: {
       Z4_aktienfonds: ZeileValue;
@@ -410,6 +439,9 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         symbol: m.symbol,
         grossEur: m.gainEur,
         broker: m.broker,
+        qty: m.qty,
+        costEur: m.costEur,
+        proceedsEur: m.proceedsEur,
         fingerprint: `match-${m.symbol}-${m.closedAt}`,
         formTarget: SECTION2_FORM_TARGET[resolved],
       });
@@ -426,6 +458,9 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         symbol: m.symbol,
         grossEur: m.gainEur,
         broker: m.broker,
+        qty: m.qty,
+        costEur: m.costEur,
+        proceedsEur: m.proceedsEur,
         fingerprint: `match-${m.symbol}-${m.closedAt}`,
         formTarget: gain.gte(0) ? "KAP_Z20" : "KAP_Z23",
       });
@@ -441,6 +476,9 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         symbol: m.symbol,
         grossEur: m.gainEur,
         broker: m.broker,
+        qty: m.qty,
+        costEur: m.costEur,
+        proceedsEur: m.proceedsEur,
         fingerprint: `match-${m.symbol}-${m.closedAt}`,
         formTarget: gain.gte(0) ? "KAP_Z19" : "KAP_Z22",
       });
@@ -519,7 +557,18 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   return {
     taxYear: input.taxYear,
     kap: {
-      Z4_kapInvAttached: kapInvPresent,
+      // Recommended only when the user's §32a marginal rate (from the
+      // optional taxable-income setting) is below the 25 % Abgeltungsteuer.
+      // Unknown income ⇒ false: requesting it obliges declaring ALL
+      // capital income, so the conservative default is "don't".
+      Z4_guenstigerpruefung: guenstigerpruefungRecommended(
+        input.settings.taxableIncomeEur != null ? Number(input.settings.taxableIncomeEur) : null,
+        input.settings.filingStatus,
+      ),
+      // §20 Abs. 6 S. 4: unused stock losses only carry forward against
+      // future stock gains — surface the amount so the filer ticks the
+      // Verlustfeststellung on the Hauptvordruck instead of losing it.
+      stockLossCarryforward: toZeile(Decimal.max(0, stockLosses.minus(stockGains))),
       lines: {
         Z17: ZERO(),                       // always 0 — let ELSTER auto-allocate the Pauschbetrag
         Z19: toZeile(z19, true),           // Ausländische Kapitalerträge (total)

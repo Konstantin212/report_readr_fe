@@ -13,6 +13,12 @@ export function renderEvidenceCsv(draft: GermanTaxDraft): string {
     "ticker",
     "country",
     "grossEur",
+    // Row-level FIFO detail (realised matches only): quantity, EUR cost at
+    // buy-date FX, EUR proceeds at sale-date FX — the line-by-line answer
+    // when the Finanzamt asks why totals differ from broker USD summaries.
+    "qty",
+    "costEur",
+    "proceedsEur",
     "whtEur",
     "ecbRate",
     "formTarget",
@@ -26,6 +32,9 @@ export function renderEvidenceCsv(draft: GermanTaxDraft): string {
       e.ticker ?? "",
       e.country ?? "",
       e.grossEur,
+      e.qty ?? "",
+      e.costEur ?? "",
+      e.proceedsEur ?? "",
       e.whtEur ?? "",
       e.ecbRate ?? "",
       e.formTarget ?? "",

@@ -128,8 +128,8 @@ export function ElsterValuesCard({ draft, reconciliation }: { draft: GermanTaxDr
           Anlage KAP
         </div>
         <CheckboxRow
-          label="Z4 — Anlage KAP-INV ist beigefügt"
-          set={draft.kap.Z4_kapInvAttached}
+          label="Z4 — Antrag auf Günstigerprüfung"
+          set={draft.kap.Z4_guenstigerpruefung}
         />
         {(Object.keys(KAP_LABELS) as Array<keyof typeof KAP_LABELS>).map((k) => (
           <ZeileRow key={k} label={KAP_LABELS[k]} value={draft.kap.lines[k]} />

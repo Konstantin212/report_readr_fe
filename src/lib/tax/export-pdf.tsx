@@ -89,8 +89,8 @@ function KapPage({ draft }: { draft: GermanTaxDraft }) {
 
       <Text style={styles.h2}>Checkbox</Text>
       <CheckboxRow
-        label="Z4 — Anlage KAP-INV ist beigefügt"
-        set={draft.kap.Z4_kapInvAttached}
+        label="Z4 — Antrag auf Günstigerprüfung"
+        set={draft.kap.Z4_guenstigerpruefung}
       />
 
       <Text style={styles.h2}>Werte</Text>
@@ -142,13 +142,15 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
     {
       mark: draft.kapInv.present ? "yes" : "no",
       text: draft.kapInv.present
-        ? "Anlage KAP-INV attached (you have ETF / fund income)"
+        ? "ADD Anlage KAP-INV to the ELSTER form list (you have ETF / fund income — no KAP checkbox exists for this)"
         : "Anlage KAP-INV NOT required (no ETF / fund income)",
     },
     { mark: "no", text: "Anlage KAP-BET NOT required for this filing" },
     {
-      mark: draft.kap.Z4_kapInvAttached ? "yes" : "no",
-      text: `KAP Zeile 4 checkbox ${draft.kap.Z4_kapInvAttached ? "SET" : "NOT set"} (KAP-INV beigefügt)`,
+      mark: draft.kap.Z4_guenstigerpruefung ? "yes" : "no",
+      text: draft.kap.Z4_guenstigerpruefung
+        ? "KAP Zeile 4 (Antrag auf Günstigerprüfung): TICK — marginal rate likely below 25 %; ALL capital income must then be declared."
+        : "KAP Zeile 4 (Antrag auf Günstigerprüfung): leave UNCHECKED — only worthwhile below a 25 % marginal income-tax rate.",
     },
     {
       mark: "yes",
@@ -173,6 +175,14 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
   }
   if (draft.kap.lines.Z22.euros > 0) {
     items.push({ mark: "warn", text: `KAP Zeile 22 = ${draft.kap.lines.Z22.euros} (Verluste ohne Aktienveräußerungen)` });
+  }
+  if (draft.kap.stockLossCarryforward.euros > 0) {
+    items.push({
+      mark: "warn",
+      text:
+        `TICK "Erklärung zur Feststellung des verbleibenden Verlustvortrags" on the Hauptvordruck — `
+        + `~€${draft.kap.stockLossCarryforward.euros} of stock losses exceed this year's stock gains (§20 Abs.6 S.4).`,
+    });
   }
   if (draft.kap.lines.Z51.euros > 0) {
     items.push({ mark: "yes", text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)` });

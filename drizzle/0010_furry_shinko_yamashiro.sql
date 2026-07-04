@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "taxable_income_eur" numeric;
