@@ -108,6 +108,11 @@ type FreedomTrade = Record<string, unknown> & {
   profit?: unknown;
   commission?: unknown;
   commission_currency?: unknown;
+  /** Broker-declared instrument kind, Russian free text, e.g.
+   *  "акция обыкновенная" (common stock), "фонд/ETF", "депозитарная расписка". */
+  instr_kind?: unknown;
+  /** String variant of the numeric `instr_type`, when the export carries it. */
+  instr_type_c?: unknown;
 };
 
 type FreedomCashFlow = Record<string, unknown> & {
@@ -359,6 +364,30 @@ function stripFreedomSuffix(symbol: string | undefined): string | undefined {
 }
 
 /**
+ * Map Freedom's broker-declared instrument kind (`instr_kind`, Russian
+ * free text) to our normalized asset kind. Verified real values:
+ *   "акция обыкновенная"      (common stock)          → "stock"
+ *   "фонд/ETF"                (fund/ETF)              → "etf"
+ *   "депозитарная расписка"   (depositary receipt/ADR) → "stock"
+ *   "валюта"                  (currency — FX rows)    → not a TRADE, ignored
+ *
+ * Matching is substring-based and case-insensitive so wording variants
+ * still resolve. Unknown non-empty values return `undefined` (NOT "other")
+ * so downstream classification can fall back to the hardcoded maps rather
+ * than being pinned to a wrong kind.
+ */
+export function mapFreedomInstrKind(
+  raw: string | undefined,
+): "stock" | "etf" | "bond" | undefined {
+  if (!raw) return undefined;
+  const s = raw.toLowerCase();
+  if (s.includes("облигаци")) return "bond";
+  if (s.includes("фонд") || s.includes("etf")) return "etf";
+  if (s.includes("акци") || s.includes("расписк")) return "stock";
+  return undefined;
+}
+
+/**
  * Sign the trade amount based on the operation, regardless of the broker's
  * own sign convention. Freedom24 exports `summ` as the *absolute* total of
  * the trade; older Freedom Finance reports sometimes already sign it
@@ -417,6 +446,7 @@ function parseTrades(rows: FreedomTrade[], accountNumber: string): NormalizedEve
         symbol,
         isin: cleanString(row.isin),
         description: operation,
+        instrumentKind: mapFreedomInstrKind(cleanString(row.instr_type_c) ?? cleanString(row.instr_kind)),
         quantity,
         price: cleanNumber(row.p),
         amount: signedAmount,

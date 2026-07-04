@@ -45,6 +45,16 @@ export type NormalizedEvent = {
    * mis-convert an already-EUR fee. Absent → fee uses `currency`.
    */
   feeCurrency?: string;
+  /**
+   * Broker-declared instrument kind, when the statement carries it.
+   * Freedom24 tags every trade row with `instr_kind` (e.g. "фонд/ETF"
+   * = fund/ETF, "акция обыкновенная" = common stock); IBKR's Financial
+   * Instrument Information may carry an asset type. Persisted onto
+   * `instruments.kind` at ingest and consulted by the classification
+   * layer AHEAD of the hardcoded symbol maps — broker data beats
+   * guesses (a missing KIND_MAP entry mis-filed SCHD as a stock).
+   */
+  instrumentKind?: "stock" | "etf" | "bond" | "other";
   withholdingTax?: string;
   withholdingTaxEur?: string;
   fxSource?: "BROKER" | "ECB" | "MANUAL_REVIEW" | "MISSING";

@@ -21,14 +21,28 @@ export type ClassificationOverride = {
   distribution: { policy: DistributionPolicy; frequency: string | null } | null;
 };
 
+const VALID_KINDS: ReadonlySet<AssetKind> = new Set(["stock", "etf", "bond", "other"]);
+
+function asAssetKind(kind: string | null | undefined): AssetKind | undefined {
+  return kind && VALID_KINDS.has(kind as AssetKind) ? (kind as AssetKind) : undefined;
+}
+
 /**
  * Join the user's instruments (ISIN↔symbol) with global metadata and
- * produce a symbol-keyed override map. Only `status === "OK"` rows with
- * a resolved `assetKind` contribute. A row matches either by real ISIN
- * or by the synthetic `SYM:{symbol}` key (manual Yahoo links, AC-4.2).
+ * produce a symbol-keyed override map. Precedence per symbol:
+ *   1. An `OK` instrument_meta row with a resolved `assetKind` — the
+ *      richest source (carries sector / subtype / distribution). Matches
+ *      by real ISIN or the synthetic `SYM:{symbol}` key (manual links, AC-4.2).
+ *   2. Otherwise, the broker-declared `kind` on the instrument row, when it
+ *      is a valid AssetKind. This yields a kind-only override (null sector /
+ *      subtype / distribution) so the positions page picks the right table
+ *      and the tax layer the right form; subtype stays null so tax falls
+ *      back to FUND_SUBTYPE_MAP → sonstige + warning when unknown (the
+ *      conservative default).
+ * Symbols with neither get no entry and callers keep today's behavior.
  */
 export function buildClassificationOverrides(
-  instrumentRows: Array<{ symbol: string | null; isin: string | null }>,
+  instrumentRows: Array<{ symbol: string | null; isin: string | null; kind?: string | null }>,
   metaRows: InstrumentMeta[],
 ): Map<string, ClassificationOverride> {
   const metaByIsin = new Map<string, InstrumentMeta>();
@@ -42,15 +56,21 @@ export function buildClassificationOverrides(
     const meta =
       (inst.isin ? metaByIsin.get(inst.isin) : undefined) ??
       metaByIsin.get(syntheticIsin(inst.symbol));
-    if (!meta || !meta.assetKind) continue;
-    out.set(inst.symbol, {
-      kind: meta.assetKind,
-      sector: meta.sector,
-      subtype: meta.fundSubtype,
-      distribution: meta.distributionPolicy
-        ? { policy: meta.distributionPolicy, frequency: meta.distributionFrequency }
-        : null,
-    });
+    if (meta && meta.assetKind) {
+      out.set(inst.symbol, {
+        kind: meta.assetKind,
+        sector: meta.sector,
+        subtype: meta.fundSubtype,
+        distribution: meta.distributionPolicy
+          ? { policy: meta.distributionPolicy, frequency: meta.distributionFrequency }
+          : null,
+      });
+      continue;
+    }
+    const brokerKind = asAssetKind(inst.kind);
+    if (brokerKind) {
+      out.set(inst.symbol, { kind: brokerKind, sector: null, subtype: null, distribution: null });
+    }
   }
   return out;
 }

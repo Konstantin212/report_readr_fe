@@ -47,13 +47,23 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
   const rateRows = await db.select().from(s.fxRates);
   const rateMap = new Map(rateRows.map(r => [`${r.date}|${r.fromCurrency}`, r.rate]));
 
-  // 4. Upsert instruments (distinct by isin) from parsed events
+  // 4. Upsert instruments (distinct by isin) from parsed events.
+  // Broker-declared kind rides on TRADE rows only (FF `instr_kind`, IBKR
+  // FII), while the first event per ISIN is often a dividend — so collect
+  // kind across ALL events first and only overwrite an existing kind when
+  // this statement actually declares one.
+  const kindByIsin = new Map<string, string>();
+  for (const ev of payload.events) {
+    const kind = (ev as { instrumentKind?: string }).instrumentKind;
+    if (ev.isin && kind && !kindByIsin.has(ev.isin)) kindByIsin.set(ev.isin, kind);
+  }
   const seenIsins = new Set<string>();
   for (const ev of payload.events) {
     const evWithName = ev as EventWithName;
     if (!evWithName.isin) continue;
     if (seenIsins.has(evWithName.isin)) continue;
     seenIsins.add(evWithName.isin);
+    const kind = kindByIsin.get(evWithName.isin);
     await db.insert(s.instruments)
       .values({
         ownerUserId,
@@ -61,6 +71,7 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
         isin: evWithName.isin,
         name: evWithName.name,
         currency: evWithName.currency,
+        kind,
       })
       .onConflictDoUpdate({
         target: [s.instruments.ownerUserId, s.instruments.isin],
@@ -68,6 +79,8 @@ export async function ingestParsedImport(ownerUserId: string, raw: IngestPayload
           symbol: evWithName.symbol,
           name: evWithName.name,
           currency: evWithName.currency,
+          // Preserve a previously-learned kind when this statement has none.
+          kind: kind ?? sql`${s.instruments.kind}`,
         },
       });
   }
@@ -200,6 +213,10 @@ export async function runReplayForAccount(ownerUserId: string, brokerAccountId: 
     amountEur: r.amountEur ?? undefined,
     fee: r.fee ?? undefined,
     feeEur: r.feeEur ?? undefined,
+    // Replay's share-split handling keys off CORPORATE_ACTION descriptions
+    // ("split") — without this field a DB-driven re-replay would silently
+    // skip splits and corrupt FIFO bases (the SCHD 3:1 phantom-loss bug).
+    description: r.description ?? undefined,
   }));
   const { lots, matches } = replay(events);
 

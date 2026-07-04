@@ -152,6 +152,10 @@ export const instruments = pgTable(
     isin: text("isin"),
     name: text("name"),
     currency: text("currency"),
+    /** Broker-declared asset kind ("stock" | "etf" | "bond" | "other"),
+     *  from the statement's own instrument typing (FF `instr_kind`,
+     *  IBKR FII). Beats the hardcoded symbol maps in classification. */
+    kind: text("kind"),
   },
   (table) => ({
     ownerIsinIndex: index("instruments_owner_isin_idx").on(table.ownerUserId, table.isin),

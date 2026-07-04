@@ -98,6 +98,7 @@ export function parseInteractiveBrokersStatement(
       eventType: "INTEREST",
       idPrefix: "ibkr-interest",
     }),
+    ...parseWithholdingTax(dataRows, accountNumber),
     ...parseCashReportFees(dataRows, accountNumber, statementDates.endDate ?? `${taxYear}-12-31`),
     ...parseCashReportEndings(dataRows, accountNumber, statementDates.endDate ?? `${taxYear}-12-31`),
     ...parseCashTransfers(dataRows, accountNumber),
@@ -266,10 +267,46 @@ function parseTrades(rows: SectionRow[], accountNumber: string, instrumentMap: M
         proceeds,
         fee,
         realizedPnl: cleanNumber(row["Realized P/L"]),
+        instrumentKind: mapInstrumentKind(assetCategory),
         source: "Trades",
       }))];
     })
     .filter((event) => Boolean(event.date));
+}
+
+/**
+ * Map IBKR's "Asset Category" onto the broker-declared instrument kind.
+ * IBKR lumps ETFs under "Stocks", so we never emit "etf" here — the
+ * justETF / Freedom layers refine that downstream. Categories we can't
+ * classify (Forex, Options, …) return undefined so the field stays unset.
+ *
+ * The load-bearing case is bonds: the user's Citigroup bond
+ * ("C Float 06/09/27", US172967MZ11) trades under symbol "C", colliding
+ * with Citigroup common stock; without the persisted "bond" kind its
+ * realized loss lands on the wrong ELSTER line.
+ */
+function mapInstrumentKind(assetCategory: string): NormalizedEvent["instrumentKind"] {
+  const category = assetCategory.toLowerCase();
+  if (category.includes("bond")) return "bond";
+  if (category.includes("stock")) return "stock";
+  return undefined;
+}
+
+/**
+ * IBKR Dividend/Interest/Withholding-Tax rows lead their Description with
+ * `SYMBOL(ISIN)`, e.g. `SPYW(IE00B5M1WJ87) Cash Dividend EUR 0.2363 per
+ * Share (Mixed Income)`. The simple-amount sections carry no dedicated
+ * Symbol/Security ID columns, so this is the only place to recover the
+ * instrument — without it the German-tax layer can't classify a
+ * distribution (an EU-ETF payout lands on the wrong ELSTER form).
+ */
+export function parseSymbolIsinFromDescription(
+  desc: string | undefined,
+): { symbol?: string; isin?: string } {
+  if (!desc) return {};
+  const match = desc.match(/^\s*([A-Z0-9.]{1,12})\(([A-Z]{2}[A-Z0-9]{9}[0-9])\)/);
+  if (!match) return {};
+  return { symbol: match[1], isin: match[2] };
 }
 
 function parseSimpleAmountSection(
@@ -285,6 +322,8 @@ function parseSimpleAmountSection(
     .filter((row) => cleanString(row.Date))
     .map((row, index) => {
       const date = dateOnly(row.Date);
+      const description = cleanString(row.Description);
+      const { symbol, isin } = parseSymbolIsinFromDescription(description);
 
       return withTaxReview(compactEvent<NormalizedEvent>({
         id: `${options.idPrefix}-${index + 1}`,
@@ -293,11 +332,52 @@ function parseSimpleAmountSection(
         type: options.eventType,
         date,
         currency: cleanString(row.Currency) ?? "UNKNOWN",
-        description: cleanString(row.Description),
+        symbol,
+        isin,
+        description,
         amount: options.eventType === "FEE" ? absoluteNumber(row.Amount) : cleanNumber(row.Amount),
         cashAmount:
           options.eventType === "FEE" ? negateNumber(absoluteNumber(row.Amount)) : cleanNumber(row.Amount),
         source: options.section,
+      }));
+    })
+    .filter((event) => Boolean(event.date));
+}
+
+/**
+ * Parse IBKR's "Withholding Tax" section into WITHHOLDING_TAX events.
+ * Rows look like: Currency / Date / Description / Amount / Code, e.g.
+ * `TSM(US8740391003) Cash Dividend USD 0.780305 per Share - TW Tax` with
+ * Amount `-0.49`. Without this, foreign tax withheld is invisible and the
+ * ELSTER foreign-tax-credit fields (Z51/52) silently read 0.
+ *
+ * `amount` keeps the raw (negative) figure; `withholdingTax` holds the
+ * absolute value — the domain field the tax layer reads (mirrors how
+ * freedom.ts populates WITHHOLDING_TAX rows). Total lines have no Date and
+ * are dropped by the same guard parseSimpleAmountSection uses.
+ */
+function parseWithholdingTax(rows: SectionRow[], accountNumber: string): NormalizedEvent[] {
+  return getRows(rows, "Withholding Tax")
+    .filter((row) => cleanString(row.Date))
+    .map((row, index) => {
+      const date = dateOnly(row.Date);
+      const description = cleanString(row.Description);
+      const { symbol, isin } = parseSymbolIsinFromDescription(description);
+
+      return withTaxReview(compactEvent<NormalizedEvent>({
+        id: `ibkr-wht-${index + 1}`,
+        broker: "INTERACTIVE_BROKERS",
+        accountNumber,
+        type: "WITHHOLDING_TAX",
+        date,
+        currency: cleanString(row.Currency) ?? "UNKNOWN",
+        symbol,
+        isin,
+        description,
+        amount: cleanNumber(row.Amount),
+        withholdingTax: absoluteNumber(row.Amount),
+        cashAmount: cleanNumber(row.Amount),
+        source: "Withholding Tax",
       }));
     })
     .filter((event) => Boolean(event.date));

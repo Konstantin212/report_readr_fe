@@ -11,17 +11,41 @@ import {
 import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
 import { classifyKind, classifySector, type AssetKind, type FundSubtype } from "@/lib/analytics/sector-map";
 import { loadClassificationOverrides, type ClassificationOverride } from "@/lib/analytics/classification";
+import { getUserInstruments } from "@/lib/marketdata/store";
 
-/** Per-symbol {kind, subtype} record passed to the pure KAP builder (T-wire).
- *  Built from the instrument_meta enrichment overrides so US-ETF and other
- *  reclassifications flow into the tax draft without the builder doing I/O. */
+/** {kind, subtype} record passed to the pure KAP builder (T-wire), keyed by
+ *  BOTH symbol and ISIN (the two key spaces can't collide — ISINs are 12-char
+ *  country-prefixed codes). Built from the instrument_meta enrichment
+ *  overrides plus the broker-declared `instruments.kind`, so US-ETF and other
+ *  reclassifications flow into the tax draft without the builder doing I/O.
+ *
+ *  ISIN keys matter because ticker symbols collide: the user's portfolio has
+ *  Citigroup common stock (US1729674242, FF) and a Citigroup bond
+ *  (US172967MZ11, IBKR) BOTH under symbol "C" — only the ISIN separates
+ *  Aktien losses (Z23) from sonstige losses (Z22). */
 type ClassificationRecord = Record<string, { kind: AssetKind; subtype: FundSubtype | null }>;
 
-function toClassificationRecord(
+const VALID_KINDS: ReadonlySet<string> = new Set(["stock", "etf", "bond", "other"]);
+
+export function toClassificationRecord(
   overrides: Map<string, ClassificationOverride>,
+  instrumentRows: Array<{ symbol: string | null; isin: string | null; kind: string | null }> = [],
 ): ClassificationRecord {
   const out: ClassificationRecord = {};
   for (const [symbol, o] of overrides) out[symbol] = { kind: o.kind, subtype: o.subtype };
+  for (const row of instrumentRows) {
+    if (!row.isin || out[row.isin]) continue;
+    const symbolEntry = row.symbol ? out[row.symbol] : undefined;
+    const rowKind = row.kind && VALID_KINDS.has(row.kind) ? (row.kind as AssetKind) : undefined;
+    // Per-ISIN precedence: a rich (meta-derived, subtype-carrying) symbol
+    // entry wins; otherwise the broker-declared kind for THIS ISIN beats a
+    // possibly-colliding symbol entry from a different listing.
+    if (symbolEntry && (symbolEntry.subtype !== null || !rowKind)) {
+      out[row.isin] = symbolEntry;
+    } else if (rowKind) {
+      out[row.isin] = { kind: rowKind, subtype: null };
+    }
+  }
   return out;
 }
 
@@ -131,12 +155,13 @@ export type TaxData = {
 
 export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promise<BuildAnlageKapInput> {
   const db = getDb();
-  const [settingsRows, tx, allMatches, accountRows, overrides] = await Promise.all([
+  const [settingsRows, tx, allMatches, accountRows, overrides, instrumentRows] = await Promise.all([
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     loadClassificationOverrides(ownerUserId),
+    getUserInstruments(ownerUserId),
   ]);
   const { stockAccountIds, brokerById } = deriveAccountScope(accountRows);
   return buildKapInputs(
@@ -146,8 +171,17 @@ export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promi
     allMatches,
     stockAccountIds,
     brokerById,
-    toClassificationRecord(overrides),
+    toClassificationRecord(overrides, instrumentRows),
+    isinToSymbolMap(instrumentRows),
   );
+}
+
+function isinToSymbolMap(
+  rows: Array<{ symbol: string | null; isin: string | null }>,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of rows) if (r.isin && r.symbol && !out.has(r.isin)) out.set(r.isin, r.symbol);
+  return out;
 }
 
 /**
@@ -182,6 +216,7 @@ export function buildKapInputs(
   stockAccountIds: Set<string>,
   brokerById: Map<string, string>,
   classification: ClassificationRecord,
+  isinToSymbol: Map<string, string> = new Map(),
 ): BuildAnlageKapInput {
   const yr = String(taxYear);
   // T2a account scope: only non-crypto (stock) accounts feed Anlage KAP.
@@ -191,6 +226,11 @@ export function buildKapInputs(
     !!accountId && stockAccountIds.has(accountId);
   const brokerFor = (accountId: string | null): string | undefined =>
     accountId ? brokerById.get(accountId) : undefined;
+  // Legacy IBKR ingests stored dividend/WHT rows without a symbol (only the
+  // description carried "SYM(ISIN)"). Resolve a display ticker through the
+  // user's instruments bridge so classification and evidence aren't blank.
+  const resolveTicker = (symbol: string | null, isin: string | null): string =>
+    symbol ?? (isin ? isinToSymbol.get(isin) : undefined) ?? "";
 
   // Defensive accruals filter (Zuflussprinzip): only PAID dividends count
   // for §20 EStG. The IBKR parser doesn't emit accruals as DIVIDEND events
@@ -206,7 +246,8 @@ export function buildKapInputs(
       && !isAccrualSource(t.source ?? null)
     )
     .map(t => ({
-      ticker: t.symbol ?? "",
+      ticker: resolveTicker(t.symbol, t.isin),
+      isin: t.isin ?? undefined,
       country: countryFromIsin(t.isin),
       grossEur: t.amountEur ?? "0",
       whtEur: t.withholdingTaxEur ?? "0",
@@ -214,7 +255,11 @@ export function buildKapInputs(
     }));
   const interest = tx
     .filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yr) && inScope(t.brokerAccountId))
-    .map(t => ({ grossEur: t.amountEur ?? "0", broker: brokerFor(t.brokerAccountId) }));
+    .map(t => ({
+      grossEur: t.amountEur ?? "0",
+      broker: brokerFor(t.brokerAccountId),
+      description: t.description ?? undefined,
+    }));
   // Standalone withholding tax (T4): brokers that report WHT in a dedicated
   // section (IBKR) rather than inline on the dividend. The withheld amount
   // lands in withholdingTaxEur; fall back to amountEur for parsers that stow
@@ -222,14 +267,21 @@ export function buildKapInputs(
   const withholding = tx
     .filter(t => t.eventType === "WITHHOLDING_TAX" && t.eventDate.startsWith(yr) && inScope(t.brokerAccountId))
     .map(t => ({
-      symbol: t.symbol ?? "",
+      symbol: resolveTicker(t.symbol, t.isin),
+      isin: t.isin ?? undefined,
       whtEur: t.withholdingTaxEur ?? t.amountEur ?? "0",
       country: countryFromIsin(t.isin),
       broker: brokerFor(t.brokerAccountId),
     }));
   const matches = allMatches
     .filter(m => m.closedAt.startsWith(yr) && inScope(m.brokerAccountId))
-    .map(m => ({ symbol: m.symbol, gainEur: m.gainEur, closedAt: m.closedAt, broker: brokerFor(m.brokerAccountId) }));
+    .map(m => ({
+      symbol: m.symbol,
+      isin: m.isin ?? undefined,
+      gainEur: m.gainEur,
+      closedAt: m.closedAt,
+      broker: brokerFor(m.brokerAccountId),
+    }));
   return {
     taxYear,
     settings: {
@@ -247,19 +299,20 @@ export function buildKapInputs(
 export async function getTaxData(ownerUserId: string, year: number): Promise<TaxData> {
   const db = getDb();
   const yrStr = String(year);
-  const [accountRows, allMatches, allTx, settingsRows, overrides] = await Promise.all([
+  const [accountRows, allMatches, allTx, settingsRows, overrides, instrumentRows] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
     loadClassificationOverrides(ownerUserId),
+    getUserInstruments(ownerUserId),
   ]);
   // Anlage KAP is §20 EStG (capital income from securities). Crypto sale
   // gains are §23 EStG (private sales) and belong on Anlage SO; staking
   // is §22 Nr. 3. Exclude COINBASE broker_account rows so crypto matches
   // don't double-count into Anlage KAP's netRealized / dividends figures.
   const { stockAccountIds, brokerById } = deriveAccountScope(accountRows);
-  const classification = toClassificationRecord(overrides);
+  const classification = toClassificationRecord(overrides, instrumentRows);
 
   const yrMatches = allMatches.filter(
     m => m.closedAt.startsWith(yrStr) && stockAccountIds.has(m.brokerAccountId),
@@ -336,7 +389,7 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
 
   // Reuse the rows we already loaded above — avoids three redundant
   // round-trips that `loadTaxInputs` would otherwise re-issue.
-  const kapInputs = buildKapInputs(year, settings, allTx, allMatches, stockAccountIds, brokerById, classification);
+  const kapInputs = buildKapInputs(year, settings, allTx, allMatches, stockAccountIds, brokerById, classification, isinToSymbolMap(instrumentRows));
   const kap = buildAnlageKap(kapInputs);
   const kapV2 = buildKapAndKapInv(kapInputs);
   const reconciliation = buildReconciliation(kapV2, accountRows);

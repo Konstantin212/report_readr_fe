@@ -22,7 +22,7 @@ export const SECTOR_MAP: Record<string, string> = {
   SPYW: "ETF", VUSA: "ETF", VHYL: "ETF", XSX7: "ETF",
   EUDI: "ETF",
   VOO: "ETF", VTI: "ETF", QQQ: "ETF", SPY: "ETF",
-  ARKK: "ETF", IVV: "ETF",
+  ARKK: "ETF", IVV: "ETF", SCHD: "ETF",
 };
 
 export const DEFAULT_SECTOR = "Other";
@@ -46,6 +46,9 @@ export const KIND_MAP: Record<string, AssetKind> = {
   // "unknown", which routes them to Z8_sonstige + a warning so the user
   // double-checks with their Steuerberater.
   EUNL: "etf", // iShares Core MSCI World — almost certainly aktien, awaiting verification
+  // Schwab US Dividend Equity ETF — FF statements type it фонд/ETF; hardcoded
+  // fallback for rows ingested before instruments.kind existed.
+  SCHD: "etf",
 };
 
 /**

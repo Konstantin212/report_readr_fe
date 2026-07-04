@@ -84,4 +84,29 @@ describe("buildClassificationOverrides", () => {
     const metas = [meta({ isin: "IE00B0M63177", assetKind: "etf" })];
     expect(buildClassificationOverrides(instruments, metas).size).toBe(0);
   });
+
+  it("uses the broker-declared kind when no meta row exists", () => {
+    const instruments = [{ symbol: "SCHD", isin: "US8085247976", kind: "etf" }];
+    const o = buildClassificationOverrides(instruments, []).get("SCHD");
+    expect(o?.kind).toBe("etf");
+    expect(o?.sector).toBeNull();
+    expect(o?.subtype).toBeNull();
+    expect(o?.distribution).toBeNull();
+  });
+
+  it("prefers an OK meta row over the broker-declared kind", () => {
+    const instruments = [{ symbol: "SCHD", isin: "US8085247976", kind: "stock" }];
+    const metas = [
+      meta({ isin: "US8085247976", assetKind: "etf", sector: "Dividend", fundSubtype: "aktien" }),
+    ];
+    const o = buildClassificationOverrides(instruments, metas).get("SCHD");
+    expect(o?.kind).toBe("etf");
+    expect(o?.sector).toBe("Dividend");
+    expect(o?.subtype).toBe("aktien");
+  });
+
+  it("ignores an invalid broker kind string", () => {
+    const instruments = [{ symbol: "XXX", isin: "US8085247976", kind: "фонд/ETF" }];
+    expect(buildClassificationOverrides(instruments, []).has("XXX")).toBe(false);
+  });
 });

@@ -4,6 +4,8 @@ import { classifyKind, classifySector, fundSubtype, type FundSubtype, type Asset
 
 export type KapDividend = {
   ticker: string;
+  /** ISIN when known — preferred classification key (symbols collide). */
+  isin?: string;
   country?: string;
   grossEur: string;
   whtEur: string;
@@ -11,10 +13,12 @@ export type KapDividend = {
   broker?: string;
 };
 
-export type KapInterest = { grossEur: string; broker?: string };
+export type KapInterest = { grossEur: string; broker?: string; description?: string };
 
 export type KapMatch = {
   symbol: string;
+  /** ISIN when known — preferred classification key (symbols collide). */
+  isin?: string;
   gainEur: string;
   closedAt: string;
   broker?: string;
@@ -26,6 +30,8 @@ export type KapMatch = {
  *  paying stock by symbol. */
 export type KapWithholding = {
   symbol: string;
+  /** ISIN when known — preferred classification key (symbols collide). */
+  isin?: string;
   whtEur: string;
   country?: string;
   broker?: string;
@@ -148,20 +154,33 @@ function isNonZero(z: ZeileValue): boolean {
 
 type ClassificationMap = BuildAnlageKapInput["classification"];
 
-/** Subtype resolution order (T1): classification override → FUND_SUBTYPE_MAP
- *  → "unknown" (routes to Z8_sonstige + warning). A `null` override subtype
- *  still falls through to the hardcoded map (e.g. US ETFs SPY/VOO/SCHD, which
- *  justETF can't classify but are Aktienfonds per §2 Abs.6 InvStG). */
-function subtypeFor(ticker: string, classification?: ClassificationMap): FundSubtype | "unknown" {
-  const override = classification?.[ticker];
+/** Subtype resolution order (T1): ISIN-keyed classification → symbol-keyed
+ *  classification → FUND_SUBTYPE_MAP → "unknown" (routes to Z8_sonstige +
+ *  warning). A `null` override subtype still falls through to the hardcoded
+ *  map (e.g. US ETFs SPY/VOO/SCHD, which justETF can't classify but are
+ *  Aktienfonds per §2 Abs.6 InvStG). */
+function subtypeFor(
+  ticker: string,
+  classification?: ClassificationMap,
+  isin?: string,
+): FundSubtype | "unknown" {
+  const override = (isin ? classification?.[isin] : undefined) ?? classification?.[ticker];
   if (override?.subtype) return override.subtype;
   return fundSubtype(ticker);
 }
 
-/** Kind resolution: classification override (from instrument_meta) → the
- *  hardcoded classifyKind() fallback. */
-function kindFor(ticker: string, classification?: ClassificationMap): AssetKind {
-  const override = classification?.[ticker];
+/** Kind resolution: ISIN-keyed classification → symbol-keyed classification
+ *  → the hardcoded classifyKind() fallback. ISIN comes FIRST because ticker
+ *  symbols collide across listings — the user's real portfolio has Citigroup
+ *  common stock (US1729674242) and a Citigroup bond (US172967MZ11) BOTH
+ *  under symbol "C"; only the ISIN separates §20 Aktien losses (Z23) from
+ *  sonstige losses (Z22). */
+function kindFor(
+  ticker: string,
+  classification?: ClassificationMap,
+  isin?: string,
+): AssetKind {
+  const override = (isin ? classification?.[isin] : undefined) ?? classification?.[ticker];
   if (override) return override.kind;
   return classifyKind(ticker, classifySector(ticker));
 }
@@ -241,17 +260,17 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   // carry inline WHT at one (FF) and a standalone WITHHOLDING_TAX event at the
   // other (IBKR); keying by symbol alone would let the FF inline suppress the
   // legitimate IBKR standalone credit.
-  const brokerKey = (broker: string | undefined, symbol: string) => `${broker ?? "?"} ${symbol}`;
+  const brokerKey = (broker: string | undefined, symbol: string) => `${broker ?? "?"}|${symbol}`;
   const stockDiv = new Map<string, { gross: Decimal; country?: string; inlineWht: Decimal }>();
 
   // --- Dividends ---------------------------------------------------------
   for (const d of input.dividends) {
-    const kind = kindFor(d.ticker, cls);
+    const kind = kindFor(d.ticker, cls, d.isin);
     const gross = new Decimal(d.grossEur || "0");
     const wht = new Decimal(d.whtEur || "0");
 
     if (kind === "etf") {
-      const sub = subtypeFor(d.ticker, cls);
+      const sub = subtypeFor(d.ticker, cls, d.isin);
       const resolved: FundSubtype = sub === "unknown" ? "sonstige" : sub;
       if (sub === "unknown") {
         warnings.push(
@@ -307,8 +326,19 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   }
 
   // --- Interest (always non-fund → KAP Z19) ------------------------------
+  // Negative interest = DEBIT (margin) interest the investor PAID. Under
+  // §20 Abs. 9 EStG actual expenses are NOT deductible from capital income
+  // (only the Sparer-Pauschbetrag is) — so paid interest must not reduce
+  // Z19. Excluded with a warning instead of silently netted.
   for (const i of input.interest) {
-    z19 = z19.plus(new Decimal(i.grossEur || "0"));
+    const gross = new Decimal(i.grossEur || "0");
+    if (gross.lt(0)) {
+      warnings.push(
+        `Debit/margin interest of €${gross.abs().toFixed(2)}${i.broker ? ` (${i.broker})` : ""} is not deductible under §20 Abs. 9 EStG — excluded from KAP Z19.`,
+      );
+      continue;
+    }
+    z19 = z19.plus(gross);
   }
 
   // --- Standalone withholding tax (T4) -----------------------------------
@@ -322,7 +352,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   for (const w of input.withholding ?? []) {
     const amt = new Decimal(w.whtEur || "0");
     if (amt.lte(0)) continue;
-    if (kindFor(w.symbol, cls) === "etf") {
+    if (kindFor(w.symbol, cls, w.isin) === "etf") {
       warnings.push(
         `ETF/fund WHT on "${w.symbol}" (€${amt.toFixed(2)}) is not investor-creditable under InvStG 2018 — excluded from KAP Z51/Z52.`,
       );
@@ -354,10 +384,10 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
 
   // --- Realised matches --------------------------------------------------
   for (const m of input.matches) {
-    const kind = kindFor(m.symbol, cls);
+    const kind = kindFor(m.symbol, cls, m.isin);
     const gain = new Decimal(m.gainEur || "0");
     if (kind === "etf") {
-      const sub = subtypeFor(m.symbol, cls);
+      const sub = subtypeFor(m.symbol, cls, m.isin);
       const resolved: FundSubtype = sub === "unknown" ? "sonstige" : sub;
       if (sub === "unknown") {
         warnings.push(

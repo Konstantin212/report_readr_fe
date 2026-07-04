@@ -63,7 +63,49 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
   const openLotsByIdentity = new Map<string, Lot[]>();
   const matches: RealizedMatch[] = [];
 
+  // Freedom Finance reports a share split as a PAIR of CORPORATE_ACTION rows
+  // on the same date+identity: a negative quantity (old shares removed) and a
+  // positive quantity (new shares added), e.g. -34 / +102 for a 3:1 split.
+  // We buffer the first leg per identity and apply the ratio once both arrive
+  // (the two rows may sort in either order). A split preserves cost basis, so
+  // we scale each open lot's remaining quantity and leave its cost untouched —
+  // per-share cost implicitly divides by the ratio. Without this, a later sell
+  // would FIFO-match pre-split lots at the un-split per-share cost, inventing a
+  // phantom realized loss.
+  const pendingSplits = new Map<string, { remove?: Decimal; add?: Decimal }>();
+
   for (const e of sorted) {
+    if (e.type === "CORPORATE_ACTION" && /split/i.test(e.description ?? "")) {
+      const q = Number(e.quantity);
+      if (!Number.isFinite(q) || q === 0) continue;
+      const id = identityOf(e);
+      if (!id) continue;
+      const legQty = new Decimal(e.quantity ?? "0");
+      const pending = pendingSplits.get(id) ?? {};
+      if (legQty.lt(0)) pending.remove = legQty.abs();
+      else pending.add = legQty;
+      pendingSplits.set(id, pending);
+
+      if (pending.remove && pending.add && pending.remove.gt(0)) {
+        const ratio = pending.add.div(pending.remove);
+        if (ratio.isFinite() && ratio.gt(0)) {
+          const lots = openLotsByIdentity.get(id);
+          if (lots) {
+            for (const lot of lots) {
+              // Multiply-then-divide (rather than *= ratio) so exact splits
+              // like 102/34 stay exact and reverse splits like 10/30 don't drift.
+              lot.remainingQty = new Decimal(lot.remainingQty)
+                .mul(pending.add)
+                .div(pending.remove)
+                .toString();
+            }
+          }
+        }
+        pendingSplits.delete(id);
+      }
+      continue;
+    }
+
     if (e.type !== "TRADE" || !e.symbol) continue;
     const id = identityOf(e);
     if (!id) continue;

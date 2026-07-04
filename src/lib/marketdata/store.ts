@@ -192,10 +192,10 @@ export async function getSymbolsByIsin(isin: string): Promise<string[]> {
  */
 export async function getUserInstruments(
   ownerUserId: string,
-): Promise<{ symbol: string | null; isin: string | null }[]> {
+): Promise<{ symbol: string | null; isin: string | null; kind: string | null }[]> {
   const db = getDb();
   return db
-    .select({ symbol: instruments.symbol, isin: instruments.isin })
+    .select({ symbol: instruments.symbol, isin: instruments.isin, kind: instruments.kind })
     .from(instruments)
     .where(eq(instruments.ownerUserId, ownerUserId));
 }
