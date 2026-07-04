@@ -188,6 +188,7 @@ function manualUrlFor(manual: ManualLink): string | undefined {
 export async function enrichInstruments(
   refs: InstrumentRef[],
   limit = DEFAULT_LIMIT,
+  spacingMs = SPACING_MS,
 ): Promise<EnrichSummary> {
   const isins = [...new Set(refs.map((r) => r.isin))];
   const existing = await getMetaByIsins(isins);
@@ -196,7 +197,7 @@ export async function enrichInstruments(
   const summary: EnrichSummary = { attempted: candidates.length, ok: 0, notFound: 0, errors: 0 };
   for (let i = 0; i < candidates.length; i++) {
     await enrichOne(candidates[i], null);
-    if (i < candidates.length - 1) await sleep(SPACING_MS);
+    if (i < candidates.length - 1) await sleep(spacingMs);
   }
   // Re-read to report outcome counts.
   const after = await getMetaByIsins(candidates.map((c) => c.isin));

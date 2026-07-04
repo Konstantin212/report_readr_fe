@@ -24,10 +24,15 @@ import { enrichInstruments } from "@/lib/marketdata/enrich";
  *      off justETF's EUR endpoint instead of a guessed Yahoo ticker.
  *
  * Gated by isAdminEmail (Settings → "Refresh quotes" button), not the
- * cron secret. maxDuration bumped to 300 to cover sequential enrichment
- * (~1.5s/ISIN) plus repricing.
+ * cron secret. maxDuration stays at the Hobby-plan ceiling (60s); the
+ * enrichment runs at a tighter 500ms spacing (vs the cron's polite
+ * 1.5s) so a full held-portfolio enrich + reprice fits the budget.
+ * Already-enriched ISINs are TTL-skipped, so a second click (if a very
+ * large portfolio didn't finish in one pass) is mostly fast repricing.
  */
-export const maxDuration = 300;
+export const maxDuration = 60;
+
+const ADMIN_ENRICH_SPACING_MS = 500;
 
 export async function POST() {
   const user = await getCurrentUser();
@@ -39,7 +44,7 @@ export async function POST() {
   // Phase 1 — enrich all held ISINs (bypass the polite per-run cap).
   const refs = await getHeldRefs();
   const enrichment = refs.length
-    ? await enrichInstruments(refs, refs.length)
+    ? await enrichInstruments(refs, refs.length, ADMIN_ENRICH_SPACING_MS)
     : { attempted: 0, ok: 0, notFound: 0, errors: 0 };
 
   // Phase 2 — reprice every held symbol with router-driven selection.
