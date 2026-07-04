@@ -230,17 +230,18 @@ export function parseFreedomFinanceStatement(
     ...parseFreedomCashEndings(statement, accountNumber),
   ];
 
-  // Freedom stamps ISIN on TRADE rows but leaves it off DIVIDEND and
-  // WITHHOLDING_TAX rows. Backfill the missing ISINs from the symbol→ISIN
-  // map built off TRADEs so downstream joins (tax evidence CSV, position
-  // grouping) don't have to special-case it.
+  // Freedom stamps ISIN on TRADE rows but leaves it off DIVIDEND,
+  // WITHHOLDING_TAX and CORPORATE_ACTION rows. Backfill the missing ISINs
+  // from the symbol→ISIN map built off TRADEs so downstream joins (tax
+  // evidence CSV, position grouping) don't have to special-case it — and
+  // so replay's split handling finds the ISIN-keyed lots.
   const symbolToIsin = new Map<string, string>();
   for (const ev of events) {
     if (ev.type === "TRADE" && ev.symbol && ev.isin) symbolToIsin.set(ev.symbol, ev.isin);
   }
   for (const ev of events) {
     if (ev.isin || !ev.symbol) continue;
-    if (ev.type !== "DIVIDEND" && ev.type !== "WITHHOLDING_TAX") continue;
+    if (ev.type !== "DIVIDEND" && ev.type !== "WITHHOLDING_TAX" && ev.type !== "CORPORATE_ACTION") continue;
     const isin = symbolToIsin.get(ev.symbol);
     if (isin) ev.isin = isin;
   }

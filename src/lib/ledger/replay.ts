@@ -89,15 +89,32 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
       if (pending.remove && pending.add && pending.remove.gt(0)) {
         const ratio = pending.add.div(pending.remove);
         if (ratio.isFinite() && ratio.gt(0)) {
-          const lots = openLotsByIdentity.get(id);
+          // Identity fallback: FF corporate-action rows often carry only the
+          // symbol while TRADE lots are keyed by ISIN (identityOf = isin ??
+          // symbol). Try the event's own identity, then the other key, then
+          // scan for a lot list whose lots carry this symbol — otherwise the
+          // split silently applies to a nonexistent identity and the phantom
+          // pre-split basis survives (the exact SCHD production bug).
+          const lots =
+            openLotsByIdentity.get(id)
+            ?? (e.symbol ? openLotsByIdentity.get(e.symbol) : undefined)
+            ?? (e.symbol
+              ? [...openLotsByIdentity.values()].find((l) => l[0]?.symbol === e.symbol)
+              : undefined);
           if (lots) {
+            // Scale FIFO only up to the REMOVE quantity the broker declared —
+            // not every open lot. A same-day post-split buy sorts BEFORE the
+            // corporate action (TYPE_ORDER puts TRADE first) and must not be
+            // scaled: the -34/+102 pair applies to exactly 34 pre-split
+            // shares. Multiply-then-divide keeps exact ratios (102/34) exact.
+            let toScale = pending.remove;
             for (const lot of lots) {
-              // Multiply-then-divide (rather than *= ratio) so exact splits
-              // like 102/34 stay exact and reverse splits like 10/30 don't drift.
-              lot.remainingQty = new Decimal(lot.remainingQty)
-                .mul(pending.add)
-                .div(pending.remove)
-                .toString();
+              if (toScale.lte(0)) break;
+              const lotQty = new Decimal(lot.remainingQty);
+              const consume = Decimal.min(lotQty, toScale);
+              const scaled = consume.mul(pending.add).div(pending.remove);
+              lot.remainingQty = scaled.plus(lotQty.minus(consume)).toString();
+              toScale = toScale.minus(consume);
             }
           }
         }

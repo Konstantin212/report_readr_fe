@@ -179,4 +179,52 @@ describe("FIFO replay — share splits (CORPORATE_ACTION pairs)", () => {
     // Quantity unchanged by the ignored dividend action.
     expect(Number(matches[0].costEur)).toBeCloseTo(1000, 2);
   });
+
+  it("does not scale a same-day post-split buy (TRADE sorts before CORPORATE_ACTION)", () => {
+    // Real FF shape: on split day the user ALSO bought 3 post-split shares.
+    // The -34 leg declares the split covers exactly 34 pre-split shares, so
+    // FIFO-scaling must stop there — 34→102 plus the untouched 3 = 105.
+    const events: NormalizedEvent[] = [
+      trade("b1", "2023-06-14", "SDAY", "34", "2305.46"),
+      trade("b6", "2024-10-11", "SDAY", "3", "77.86"), // same-day, post-split price
+      split("ca-remove", "2024-10-11", "SDAY", "-34", "split"),
+      split("ca-add", "2024-10-11", "SDAY", "102", "split"),
+      trade("s1", "2025-11-11", "SDAY", "-105", "2464.84"),
+    ];
+
+    const { lots, matches } = replay(events);
+
+    expect(lots).toHaveLength(0); // no phantom 6-share zombie
+    const totalQty = sum(matches.map((m) => m.qty));
+    const totalGain = sum(matches.map((m) => m.gainEur));
+    expect(totalQty).toBe(105);
+    expect(totalGain).toBeCloseTo(2464.84 - 2305.46 - 77.86, 1);
+  });
+
+  it("applies a symbol-only split pair to ISIN-keyed lots (real FF DB shape)", () => {
+    // Production shape: TRADE rows carry the ISIN (lots keyed by it via
+    // identityOf = isin ?? symbol) while FF's corporate-action rows carry
+    // only the symbol. The split must still find and scale those lots.
+    const ISIN = "US8085247976";
+    const withIsin = (e: NormalizedEvent): NormalizedEvent => ({ ...e, isin: ISIN });
+    const events: NormalizedEvent[] = [
+      withIsin(trade("b1", "2023-06-14", "SCHD", "10", "666.94")),
+      withIsin(trade("b2", "2023-07-11", "SCHD", "24", "1638.52")),
+      // Split legs WITHOUT isin — identityOf resolves them to "SCHD".
+      split("ca-remove", "2024-10-11", "SCHD", "-34", "split"),
+      split("ca-add", "2024-10-11", "SCHD", "102", "split"),
+      withIsin(trade("s1", "2025-11-11", "SCHD", "-102", "2400.00")),
+    ];
+
+    const { lots, matches } = replay(events);
+
+    expect(lots).toHaveLength(0);
+    expect(matches.length).toBeGreaterThan(0);
+    const totalQty = sum(matches.map((m) => m.qty));
+    const totalCost = sum(matches.map((m) => m.costEur));
+    const totalGain = sum(matches.map((m) => m.gainEur));
+    expect(totalQty).toBe(102);
+    expect(totalCost).toBeCloseTo(2305.46, 1);
+    expect(totalGain).toBeCloseTo(2400.0 - 2305.46, 1);
+  });
 });
