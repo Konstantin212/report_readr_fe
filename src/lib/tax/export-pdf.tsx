@@ -29,9 +29,10 @@ const styles = StyleSheet.create({
 
 const KAP_LABELS = {
   Z17: "Z17 — Sparer-Pauschbetrag gegen nicht-KAP Erträge",
-  Z19: "Z19 — Kapitalerträge gesamt",
-  Z20: "Z20 — davon ausländisch",
-  Z22: "Z22 — Gewinne aus Aktienveräußerungen (netto)",
+  Z19: "Z19 — Ausländische Kapitalerträge (gesamt)",
+  Z20: "Z20 — darin: Gewinne aus Aktienveräußerungen",
+  Z22: "Z22 — darin: Verluste ohne Aktienveräußerungen",
+  Z23: "Z23 — darin: Verluste aus Aktienveräußerungen",
   Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
   Z51: "Z51 — Ausländische Quellensteuer (brutto)",
   Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
@@ -159,9 +160,23 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
       text:
         draft.kap.lines.Z19.euros === 0
           ? "KAP Zeile 19 = 0 (no non-fund foreign capital income)"
-          : `KAP Zeile 19 = ${draft.kap.lines.Z19.euros} (non-fund dividends + interest)`,
+          : `KAP Zeile 19 = ${draft.kap.lines.Z19.euros} (ausländische Kapitalerträge, gesamt)`,
     },
   ];
+
+  // §20 Abs.6 stock-sale gain/loss breakout — separate non-negative lines.
+  if (draft.kap.lines.Z20.euros > 0) {
+    items.push({ mark: "yes", text: `KAP Zeile 20 = ${draft.kap.lines.Z20.euros} (Gewinne aus Aktienveräußerungen)` });
+  }
+  if (draft.kap.lines.Z23.euros > 0) {
+    items.push({ mark: "warn", text: `KAP Zeile 23 = ${draft.kap.lines.Z23.euros} (Verluste aus Aktienveräußerungen — only offset stock gains)` });
+  }
+  if (draft.kap.lines.Z22.euros > 0) {
+    items.push({ mark: "warn", text: `KAP Zeile 22 = ${draft.kap.lines.Z22.euros} (Verluste ohne Aktienveräußerungen)` });
+  }
+  if (draft.kap.lines.Z51.euros > 0) {
+    items.push({ mark: "yes", text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)` });
+  }
 
   if (draft.kapInv.present) {
     if (draft.kapInv.section1.Z4_aktienfonds.euros > 0) {

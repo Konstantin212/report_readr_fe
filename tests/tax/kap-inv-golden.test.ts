@@ -110,17 +110,25 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
     ],
   });
 
-  it("routes individual-stock dividends to KAP Z19 (not KAP-INV)", () => {
-    expect(draft.kap.lines.Z19.cents).toBe("500.00");
-    expect(draft.kap.lines.Z19.euros).toBe(500);
-    expect(draft.kap.lines.Z20.euros).toBe(500); // US = foreign
+  it("routes individual-stock dividends into the KAP Z19 foreign-income total", () => {
+    // Z19 is the foreign capital-income TOTAL: 500 dividend + 1200 stock gain.
+    expect(draft.kap.lines.Z19.cents).toBe("1700.00");
+    expect(draft.kap.lines.Z19.euros).toBe(1700);
     expect(draft.kapInv.present).toBe(false);
     expect(draft.kap.Z4_kapInvAttached).toBe(false);
   });
 
-  it("routes individual-stock realised matches to KAP Z22 (not KAP-INV section 2)", () => {
-    expect(draft.kap.lines.Z22.cents).toBe("1000.00"); // 1200 - 200
+  it("splits stock-sale gains and losses into separate non-negative lines (§20 Abs.6)", () => {
+    // AAPL +1200 → Z20 (Gewinne aus Aktienveräußerungen), TSLA -200 → Z23
+    // (Verluste aus Aktienveräußerungen), both as positive magnitudes.
+    expect(draft.kap.lines.Z20.cents).toBe("1200.00");
+    expect(draft.kap.lines.Z23.cents).toBe("200.00");
+    expect(draft.kap.lines.Z22.cents).toBe("0.00"); // no non-stock losses
     expect(draft.kapInv.section2.Z14_aktienfonds.euros).toBe(0);
+    // No emitted KAP value is ever negative.
+    for (const v of Object.values(draft.kap.lines)) {
+      expect(Number(v.cents)).toBeGreaterThanOrEqual(0);
+    }
   });
 
   it("applies treaty-cap on Z52 (US default = 15%, so 15% × 500 = 75)", () => {

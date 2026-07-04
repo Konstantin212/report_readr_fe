@@ -186,7 +186,7 @@ export default async function TaxPage({ params }: { params: Promise<{ year: stri
         </Card>
       </div>
 
-      <ElsterValuesCard draft={d.kapV2} />
+      <ElsterValuesCard draft={d.kapV2} reconciliation={d.reconciliation} />
 
       <RealizedLotsTable
         lots={d.realizedLots}

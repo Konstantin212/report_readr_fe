@@ -3,9 +3,10 @@ import type { GermanTaxDraft, ZeileValue } from "@/lib/tax/german-tax";
 
 const KAP_LABELS = {
   Z17: "Z17 — Sparer-Pauschbetrag gegen nicht-KAP Erträge",
-  Z19: "Z19 — Kapitalerträge gesamt",
-  Z20: "Z20 — davon ausländisch",
-  Z22: "Z22 — Gewinne aus Aktienveräußerungen (netto)",
+  Z19: "Z19 — Ausländische Kapitalerträge (gesamt)",
+  Z20: "Z20 — darin: Gewinne aus Aktienveräußerungen",
+  Z22: "Z22 — darin: Verluste ohne Aktienveräußerungen",
+  Z23: "Z23 — darin: Verluste aus Aktienveräußerungen",
   Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
   Z51: "Z51 — Ausländische Quellensteuer (brutto)",
   Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
@@ -55,7 +56,50 @@ function CheckboxRow({ label, set }: { label: string; set: boolean }) {
   );
 }
 
-export function ElsterValuesCard({ draft }: { draft: GermanTaxDraft }) {
+export type Reconciliation = {
+  rows: { broker: string; formTarget: string; totalEur: number; count: number }[];
+  excluded: string[];
+  caveats: string[];
+};
+
+function fmtEur(n: number): string {
+  return n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function ReconciliationDisclosure({ reconciliation }: { reconciliation: Reconciliation }) {
+  if (
+    reconciliation.rows.length === 0
+    && reconciliation.excluded.length === 0
+    && reconciliation.caveats.length === 0
+  ) return null;
+  return (
+    <details className="text-[11px] border-t border-border/40 pt-2">
+      <summary className="font-mono text-[10px] uppercase tracking-widest text-muted cursor-pointer">
+        Reconciliation · per broker
+      </summary>
+      <div className="mt-2 space-y-1">
+        {reconciliation.rows.map((r) => (
+          <div key={`${r.broker}-${r.formTarget}`} className="flex justify-between items-baseline">
+            <span className="text-dim">
+              {r.broker} · {r.formTarget} <span className="text-muted">×{r.count}</span>
+            </span>
+            <span className="font-mono text-ink">€{fmtEur(r.totalEur)}</span>
+          </div>
+        ))}
+        {reconciliation.excluded.length > 0 && (
+          <div className="text-muted pt-1">
+            Excluded from Anlage KAP: {reconciliation.excluded.join(" · ")}
+          </div>
+        )}
+        {reconciliation.caveats.map((c, i) => (
+          <div key={i} className="text-amber pt-1">⚠ {c}</div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+export function ElsterValuesCard({ draft, reconciliation }: { draft: GermanTaxDraft; reconciliation?: Reconciliation }) {
   const s1Keys = Object.keys(KAP_INV_S1_LABELS) as Array<keyof typeof KAP_INV_S1_LABELS>;
   const s2Keys = Object.keys(KAP_INV_S2_LABELS) as Array<keyof typeof KAP_INV_S2_LABELS>;
 
@@ -115,6 +159,8 @@ export function ElsterValuesCard({ draft }: { draft: GermanTaxDraft }) {
           )}
         </>
       )}
+
+      {reconciliation && <ReconciliationDisclosure reconciliation={reconciliation} />}
     </Card>
   );
 }

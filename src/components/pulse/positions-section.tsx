@@ -33,6 +33,9 @@ type Row = {
   /** ISO timestamp of when the cache row was written. Server-rendered Dates
    *  cross the boundary as strings. */
   quoteUpdatedAt?: string | null;
+  /** Fund distribution policy — set only for ETFs whose metadata resolved
+   *  OK. Drives the Dist/Acc chip in the row subtitle. */
+  distribution?: { policy: "DISTRIBUTING" | "ACCUMULATING"; frequency: string | null } | null;
 };
 
 /**
@@ -47,6 +50,7 @@ const SOURCE_META: Record<string, { short: string; long: string; kind: SourceKin
   FMP:              { short: "FMP", long: "Financial Modeling Prep API",    kind: "api" },
   TWELVE_DATA:      { short: "12D", long: "Twelve Data API",                kind: "api" },
   YAHOO:            { short: "YAH", long: "Yahoo Finance API",              kind: "api" },
+  JUSTETF:          { short: "JETF", long: "justETF EOD",                   kind: "api" },
   STOOQ:            { short: "STQ", long: "Stooq CSV API",                  kind: "api" },
   COINGECKO:        { short: "CG",  long: "CoinGecko API",                  kind: "api" },
 };
@@ -285,6 +289,20 @@ export function PositionsSection({
                 <div className="font-semibold text-[13px]">
                   {r.symbol}{" "}
                   <span className="font-mono text-[10px] text-dim ml-1">{r.sector} · {r.currency}</span>
+                  {r.distribution && (
+                    <span
+                      title={
+                        r.distribution.policy === "DISTRIBUTING"
+                          ? `Distributing${r.distribution.frequency ? ` · ${r.distribution.frequency}` : ""}`
+                          : "Accumulating — Vorabpauschale applies (§18 InvStG)"
+                      }
+                      className={`font-mono text-[10px] ml-1 px-1 py-0.5 rounded ${
+                        r.distribution.policy === "DISTRIBUTING" ? "bg-mint/10 text-mint" : "bg-amber/10 text-amber"
+                      }`}
+                    >
+                      {r.distribution.policy === "DISTRIBUTING" ? "Dist" : "Acc"}
+                    </span>
+                  )}
                   <span className="lg:hidden font-mono text-[10px] text-dim ml-1">
                     · avg {v.avgCostEur.toFixed(2)} · {r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}
                   </span>

@@ -2,8 +2,27 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth/server";
 import { ingestParsedImport } from "@/lib/imports/ingest";
 import { backfillHistoryForSymbols } from "@/lib/quotes/backfill";
+import { enrichInstruments } from "@/lib/marketdata/enrich";
+import type { InstrumentRef } from "@/lib/marketdata/types";
 
 export const maxDuration = 60;
+
+/** Distinct {isin, symbol, currency} refs from the import events, ISIN required. */
+function collectRefs(body: unknown): InstrumentRef[] {
+  const events = (body as { events?: unknown })?.events;
+  if (!Array.isArray(events)) return [];
+  const seen = new Set<string>();
+  const refs: InstrumentRef[] = [];
+  for (const e of events as Array<{ isin?: string; symbol?: string; currency?: string | null }>) {
+    if (!e?.isin) continue;
+    const symbol = e.symbol ?? "";
+    const key = `${e.isin}|${symbol}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({ isin: e.isin, symbol, currency: e.currency ?? null });
+  }
+  return refs;
+}
 
 export async function POST(req: Request) {
   const user = await requireCurrentUser();
@@ -26,6 +45,16 @@ export async function POST(req: Request) {
     void backfillHistoryForSymbols(symbols).catch(() => {
       // Swallow — backfill failures shouldn't surface on the ingest path.
     });
+
+    // Fire-and-forget: enrich metadata for any ISIN-bearing instruments in
+    // this import (classification + fund facts, and an EOD quote for ETFs).
+    // Not awaited — must not add latency to the ingest response.
+    const refs = collectRefs(body);
+    if (refs.length) {
+      void enrichInstruments(refs).catch(() => {
+        // Swallow — enrichment failures shouldn't surface on the ingest path.
+      });
+    }
 
     return NextResponse.json(summary);
   } catch (err) {

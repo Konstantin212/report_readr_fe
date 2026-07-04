@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { usePnlMode } from "./pnl-mode";
+import { InstrumentSourceCard, type InstrumentMetaView } from "./instrument-source-card";
 import { classifyQuoteFreshness } from "@/lib/quotes/freshness";
 
 export type Lot = {
@@ -54,6 +55,12 @@ export type DetailData = {
   priceAsOf?: string | null;
   /** Every TRADE event for this symbol — buy and sell — ordered oldest first. */
   transactions: DetailTransaction[];
+  /** ISIN of the selected instrument (null when unknown). Passed to the
+   *  data-source card so a manual link can be keyed to it. */
+  isin: string | null;
+  /** Market-data metadata for the "data source" card, or null when no OK
+   *  classification exists yet (card then offers the manual-link input). */
+  meta: InstrumentMetaView | null;
 };
 
 /**
@@ -164,6 +171,8 @@ export function PositionDetailPanel({ d, closeHref }: { d: DetailData; closeHref
             </div>
             <div className="h-[70px]"><Sparkline values={d.sparkline} /></div>
           </div>
+
+          <InstrumentSourceCard isin={d.isin} symbol={d.symbol} currency={d.currency} meta={d.meta} />
 
           <div>
             <div className="font-semibold text-[13px] mb-2">Cost basis · FIFO lots</div>

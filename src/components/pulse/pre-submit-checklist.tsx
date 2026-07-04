@@ -32,9 +32,36 @@ function buildItems(draft: GermanTaxDraft): ChecklistItem[] {
       text:
         draft.kap.lines.Z19.euros === 0
           ? "KAP Zeile 19 = 0 (no non-fund foreign capital income)"
-          : `KAP Zeile 19 = ${draft.kap.lines.Z19.euros} (non-fund dividends + interest)`,
+          : `KAP Zeile 19 = ${draft.kap.lines.Z19.euros} (ausländische Kapitalerträge, gesamt)`,
     },
   ];
+
+  // Stock-sale gain/loss breakout (§20 Abs.6 — separate ELSTER lines, all
+  // non-negative). Only surfaced when there's something to show.
+  if (draft.kap.lines.Z20.euros > 0) {
+    items.push({
+      mark: "yes",
+      text: `KAP Zeile 20 = ${draft.kap.lines.Z20.euros} (Gewinne aus Aktienveräußerungen)`,
+    });
+  }
+  if (draft.kap.lines.Z23.euros > 0) {
+    items.push({
+      mark: "warn",
+      text: `KAP Zeile 23 = ${draft.kap.lines.Z23.euros} (Verluste aus Aktienveräußerungen — only offset stock gains, §20 Abs.6 S.4)`,
+    });
+  }
+  if (draft.kap.lines.Z22.euros > 0) {
+    items.push({
+      mark: "warn",
+      text: `KAP Zeile 22 = ${draft.kap.lines.Z22.euros} (Verluste ohne Aktienveräußerungen)`,
+    });
+  }
+  if (draft.kap.lines.Z51.euros > 0) {
+    items.push({
+      mark: "yes",
+      text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)`,
+    });
+  }
 
   if (draft.kapInv.present) {
     if (draft.kapInv.section1.Z4_aktienfonds.euros > 0) {

@@ -8,6 +8,7 @@ import type { GermanTaxDraft } from "./german-tax";
 export function renderEvidenceCsv(draft: GermanTaxDraft): string {
   const head = [
     "date",
+    "broker",
     "symbol",
     "ticker",
     "country",
@@ -20,6 +21,7 @@ export function renderEvidenceCsv(draft: GermanTaxDraft): string {
   const rows = draft.evidence.map((e) =>
     [
       e.date,
+      e.broker ?? "",
       e.symbol ?? "",
       e.ticker ?? "",
       e.country ?? "",

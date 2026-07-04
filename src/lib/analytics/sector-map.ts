@@ -100,6 +100,12 @@ const FUND_SUBTYPE_MAP: Record<string, FundSubtype> = {
   IWDA: "aktien",   // iShares Core MSCI World
   VOO:  "aktien", VTI: "aktien", QQQ: "aktien", SPY: "aktien",
   ARKK: "aktien", IVV: "aktien",
+  // US equity-index ETFs (T1). justETF is EU-only and returns NOT_FOUND for
+  // these, so enrichment can fix `kind` (→ etf via Yahoo) but never supplies
+  // a Teilfreistellung subtype. A broad US equity-index fund holds ≥ 51 %
+  // Aktien, so it is an Aktienfonds ⇒ 30 % Teilfreistellung (§ 2 Abs. 6
+  // InvStG). SCHD (Schwab US Dividend Equity) joins SPY/VOO already above.
+  SCHD: "aktien",
 };
 
 export function fundSubtype(symbol: string): FundSubtype | "unknown" {

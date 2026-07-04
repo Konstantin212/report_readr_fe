@@ -1,20 +1,34 @@
 import Decimal from "decimal.js";
 import { TREATY_CAP, DEFAULT_TREATY_CAP } from "./treaties";
-import { classifyKind, classifySector, fundSubtype, type FundSubtype } from "@/lib/analytics/sector-map";
+import { classifyKind, classifySector, fundSubtype, type FundSubtype, type AssetKind } from "@/lib/analytics/sector-map";
 
 export type KapDividend = {
   ticker: string;
   country?: string;
   grossEur: string;
   whtEur: string;
+  /** Origin broker ("FF" | "IBKR" | …). Audit / reconciliation only (T5). */
+  broker?: string;
 };
 
-export type KapInterest = { grossEur: string };
+export type KapInterest = { grossEur: string; broker?: string };
 
 export type KapMatch = {
   symbol: string;
   gainEur: string;
   closedAt: string;
+  broker?: string;
+};
+
+/** Standalone WITHHOLDING_TAX events (T4). Some brokers (IBKR) report the
+ *  foreign withholding tax in a dedicated section rather than inline on the
+ *  dividend row, so it must be aggregated separately and matched back to the
+ *  paying stock by symbol. */
+export type KapWithholding = {
+  symbol: string;
+  whtEur: string;
+  country?: string;
+  broker?: string;
 };
 
 export type KapSettings = {
@@ -30,13 +44,23 @@ export type KapEvidenceItem = {
   grossEur: string;
   whtEur?: string;
   ecbRate?: string;
+  /** Origin broker, for the per-broker reconciliation subtotals (T5). */
+  broker?: string;
   fingerprint: string;
   /** Which ELSTER form + line this row feeds. Audit aid. */
   formTarget?: FormTarget;
 };
 
+// Anlage KAP 2025 line layout (verified against the official 2025 Formular /
+// ELSTER help; Zeile 21 was removed for 2025 with the derivatives loss cap):
+//   Z19 — Ausländische Kapitalerträge (foreign capital-income TOTAL)
+//   Z20 — darin enthaltene Gewinne aus Aktienveräußerungen (§20 Abs.2 Nr.1)
+//   Z22 — darin enthaltene Verluste OHNE Verluste aus Aktienveräußerungen
+//   Z23 — darin enthaltene Verluste AUS Aktienveräußerungen (§20 Abs.6 bucket)
+//   Z51/Z52 — ausländische Quellensteuer (brutto / anrechenbar).
+// Sources: privatsparer.de "Anlage KAP 2025 · Interactive Brokers"; steuern.de.
 export type FormTarget =
-  | "KAP_Z17" | "KAP_Z19" | "KAP_Z20" | "KAP_Z22" | "KAP_Z41" | "KAP_Z51" | "KAP_Z52"
+  | "KAP_Z19" | "KAP_Z20" | "KAP_Z22" | "KAP_Z23" | "KAP_Z51" | "KAP_Z52"
   | "KAP_INV_S1_Z4" | "KAP_INV_S1_Z5" | "KAP_INV_S1_Z6" | "KAP_INV_S1_Z7" | "KAP_INV_S1_Z8"
   | "KAP_INV_S2_Z14" | "KAP_INV_S2_Z17" | "KAP_INV_S2_Z20" | "KAP_INV_S2_Z23" | "KAP_INV_S2_Z26";
 
@@ -52,9 +76,10 @@ export type GermanTaxDraft = {
     Z4_kapInvAttached: boolean;
     lines: {
       Z17: ZeileValue; // Sparer-Pauschbetrag against non-KAP income (always 0 — let ELSTER auto-allocate)
-      Z19: ZeileValue; // capital income gross (NON-fund dividends + interest)
-      Z20: ZeileValue; // of which foreign
-      Z22: ZeileValue; // gains from share sales (positive matches, single stocks only)
+      Z19: ZeileValue; // Ausländische Kapitalerträge — total (non-fund dividends + interest + positive realised gains)
+      Z20: ZeileValue; // darin: Gewinne aus Aktienveräußerungen (stock-sale gains, ≥ 0)
+      Z22: ZeileValue; // darin: Verluste ohne Aktienveräußerungen (bond/other losses, ≥ 0 magnitude)
+      Z23: ZeileValue; // darin: Verluste aus Aktienveräußerungen (stock-sale losses, ≥ 0 magnitude)
       Z41: ZeileValue; // already-paid German AbgSt (always 0 for foreign brokers)
       Z51: ZeileValue; // foreign WHT paid (gross)
       Z52: ZeileValue; // foreign WHT eligible for offset (treaty-capped)
@@ -88,6 +113,18 @@ export type BuildAnlageKapInput = {
   dividends: KapDividend[];
   interest: KapInterest[];
   matches: KapMatch[];
+  /** Standalone WITHHOLDING_TAX events (T4). Applied to Z51/Z52 only for
+   *  STOCK symbols whose dividend rows carry NO inline whtEur — this avoids
+   *  double-counting brokers (FF) that stamp WHT both inline and as a tax
+   *  row. ETF/fund WHT is never routed here (not investor-creditable under
+   *  InvStG 2018) — it only produces a warning. */
+  withholding?: KapWithholding[];
+  /** Per-symbol classification override (T-wire). Consulted BEFORE the
+   *  hardcoded sector/subtype maps, so enriched instrument_meta (e.g. a US
+   *  equity ETF resolved to kind:"etf") reroutes correctly. `subtype: null`
+   *  falls through to FUND_SUBTYPE_MAP. Keeps the builder pure — the
+   *  override is just data in its input. */
+  classification?: Record<string, { kind: AssetKind; subtype: FundSubtype | null }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -109,11 +146,23 @@ function isNonZero(z: ZeileValue): boolean {
   return new Decimal(z.cents).abs().gt(0);
 }
 
-function subtypeFor(ticker: string): FundSubtype | "unknown" {
+type ClassificationMap = BuildAnlageKapInput["classification"];
+
+/** Subtype resolution order (T1): classification override → FUND_SUBTYPE_MAP
+ *  → "unknown" (routes to Z8_sonstige + warning). A `null` override subtype
+ *  still falls through to the hardcoded map (e.g. US ETFs SPY/VOO/SCHD, which
+ *  justETF can't classify but are Aktienfonds per §2 Abs.6 InvStG). */
+function subtypeFor(ticker: string, classification?: ClassificationMap): FundSubtype | "unknown" {
+  const override = classification?.[ticker];
+  if (override?.subtype) return override.subtype;
   return fundSubtype(ticker);
 }
 
-function kindFor(ticker: string) {
+/** Kind resolution: classification override (from instrument_meta) → the
+ *  hardcoded classifyKind() fallback. */
+function kindFor(ticker: string, classification?: ClassificationMap): AssetKind {
+  const override = classification?.[ticker];
+  if (override) return override.kind;
   return classifyKind(ticker, classifySector(ticker));
 }
 
@@ -152,11 +201,7 @@ const SECTION2_FORM_TARGET: Record<FundSubtype, FormTarget> = {
 // ---------------------------------------------------------------------------
 
 export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
-  // Per-form running totals as Decimal — we convert to ZeileValue at the end.
-  const kapZ19 = new Decimal(0);
-  const kapZ20 = new Decimal(0);
-  const kapZ51 = new Decimal(0);
-  const kapZ52 = new Decimal(0);
+  const cls = input.classification;
   const section1 = {
     aktien: new Decimal(0),
     misch: new Decimal(0),
@@ -174,22 +219,39 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   const warnings: string[] = [];
   const evidence: KapEvidenceItem[] = [];
 
-  // We accumulate KAP Z19/Z20 in scoped vars below by reassigning local
-  // Decimals. (Decimal is immutable per-op.)
-  let z19 = kapZ19;
-  let z20 = kapZ20;
-  let z51 = kapZ51;
-  let z52 = kapZ52;
+  // KAP running totals. Losses are accumulated as POSITIVE magnitudes in
+  // their own Zeilen (Z22/Z23) so no emitted value is ever negative — the
+  // §20 Abs.6 loss buckets are enforced by the Finanzamt from these split
+  // lines, not by a single net figure. Z19 is the positive foreign-income
+  // TOTAL (dividends + interest + positive realised gains); the Z20 stock-
+  // gains breakout is a subset of it ("darin enthalten").
+  //
+  // NOTE FOR HUMAN REVIEW: the exact netting the Finanzamt expects between
+  // Z19 and the Z20/Z22/Z23 breakouts is a Steuerberater question — we keep
+  // every magnitude auditable and non-negative rather than pre-netting.
+  let z19 = new Decimal(0);         // Ausländische Kapitalerträge (total)
+  let stockGains = new Decimal(0);  // Z20 — Gewinne aus Aktienveräußerungen
+  let stockLosses = new Decimal(0); // Z23 — Verluste aus Aktienveräußerungen
+  let otherLosses = new Decimal(0); // Z22 — Verluste ohne Aktienveräußerungen
+  let z51 = new Decimal(0);
+  let z52 = new Decimal(0);
+
+  // Stock-dividend totals keyed by (broker, symbol), used to match standalone
+  // WHT (T4). The broker dimension matters: a symbol held at BOTH brokers can
+  // carry inline WHT at one (FF) and a standalone WITHHOLDING_TAX event at the
+  // other (IBKR); keying by symbol alone would let the FF inline suppress the
+  // legitimate IBKR standalone credit.
+  const brokerKey = (broker: string | undefined, symbol: string) => `${broker ?? "?"} ${symbol}`;
+  const stockDiv = new Map<string, { gross: Decimal; country?: string; inlineWht: Decimal }>();
 
   // --- Dividends ---------------------------------------------------------
   for (const d of input.dividends) {
-    const kind = kindFor(d.ticker);
+    const kind = kindFor(d.ticker, cls);
     const gross = new Decimal(d.grossEur || "0");
     const wht = new Decimal(d.whtEur || "0");
-    const isForeign = d.country && d.country !== "DE";
 
     if (kind === "etf") {
-      const sub = subtypeFor(d.ticker);
+      const sub = subtypeFor(d.ticker, cls);
       const resolved: FundSubtype = sub === "unknown" ? "sonstige" : sub;
       if (sub === "unknown") {
         warnings.push(
@@ -198,7 +260,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       }
       if (wht.gt(0)) {
         warnings.push(
-          `ETF "${d.ticker}" had foreign WHT (€${wht.toFixed(2)}). v1 doesn't route ETF WHT to KAP-INV Z41 — credit manually if eligible.`,
+          `ETF "${d.ticker}" had foreign WHT (€${wht.toFixed(2)}). Under InvStG 2018 fund-distribution WHT is not investor-creditable (Teilfreistellung compensates) — not routed to KAP Z51/Z52.`,
         );
       }
       section1[resolved] = section1[resolved].plus(gross);
@@ -208,28 +270,36 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         country: d.country,
         grossEur: d.grossEur,
         whtEur: d.whtEur,
+        broker: d.broker,
         fingerprint: `div-${d.ticker}-${d.country ?? "??"}`,
         formTarget: SECTION1_FORM_TARGET[resolved],
       });
     } else {
-      // stock / bond / other → KAP Z19/Z20
+      // stock / bond / other → KAP Z19 total
       if (kind === "other") {
         warnings.push(
           `Dividend on "${d.ticker}" has unclassifiable asset kind — routed to KAP Z19. Verify with your Steuerberater.`,
         );
       }
       z19 = z19.plus(gross);
-      if (isForeign) z20 = z20.plus(gross);
       z51 = z51.plus(wht);
       // Treaty-capped Z52
       const cap = d.country ? (TREATY_CAP[d.country] ?? DEFAULT_TREATY_CAP) : DEFAULT_TREATY_CAP;
       z52 = z52.plus(Decimal.min(wht, gross.mul(cap)));
+      const dk = brokerKey(d.broker, d.ticker);
+      const prev = stockDiv.get(dk);
+      stockDiv.set(dk, {
+        gross: (prev?.gross ?? new Decimal(0)).plus(gross),
+        country: prev?.country ?? d.country,
+        inlineWht: (prev?.inlineWht ?? new Decimal(0)).plus(wht),
+      });
       evidence.push({
         date: input.taxYear.toString(),
         ticker: d.ticker,
         country: d.country,
         grossEur: d.grossEur,
         whtEur: d.whtEur,
+        broker: d.broker,
         fingerprint: `div-${d.ticker}-${d.country ?? "??"}`,
         formTarget: "KAP_Z19",
       });
@@ -241,13 +311,53 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
     z19 = z19.plus(new Decimal(i.grossEur || "0"));
   }
 
+  // --- Standalone withholding tax (T4) -----------------------------------
+  // Some brokers (IBKR) report WHT in a dedicated section, not inline on the
+  // dividend. Aggregate per (broker, symbol); apply to Z51/Z52 only for STOCK
+  // symbols whose SAME-broker dividend carries NO inline WHT (prefer the inline
+  // field — FF stamps WHT both inline and as a tax row, so blindly adding
+  // double-counts). Matching per broker keeps a symbol held at two brokers from
+  // having one broker's inline WHT suppress the other's standalone credit.
+  const standalone = new Map<string, { wht: Decimal; symbol: string; broker?: string; country?: string }>();
+  for (const w of input.withholding ?? []) {
+    const amt = new Decimal(w.whtEur || "0");
+    if (amt.lte(0)) continue;
+    if (kindFor(w.symbol, cls) === "etf") {
+      warnings.push(
+        `ETF/fund WHT on "${w.symbol}" (€${amt.toFixed(2)}) is not investor-creditable under InvStG 2018 — excluded from KAP Z51/Z52.`,
+      );
+      continue;
+    }
+    const wk = brokerKey(w.broker, w.symbol);
+    const prev = standalone.get(wk);
+    standalone.set(wk, {
+      wht: (prev?.wht ?? new Decimal(0)).plus(amt),
+      symbol: w.symbol,
+      broker: prev?.broker ?? w.broker,
+      country: prev?.country ?? w.country,
+    });
+  }
+  for (const [wk, agg] of standalone) {
+    const div = stockDiv.get(wk); // same (broker, symbol)
+    if (div && div.inlineWht.gt(0)) continue; // already reflected inline for THIS broker — skip
+    z51 = z51.plus(agg.wht);
+    if (div) {
+      const country = div.country ?? agg.country;
+      const cap = country ? (TREATY_CAP[country] ?? DEFAULT_TREATY_CAP) : DEFAULT_TREATY_CAP;
+      z52 = z52.plus(Decimal.min(agg.wht, div.gross.mul(cap)));
+    } else {
+      warnings.push(
+        `Withholding tax on "${agg.symbol}"${agg.broker ? ` (${agg.broker})` : ""} (€${agg.wht.toFixed(2)}) couldn't be matched to a same-broker dividend — added to KAP Z51 but not Z52 (creditability unverified). Verify with your Steuerberater.`,
+      );
+    }
+  }
+
   // --- Realised matches --------------------------------------------------
-  let kapZ22 = new Decimal(0);
   for (const m of input.matches) {
-    const kind = kindFor(m.symbol);
+    const kind = kindFor(m.symbol, cls);
     const gain = new Decimal(m.gainEur || "0");
     if (kind === "etf") {
-      const sub = subtypeFor(m.symbol);
+      const sub = subtypeFor(m.symbol, cls);
       const resolved: FundSubtype = sub === "unknown" ? "sonstige" : sub;
       if (sub === "unknown") {
         warnings.push(
@@ -259,23 +369,48 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         date: m.closedAt,
         symbol: m.symbol,
         grossEur: m.gainEur,
+        broker: m.broker,
         fingerprint: `match-${m.symbol}-${m.closedAt}`,
         formTarget: SECTION2_FORM_TARGET[resolved],
       });
-    } else {
-      kapZ22 = kapZ22.plus(gain);
+    } else if (kind === "stock") {
+      // Aktien (§20 Abs.2 Nr.1): gains → Z20, losses → Z23 (own §20 Abs.6 bucket).
+      if (gain.gte(0)) {
+        stockGains = stockGains.plus(gain);
+        z19 = z19.plus(gain);
+      } else {
+        stockLosses = stockLosses.plus(gain.abs());
+      }
       evidence.push({
         date: m.closedAt,
         symbol: m.symbol,
         grossEur: m.gainEur,
+        broker: m.broker,
         fingerprint: `match-${m.symbol}-${m.closedAt}`,
-        formTarget: "KAP_Z22",
+        formTarget: gain.gte(0) ? "KAP_Z20" : "KAP_Z23",
+      });
+    } else {
+      // bond / other: gains feed the Z19 total; losses → Z22 (non-Aktien bucket).
+      if (gain.gte(0)) {
+        z19 = z19.plus(gain);
+      } else {
+        otherLosses = otherLosses.plus(gain.abs());
+      }
+      evidence.push({
+        date: m.closedAt,
+        symbol: m.symbol,
+        grossEur: m.gainEur,
+        broker: m.broker,
+        fingerprint: `match-${m.symbol}-${m.closedAt}`,
+        formTarget: gain.gte(0) ? "KAP_Z19" : "KAP_Z22",
       });
     }
   }
 
   // --- Build KAP-INV ZeileValues with negative-clamp + warnings ---------
-  // Map subtype keys back to the section1/section2 field-name keys.
+  // Section 2 (fund sale gains) is clamped ≥ 0 too: a net fund-sale loss
+  // within a subtype can't produce a negative ELSTER value — it warns and
+  // carries forward instead.
   const section1Out = {
     Z4_aktienfonds: toZeile(section1.aktien, true),
     Z5_mischfonds: toZeile(section1.misch, true),
@@ -284,16 +419,23 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
     Z8_sonstige: toZeile(section1.sonstige, true),
   };
   const section2Out = {
-    Z14_aktienfonds: toZeile(section2.aktien),
-    Z17_mischfonds: toZeile(section2.misch),
-    Z20_immo_inland: toZeile(section2.immo_inland),
-    Z23_immo_ausland: toZeile(section2.immo_ausland),
-    Z26_sonstige: toZeile(section2.sonstige),
+    Z14_aktienfonds: toZeile(section2.aktien, true),
+    Z17_mischfonds: toZeile(section2.misch, true),
+    Z20_immo_inland: toZeile(section2.immo_inland, true),
+    Z23_immo_ausland: toZeile(section2.immo_ausland, true),
+    Z26_sonstige: toZeile(section2.sonstige, true),
   };
   for (const key of Object.keys(section1) as (keyof typeof section1)[]) {
     if (section1[key].lt(0)) {
       warnings.push(
         `Negative fund-distribution total in ${SECTION1_FORM_TARGET[key]} (${section1[key].toFixed(2)} €). ELSTER rejects negative values here — verify the source and carry forward instead.`,
+      );
+    }
+  }
+  for (const key of Object.keys(section2) as (keyof typeof section2)[]) {
+    if (section2[key].lt(0)) {
+      warnings.push(
+        `Net fund-sale loss in ${SECTION2_FORM_TARGET[key]} (${section2[key].toFixed(2)} €). Clamped to 0 for ELSTER — verify the loss carry-forward with your Steuerberater.`,
       );
     }
   }
@@ -316,9 +458,10 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       Z4_kapInvAttached: kapInvPresent,
       lines: {
         Z17: ZERO(),                       // always 0 — let ELSTER auto-allocate the Pauschbetrag
-        Z19: toZeile(z19, true),
-        Z20: toZeile(z20, true),
-        Z22: toZeile(kapZ22),              // can be negative (net realised loss)
+        Z19: toZeile(z19, true),           // Ausländische Kapitalerträge (total)
+        Z20: toZeile(stockGains, true),    // darin: Gewinne aus Aktienveräußerungen
+        Z22: toZeile(otherLosses, true),   // darin: Verluste ohne Aktienveräußerungen (magnitude)
+        Z23: toZeile(stockLosses, true),   // darin: Verluste aus Aktienveräußerungen (magnitude)
         Z41: ZERO(),                       // foreign brokers don't withhold DE AbgSt
         Z51: toZeile(z51, true),
         Z52: toZeile(z52, true),

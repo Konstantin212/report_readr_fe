@@ -123,6 +123,8 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
           daysHeld: d.selected.daysHeld,
           priceAsOf: d.selected.asOf,
           transactions: d.selected.transactions,
+          isin: d.selected.isin ?? null,
+          meta: d.selected.meta,
         }}
       />}
     </main>

@@ -9,7 +9,21 @@ import {
   type LegacyGermanTaxDraft,
 } from "@/lib/tax/german-tax";
 import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
-import { classifyKind, classifySector } from "@/lib/analytics/sector-map";
+import { classifyKind, classifySector, type AssetKind, type FundSubtype } from "@/lib/analytics/sector-map";
+import { loadClassificationOverrides, type ClassificationOverride } from "@/lib/analytics/classification";
+
+/** Per-symbol {kind, subtype} record passed to the pure KAP builder (T-wire).
+ *  Built from the instrument_meta enrichment overrides so US-ETF and other
+ *  reclassifications flow into the tax draft without the builder doing I/O. */
+type ClassificationRecord = Record<string, { kind: AssetKind; subtype: FundSubtype | null }>;
+
+function toClassificationRecord(
+  overrides: Map<string, ClassificationOverride>,
+): ClassificationRecord {
+  const out: ClassificationRecord = {};
+  for (const [symbol, o] of overrides) out[symbol] = { kind: o.kind, subtype: o.subtype };
+  return out;
+}
 
 /**
  * Returns the distinct tax years a user has any tax-relevant activity in
@@ -101,16 +115,57 @@ export type TaxData = {
   /** New per-form KAP / KAP-INV draft with whole-euro values, used by the
    *  ElsterValuesCard on the tax page and by the PDF/CSV export. */
   kapV2: GermanTaxDraft;
+  /** Per-broker × per-ELSTER-line subtotals plus a note of what was
+   *  structurally excluded from Anlage KAP (T5). Renders as a compact
+   *  "Reconciliation" disclosure under the ElsterValuesCard so a mismatch
+   *  like the −3,269 crypto-leak can't recur unnoticed. */
+  reconciliation: {
+    rows: { broker: string; formTarget: string; totalEur: number; count: number }[];
+    /** Categories the code ACTUALLY filters out of Anlage KAP (real, structural). */
+    excluded: string[];
+    /** Honest caveats about what the importer does NOT yet distinguish, so the
+     *  UI never claims an exclusion the code doesn't actually perform. */
+    caveats: string[];
+  };
 };
 
 export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promise<BuildAnlageKapInput> {
   const db = getDb();
-  const [settingsRows, tx, allMatches] = await Promise.all([
+  const [settingsRows, tx, allMatches, accountRows, overrides] = await Promise.all([
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
+    db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
+    loadClassificationOverrides(ownerUserId),
   ]);
-  return buildKapInputs(taxYear, settingsRows[0], tx, allMatches);
+  const { stockAccountIds, brokerById } = deriveAccountScope(accountRows);
+  return buildKapInputs(
+    taxYear,
+    settingsRows[0],
+    tx,
+    allMatches,
+    stockAccountIds,
+    brokerById,
+    toClassificationRecord(overrides),
+  );
+}
+
+/**
+ * Anlage KAP is §20 EStG (capital income from securities). Crypto sale gains
+ * are §23 EStG (Anlage SO), so COINBASE accounts are excluded from the KAP
+ * account scope (T2a). Returns the non-crypto account id set plus a display
+ * broker label per account for the reconciliation subtotals (T5).
+ */
+export function deriveAccountScope(
+  accountRows: Array<typeof brokerAccounts.$inferSelect>,
+): { stockAccountIds: Set<string>; brokerById: Map<string, string> } {
+  const nonCrypto = accountRows.filter(a => a.broker !== "COINBASE");
+  return {
+    stockAccountIds: new Set(nonCrypto.map(a => a.id)),
+    brokerById: new Map(
+      nonCrypto.map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]),
+    ),
+  };
 }
 
 /**
@@ -119,13 +174,24 @@ export async function loadTaxInputs(ownerUserId: string, taxYear: number): Promi
  * settings a second time on every Tax page render — those three tables
  * are already in memory by the time we compute the KAP draft.
  */
-function buildKapInputs(
+export function buildKapInputs(
   taxYear: number,
   settings: typeof userSettings.$inferSelect | undefined,
   tx: Array<typeof transactions.$inferSelect>,
   allMatches: Array<typeof realizedMatches.$inferSelect>,
+  stockAccountIds: Set<string>,
+  brokerById: Map<string, string>,
+  classification: ClassificationRecord,
 ): BuildAnlageKapInput {
   const yr = String(taxYear);
+  // T2a account scope: only non-crypto (stock) accounts feed Anlage KAP.
+  // Crypto (COINBASE) realised gains / staking belong on Anlage SO (§23/§22),
+  // so a match or dividend on a crypto account must never move a KAP line.
+  const inScope = (accountId: string | null): boolean =>
+    !!accountId && stockAccountIds.has(accountId);
+  const brokerFor = (accountId: string | null): string | undefined =>
+    accountId ? brokerById.get(accountId) : undefined;
+
   // Defensive accruals filter (Zuflussprinzip): only PAID dividends count
   // for §20 EStG. The IBKR parser doesn't emit accruals as DIVIDEND events
   // today, but a previous upload of the GF's portfolio surfaced €12.33 of
@@ -136,6 +202,7 @@ function buildKapInputs(
     .filter(t =>
       t.eventType === "DIVIDEND"
       && t.eventDate.startsWith(yr)
+      && inScope(t.brokerAccountId)
       && !isAccrualSource(t.source ?? null)
     )
     .map(t => ({
@@ -143,13 +210,26 @@ function buildKapInputs(
       country: countryFromIsin(t.isin),
       grossEur: t.amountEur ?? "0",
       whtEur: t.withholdingTaxEur ?? "0",
+      broker: brokerFor(t.brokerAccountId),
     }));
   const interest = tx
-    .filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yr))
-    .map(t => ({ grossEur: t.amountEur ?? "0" }));
+    .filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yr) && inScope(t.brokerAccountId))
+    .map(t => ({ grossEur: t.amountEur ?? "0", broker: brokerFor(t.brokerAccountId) }));
+  // Standalone withholding tax (T4): brokers that report WHT in a dedicated
+  // section (IBKR) rather than inline on the dividend. The withheld amount
+  // lands in withholdingTaxEur; fall back to amountEur for parsers that stow
+  // it there.
+  const withholding = tx
+    .filter(t => t.eventType === "WITHHOLDING_TAX" && t.eventDate.startsWith(yr) && inScope(t.brokerAccountId))
+    .map(t => ({
+      symbol: t.symbol ?? "",
+      whtEur: t.withholdingTaxEur ?? t.amountEur ?? "0",
+      country: countryFromIsin(t.isin),
+      broker: brokerFor(t.brokerAccountId),
+    }));
   const matches = allMatches
-    .filter(m => m.closedAt.startsWith(yr))
-    .map(m => ({ symbol: m.symbol, gainEur: m.gainEur, closedAt: m.closedAt }));
+    .filter(m => m.closedAt.startsWith(yr) && inScope(m.brokerAccountId))
+    .map(m => ({ symbol: m.symbol, gainEur: m.gainEur, closedAt: m.closedAt, broker: brokerFor(m.brokerAccountId) }));
   return {
     taxYear,
     settings: {
@@ -159,30 +239,27 @@ function buildKapInputs(
     dividends,
     interest,
     matches,
+    withholding,
+    classification,
   };
 }
 
 export async function getTaxData(ownerUserId: string, year: number): Promise<TaxData> {
   const db = getDb();
   const yrStr = String(year);
-  const [accountRows, allMatches, allTx, settingsRows] = await Promise.all([
+  const [accountRows, allMatches, allTx, settingsRows, overrides] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(realizedMatches).where(eq(realizedMatches.ownerUserId, ownerUserId)),
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(userSettings).where(eq(userSettings.ownerUserId, ownerUserId)),
+    loadClassificationOverrides(ownerUserId),
   ]);
   // Anlage KAP is §20 EStG (capital income from securities). Crypto sale
   // gains are §23 EStG (private sales) and belong on Anlage SO; staking
   // is §22 Nr. 3. Exclude COINBASE broker_account rows so crypto matches
   // don't double-count into Anlage KAP's netRealized / dividends figures.
-  const stockAccountIds = new Set(
-    accountRows.filter(a => a.broker !== "COINBASE").map(a => a.id),
-  );
-  const brokerById = new Map(
-    accountRows
-      .filter(a => a.broker !== "COINBASE")
-      .map(a => [a.id, a.broker === "FREEDOM_FINANCE" ? "FF" : "IBKR"]),
-  );
+  const { stockAccountIds, brokerById } = deriveAccountScope(accountRows);
+  const classification = toClassificationRecord(overrides);
 
   const yrMatches = allMatches.filter(
     m => m.closedAt.startsWith(yrStr) && stockAccountIds.has(m.brokerAccountId),
@@ -259,9 +336,10 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
 
   // Reuse the rows we already loaded above — avoids three redundant
   // round-trips that `loadTaxInputs` would otherwise re-issue.
-  const kapInputs = buildKapInputs(year, settings, allTx, allMatches);
+  const kapInputs = buildKapInputs(year, settings, allTx, allMatches, stockAccountIds, brokerById, classification);
   const kap = buildAnlageKap(kapInputs);
   const kapV2 = buildKapAndKapInv(kapInputs);
+  const reconciliation = buildReconciliation(kapV2, accountRows);
 
   // ---- Forecast (current year only) -----------------------------------
   // Projects how much more of the Pauschbetrag is likely to be consumed
@@ -341,7 +419,50 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
     realizedLots,
     kap,
     kapV2,
+    reconciliation,
   };
+}
+
+/**
+ * Per-broker × per-formTarget subtotals from the KAP evidence, plus a note
+ * of what was structurally kept OUT of Anlage KAP (T5). This is the guard
+ * that would have caught the −3,269 crypto/swap leak: if a broker's rows
+ * don't add up, the mismatch is visible right under the ELSTER values.
+ */
+export function buildReconciliation(
+  draft: GermanTaxDraft,
+  accountRows: Array<typeof brokerAccounts.$inferSelect>,
+): TaxData["reconciliation"] {
+  const byKey = new Map<string, { broker: string; formTarget: string; totalEur: number; count: number }>();
+  for (const e of draft.evidence) {
+    const broker = e.broker ?? "?";
+    const formTarget = e.formTarget ?? "?";
+    const key = `${broker}|${formTarget}`;
+    const row = byKey.get(key) ?? { broker, formTarget, totalEur: 0, count: 0 };
+    row.totalEur += Number(e.grossEur || "0");
+    row.count += 1;
+    byKey.set(key, row);
+  }
+  const rows = [...byKey.values()].sort(
+    (a, b) => a.broker.localeCompare(b.broker) || a.formTarget.localeCompare(b.formTarget),
+  );
+
+  const excluded: string[] = [];
+  const caveats: string[] = [];
+  const brokers = new Set(accountRows.map(a => a.broker));
+  // Real, structural exclusion: COINBASE accounts are filtered out of the KAP
+  // account scope (deriveAccountScope), so crypto genuinely never reaches KAP.
+  if (brokers.has("COINBASE")) excluded.push("crypto (Anlage SO, §23/§22)");
+  // NOT an exclusion: the FF importer still treats equity swaps as ordinary
+  // trades (swap tagging is deferred), so we must NOT claim they're filtered —
+  // only flag them as unhandled so the user checks manually.
+  if (brokers.has("FREEDOM_FINANCE")) {
+    caveats.push(
+      "Freedom equity swaps (Termingeschäfte, §20 Abs.2 Nr.3) are not yet distinguished by the importer — if you traded any, verify them manually with your Steuerberater.",
+    );
+  }
+
+  return { rows, excluded, caveats };
 }
 
 function countryFromIsin(isin?: string | null): string | undefined {

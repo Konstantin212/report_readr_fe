@@ -1,30 +1,31 @@
 import { NextResponse } from "next/server";
-import { sql } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { quoteCache } from "@/lib/db/schema";
+import { instruments, quoteCache } from "@/lib/db/schema";
 import { refreshQuotes } from "@/lib/quotes/refresh";
 import { getStaleHeldSymbols } from "@/lib/quotes/stale-symbols";
+import { getMetaByIsins } from "@/lib/marketdata/store";
+import { sweepHeldMetadata } from "@/lib/marketdata/enrich";
 import { hasValidCronSecret } from "@/lib/auth/cron";
 
 /**
- * Spot-quotes cron. Refreshes the N most-stale held symbols each run.
+ * Spot-quotes cron. Refreshes the N most-stale held symbols each run,
+ * then sweeps a few metadata rows for TTL freshness.
  *
- * On free tiers TD's 8/min cap and FMP's per-symbol paywall make
- * "fetch everything in one shot" unreliable (we get back ~13/20 and
- * the rest silently stay on yesterday's close). Instead, run hourly
- * during market hours and ask for the 8 oldest-cached symbols each
- * pass — over a market day every symbol gets refreshed 3-4 times even
- * for portfolios of 20+ holdings.
+ * Rather than "fetch everything in one shot" (unreliable on free tiers),
+ * run hourly during market hours and ask for the 8 oldest-cached symbols
+ * each pass — over a market day every symbol gets refreshed 3-4 times
+ * even for portfolios of 20+ holdings.
  *
- * Provider priority (in lib/quotes/refresh.ts):
- *   1. FMP per-symbol (US tickers FMP free knows)
- *   2. Twelve Data batched (international + FMP misses)
- *   3. Yahoo / Stooq fallbacks (blocked from Vercel IPs but kept for
- *      local dev parity)
+ * Provider routing lives in lib/quotes/refresh.ts: the router prices
+ * owned ETFs off justETF and US/other listings off FMP→Yahoo. We supply
+ * the symbol→ISIN map + persisted metadata so the router can make that
+ * call; symbols with no ISIN fall back to the raw FMP→Yahoo path.
  */
 export const maxDuration = 60;
 
 const PAGE_SIZE = 8;
+const META_SWEEP_LIMIT = 5;
 
 export async function GET(req: Request) {
   if (!hasValidCronSecret(req)) {
@@ -33,12 +34,30 @@ export async function GET(req: Request) {
 
   const targets = await getStaleHeldSymbols(PAGE_SIZE);
   if (!targets.length) {
-    return NextResponse.json({ requested: [], inserted: [], unpriced: [], bySource: {} });
+    const meta = await sweepHeldMetadata(META_SWEEP_LIMIT);
+    return NextResponse.json({ requested: [], inserted: [], unpriced: [], bySource: {}, meta });
   }
 
-  const { quotes, bySource, unpriced, fmpConfigured, twelveDataConfigured } = await refreshQuotes(targets);
-
   const db = getDb();
+
+  // Router inputs: user-independent symbol→ISIN mapping + persisted metadata.
+  const instrRows = await db
+    .selectDistinct({ symbol: instruments.symbol, isin: instruments.isin })
+    .from(instruments)
+    .where(inArray(instruments.symbol, targets));
+  const isinBySymbol = new Map<string, string>();
+  for (const r of instrRows) {
+    if (r.symbol && r.isin && !isinBySymbol.has(r.symbol)) isinBySymbol.set(r.symbol, r.isin);
+  }
+  const isins = [...new Set(isinBySymbol.values())];
+  const metaRows = await getMetaByIsins(isins);
+  const metaByIsin = new Map(metaRows.map((m) => [m.isin, m]));
+
+  const { quotes, bySource, unpriced, fmpConfigured } = await refreshQuotes(targets, {
+    isinBySymbol,
+    metaByIsin,
+  });
+
   let writeError: string | null = null;
   if (quotes.length) {
     try {
@@ -50,6 +69,7 @@ export async function GET(req: Request) {
           set: {
             close: sql`excluded.close`,
             currency: sql`excluded.currency`,
+            source: sql`excluded.source`,
             updatedAt: new Date(),
           },
         });
@@ -57,13 +77,17 @@ export async function GET(req: Request) {
       writeError = (e as Error).message;
     }
   }
+
+  // TTL metadata refresh (classification / fund facts), separate from pricing.
+  const meta = await sweepHeldMetadata(META_SWEEP_LIMIT);
+
   return NextResponse.json({
     requested: targets,
     inserted: quotes.map((q) => q.symbol),
     unpriced,
     bySource,
     fmpConfigured,
-    twelveDataConfigured,
+    meta,
     writeError,
   });
 }

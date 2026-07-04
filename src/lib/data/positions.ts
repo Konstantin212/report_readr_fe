@@ -5,6 +5,10 @@ import {
   brokerAccounts, lots, quoteCache, quoteHistory, fxRates, transactions, instruments,
 } from "@/lib/db/schema";
 import { classifySector, classifyKind } from "@/lib/analytics/sector-map";
+import { loadClassificationOverrides } from "@/lib/analytics/classification";
+import { getMetaByIsins } from "@/lib/marketdata/store";
+import { syntheticIsin } from "@/lib/marketdata/types";
+import type { InstrumentMetaView } from "@/components/pulse/instrument-source-card";
 import { getCashBalances } from "@/lib/data/cash";
 import { yieldOnCost } from "@/lib/analytics/yield-on-cost";
 import { computeUnrealizedPnL, type ResolvedLot } from "@/lib/positions/unrealized-pnl";
@@ -72,6 +76,15 @@ export type PositionRow = {
   dividendsNative: number;
   /** Commissions baked into the lots' cost basis, in EUR. Detail-panel only. */
   feesEur: number;
+  /** Fund distribution policy from the market-data classification layer.
+   *  Set only for funds/ETFs whose metadata resolved OK — drives the
+   *  Dist/Acc chip and flags Vorabpauschale-relevant accumulators. Null
+   *  for stocks/bonds and un-enriched instruments. */
+  distribution?: { policy: "DISTRIBUTING" | "ACCUMULATING"; frequency: string | null } | null;
+  /** instrument_meta.source for the classification override backing this
+   *  row (JUSTETF/YAHOO/FMP/MANUAL), or null when no OK metadata exists.
+   *  Populated for the selected row's detail card. */
+  metaSource?: string | null;
 };
 
 export type DetailLot = {
@@ -119,6 +132,10 @@ export type SelectedPosition = PositionRow & {
    *  oldest → newest. Surfaced in the detail panel's transactions list
    *  so the user can audit how the FIFO lots were built. */
   transactions: DetailTransaction[];
+  /** Full market-data metadata for the detail panel's "data source" card.
+   *  Null when no OK `instrument_meta` row exists — the card then offers
+   *  the manual-link input instead. */
+  meta: InstrumentMetaView | null;
 };
 
 export type PositionsData = {
@@ -152,7 +169,12 @@ export async function getPositionsData(
   const detailHistoryPromise = selectedSymbol
     ? db.select().from(quoteHistory).where(eq(quoteHistory.symbol, selectedSymbol))
     : Promise.resolve([]);
-  const [accountRows, allLots, allQuotes, allFx, allTxs, instrumentRows, detailHistory] = await Promise.all([
+  // The classification override map joins the user's instruments against
+  // the global market-data store so ETFs (e.g. IEMM, IE00B0M63177) that a
+  // scrape has re-classified land in the right table instead of the
+  // hardcoded symbol-map's default. It runs its own two queries; folding
+  // it into this batch keeps it off the critical path.
+  const [accountRows, allLots, allQuotes, allFx, allTxs, instrumentRows, detailHistory, overrides] = await Promise.all([
     db.select().from(brokerAccounts).where(eq(brokerAccounts.ownerUserId, ownerUserId)),
     db.select().from(lots).where(eq(lots.ownerUserId, ownerUserId)),
     db.select().from(quoteCache),
@@ -160,6 +182,7 @@ export async function getPositionsData(
     db.select().from(transactions).where(eq(transactions.ownerUserId, ownerUserId)),
     db.select().from(instruments).where(eq(instruments.ownerUserId, ownerUserId)),
     detailHistoryPromise,
+    loadClassificationOverrides(ownerUserId),
   ]);
   // Stocks pipeline excludes COINBASE broker_accounts entirely — crypto
   // has its own page section (CryptoPositionsSection) with a different
@@ -339,8 +362,12 @@ export async function getPositionsData(
         }
       }
     }
-    const sector = classifySector(displaySymbol);
-    const kind = classifyKind(displaySymbol, sector);
+    // Prefer the scraped market-data classification when we have one;
+    // otherwise fall back to the hardcoded symbol maps (today's behavior).
+    const override = overrides.get(displaySymbol);
+    const sector = override?.sector ?? classifySector(displaySymbol);
+    const kind = override?.kind ?? classifyKind(displaySymbol, sector);
+    const distribution = override?.distribution ?? null;
 
     // Native-currency P/L via the IBKR-mirror function. The function returns
     // both `broker` (cost excl. fees) and `net` (cost incl. fees) views, plus
@@ -422,6 +449,10 @@ export async function getPositionsData(
       dividendsEur,
       dividendsNative,
       feesEur,
+      distribution,
+      // Populated only for the selected row (detail card); list rows never
+      // render it, so a per-row meta fetch here would be wasted round-trips.
+      metaSource: null,
     });
   }
 
@@ -494,6 +525,31 @@ export async function getPositionsData(
 
       const daysHeld = Math.floor((Date.now() - Date.parse(earliestOpen)) / 86400000);
 
+      // Full market-data metadata for the "data source" card. Look up by
+      // real ISIN and by the synthetic SYM:{symbol} key (manual Yahoo
+      // links pin instruments with no real ISIN under that key). Only an
+      // OK row surfaces as populated meta; anything else leaves meta null
+      // so the card offers the manual-link input.
+      const metaKeys = [sel.isin, syntheticIsin(sel.symbol)].filter((k): k is string => Boolean(k));
+      const metaRows = metaKeys.length ? await getMetaByIsins(metaKeys) : [];
+      const rawMeta =
+        (sel.isin ? metaRows.find((m) => m.isin === sel.isin && m.status === "OK") : undefined) ??
+        metaRows.find((m) => m.status === "OK") ??
+        null;
+      const metaView: InstrumentMetaView | null = rawMeta
+        ? {
+            source: rawMeta.source,
+            assetKind: rawMeta.assetKind,
+            sector: rawMeta.sector,
+            industry: rawMeta.industry,
+            distribution: rawMeta.distributionPolicy
+              ? { policy: rawMeta.distributionPolicy, frequency: rawMeta.distributionFrequency }
+              : null,
+            terPct: rawMeta.terPct,
+            teilfreistellungPct: rawMeta.teilfreistellungPct,
+          }
+        : null;
+
       // Every TRADE event for this symbol, ordered chronologically so
       // the detail panel can show the user the full buy/sell ledger.
       const transactions: DetailTransaction[] = allTxs
@@ -516,6 +572,7 @@ export async function getPositionsData(
 
       selected = {
         ...sel,
+        metaSource: metaView?.source ?? null,
         sparkline,
         sparkPctChange,
         lots: detailLots,
@@ -525,6 +582,7 @@ export async function getPositionsData(
         yieldOnCostPct,
         daysHeld,
         transactions,
+        meta: metaView,
       };
     }
   }
