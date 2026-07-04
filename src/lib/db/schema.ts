@@ -455,3 +455,49 @@ export const quoteHistory = pgTable(
     symbolDateIdx: index("quote_history_symbol_date_idx").on(table.symbol, table.date),
   }),
 );
+
+// Global instrument metadata, keyed by ISIN — user-independent public
+// data (like quote_cache / fx_rates). Populated by the market-data
+// enrichment layer (justETF / Yahoo JSON / FMP). The per-user
+// `instruments` table stays the ISIN↔symbol bridge; this holds the
+// shared classification + fund facts derived once per ISIN.
+export const instrumentMetaStatusEnum = pgEnum("instrument_meta_status", ["OK", "NOT_FOUND", "ERROR"]);
+export const instrumentMetaSourceEnum = pgEnum("instrument_meta_source", ["JUSTETF", "YAHOO", "FMP", "MANUAL"]);
+
+export const instrumentMeta = pgTable("instrument_meta", {
+  isin: text("isin").primaryKey(),
+  status: instrumentMetaStatusEnum("status").notNull(),
+  source: instrumentMetaSourceEnum("source"),
+  assetKind: text("asset_kind"), // "etf" | "stock" | "bond" | "other" — feeds classifyKind override
+  name: text("name"),
+  sector: text("sector"),
+  industry: text("industry"),
+  yahooSymbol: text("yahoo_symbol"), // primary listing, e.g. "TRN.L"
+  yahooQuoteSymbol: text("yahoo_quote_symbol"), // listing used for pricing (prefer "{ISIN}.SG" EUR line)
+  // ETF-only fields (null for stocks)
+  justetfTicker: text("justetf_ticker"),
+  wkn: text("wkn"),
+  fundCurrency: text("fund_currency"),
+  domicile: text("domicile"),
+  indexName: text("index_name"),
+  investmentFocus: text("investment_focus"),
+  replication: text("replication"),
+  terPct: numeric("ter_pct"),
+  distributionPolicy: text("distribution_policy"), // "DISTRIBUTING" | "ACCUMULATING"
+  distributionFrequency: text("distribution_frequency"),
+  teilfreistellungPct: integer("teilfreistellung_pct"), // 30 | 15 | 60 | 80
+  fundSubtype: text("fund_subtype"), // derived FundSubtype — stored for audit
+  // Dividend stats (nullable, best-effort — v1.5)
+  divTrailing12m: numeric("div_trailing_12m"),
+  divTrailing12mCurrency: text("div_trailing_12m_currency"),
+  divForwardRate: numeric("div_forward_rate"),
+  divForwardYieldPct: numeric("div_forward_yield_pct"),
+  exDividendDate: text("ex_dividend_date"),
+  // Manual override + bookkeeping
+  manualUrl: text("manual_url"),
+  raw: jsonb("raw"),
+  failCount: integer("fail_count").notNull().default(0),
+  lastError: text("last_error"),
+  scrapedAt: timestamp("scraped_at"), // last SUCCESSFUL enrichment
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
