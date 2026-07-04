@@ -1,10 +1,10 @@
 /**
- * Manual-verification snapshot for the GF's 2025 portfolio.
+ * Manual-verification snapshot for a representative 2025 equity-ETF
+ * portfolio, modelled on a known-good ELSTER submission.
  *
- * Runs `buildKapAndKapInv` end-to-end on the exact dividend amounts
- * from her IBKR statement (D:/cot/U00000001_2025_2025.csv lines 178-185)
- * and prints the resulting draft so we can eyeball it against the
- * values she successfully submitted via ELSTER.
+ * Runs `buildKapAndKapInv` end-to-end on a set of equity-index UCITS ETF
+ * distributions (amounts representative, normalised to EUR) and checks the
+ * resulting draft against the shape of a return that was accepted by ELSTER.
  *
  * Expected: KAP-INV Section 1 Z4 = 127 (Aktienfonds), everything else 0,
  * Z4 checkbox set, no warnings.
@@ -12,14 +12,14 @@
 import { describe, it, expect } from "vitest";
 import { buildKapAndKapInv } from "@/lib/tax/german-tax";
 
-describe("End-to-end GF 2025 fixture", () => {
-  it("matches her actual ELSTER submission shape", () => {
+describe("End-to-end equity-ETF 2025 fixture", () => {
+  it("matches a known-good ELSTER submission shape", () => {
     const draft = buildKapAndKapInv({
       taxYear: 2025,
       settings: { filingStatus: "SINGLE", saverAllowance: "1000" },
       dividends: [
-        // Lines 178, 181, 182 of the IBKR statement, normalised to EUR
-        // (USD legs converted at IBKR's ECB rate per the Cash Report).
+        // Equity-index UCITS ETF distributions, normalised to EUR
+        // (USD legs converted at the ECB rate per the Cash Report).
         { ticker: "SPYW", country: "IE", grossEur: "113.18", whtEur: "0" },
         { ticker: "VUSA", country: "IE", grossEur: "2.31",   whtEur: "0" },  // 2.69 USD → 2.31 EUR
         { ticker: "VUSA", country: "IE", grossEur: "9.33",   whtEur: "0" },  // 10.97 USD → 9.33 EUR
