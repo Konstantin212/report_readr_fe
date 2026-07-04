@@ -35,7 +35,7 @@ import { fetchQuoteFor } from "@/lib/marketdata/enrich";
 import { planQuote } from "@/lib/marketdata/router";
 import type { InstrumentMeta, InstrumentRef, ProviderId } from "@/lib/marketdata/types";
 
-export type RefreshQuote = { symbol: string; date: string; close: string; currency: string };
+export type RefreshQuote = { symbol: string; date: string; close: string; currency: string; source: string };
 export type RefreshSource = "fmp" | "yahoo" | "justEtf" | "none";
 export type RefreshResult = {
   quotes: RefreshQuote[];
@@ -84,7 +84,7 @@ export async function refreshQuotes(
       for (const id of plan) {
         const q = await fetchQuoteFor(id, ref, meta);
         if (q) {
-          got.set(symbol, { symbol, date: q.date, close: q.close, currency: q.currency });
+          got.set(symbol, { symbol, date: q.date, close: q.close, currency: q.currency, source: q.source });
           bySource[PROVIDER_SOURCE[id]]++;
           break;
         }
@@ -100,7 +100,7 @@ export async function refreshQuotes(
     const fmpQuotes = await fetchFmpQuotes(fallbackTargets);
     for (const q of fmpQuotes) {
       if (!got.has(q.symbol)) {
-        got.set(q.symbol, q);
+        got.set(q.symbol, { ...q, source: "FMP" });
         bySource.fmp++;
       }
     }
@@ -111,7 +111,7 @@ export async function refreshQuotes(
     const yResults = await Promise.allSettled(yahooTargets.map((s) => fetchYahooQuote(s)));
     for (const r of yResults) {
       if (r.status === "fulfilled" && r.value && !got.has(r.value.symbol)) {
-        got.set(r.value.symbol, r.value);
+        got.set(r.value.symbol, { ...r.value, source: "YAHOO" });
         bySource.yahoo++;
       }
     }

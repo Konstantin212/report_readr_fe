@@ -109,7 +109,7 @@ describe("refreshQuotes routing", () => {
 
     expect(result.bySource.justEtf).toBe(1);
     expect(result.quotes).toEqual([
-      { symbol: "SXR8", date: "2026-07-03", close: "59.00", currency: "EUR" },
+      { symbol: "SXR8", date: "2026-07-03", close: "59.00", currency: "EUR", source: "JUSTETF" },
     ]);
     expect(calls.some((u) => u.includes(`justetf.com/api/etfs/${IE_ETF}/quote`))).toBe(true);
     // planQuote returned only [justetf]; no fallback providers were tried.
@@ -141,7 +141,7 @@ describe("refreshQuotes routing", () => {
 
     expect(result.bySource.fmp).toBe(1);
     expect(result.quotes).toEqual([
-      { symbol: "AAPL", date: "2026-06-05", close: "100.00", currency: "USD" },
+      { symbol: "AAPL", date: "2026-06-05", close: "100.00", currency: "USD", source: "FMP" },
     ]);
     expect(calls.some((u) => u.includes("financialmodelingprep.com"))).toBe(true);
   });

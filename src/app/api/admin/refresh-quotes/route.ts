@@ -6,18 +6,28 @@ import { getDb } from "@/lib/db/client";
 import { positions, quoteCache } from "@/lib/db/schema";
 import { refreshQuotes } from "@/lib/quotes/refresh";
 import { EXTERNALLY_PRICED_SYMBOLS } from "@/lib/quotes/externally-priced";
+import { getHeldRefs, getMetaByIsins } from "@/lib/marketdata/store";
+import { enrichInstruments } from "@/lib/marketdata/enrich";
 
 /**
- * Admin-triggered quote refresh. Same orchestrator as the daily cron
- * (lib/quotes/refresh.ts) but gated by isAdminEmail instead of the
- * cron secret, so it can be hit from the Settings page via the
- * "Refresh quotes" button.
+ * Admin-triggered "reprice everything now". Two phases:
  *
- * Useful when a quote provider has just been gated (and the cron has
- * silently fallen behind) and the admin wants an immediate resync
- * without waiting for 21:00 UTC.
+ *   1. Enrich every held instrument that carries an ISIN, so EU ETFs get
+ *      a justETF classification (and the quote path can route them) and
+ *      stocks get Yahoo/FMP metadata. Because this is an explicit admin
+ *      action (not the polite daily sweep), we pass the full ref count as
+ *      the limit to bypass the cron's 5/run cap — `selectCandidates` still
+ *      honours the 30-day TTL + error backoff, so already-fresh rows are
+ *      skipped and re-runs stay cheap.
+ *   2. Reprice all held symbols with the SAME router-driven provider
+ *      selection the cron uses (isinBySymbol + metaByIsin) so ETFs price
+ *      off justETF's EUR endpoint instead of a guessed Yahoo ticker.
+ *
+ * Gated by isAdminEmail (Settings → "Refresh quotes" button), not the
+ * cron secret. maxDuration bumped to 300 to cover sequential enrichment
+ * (~1.5s/ISIN) plus repricing.
  */
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST() {
   const user = await getCurrentUser();
@@ -25,16 +35,32 @@ export async function POST() {
   if (!isAdminEmail(user.email)) return new Response("forbidden", { status: 403 });
 
   const db = getDb();
+
+  // Phase 1 — enrich all held ISINs (bypass the polite per-run cap).
+  const refs = await getHeldRefs();
+  const enrichment = refs.length
+    ? await enrichInstruments(refs, refs.length)
+    : { attempted: 0, ok: 0, notFound: 0, errors: 0 };
+
+  // Phase 2 — reprice every held symbol with router-driven selection.
   const heldRows = await db.selectDistinct({ s: positions.symbol }).from(positions);
   const allHeld = heldRows.map((x) => x.s).filter(Boolean) as string[];
   if (!allHeld.length) {
-    return NextResponse.json({ requested: 0, inserted: 0, unpriced: [], skipped: 0, bySource: {} });
+    return NextResponse.json({ enrichment, requested: 0, inserted: 0, unpriced: [], skipped: 0, bySource: {} });
   }
 
   const skipped = allHeld.filter((s) => EXTERNALLY_PRICED_SYMBOLS.has(s));
   const requested = allHeld.filter((s) => !EXTERNALLY_PRICED_SYMBOLS.has(s));
 
-  const { quotes, bySource, unpriced, fmpConfigured, twelveDataConfigured } = await refreshQuotes(requested);
+  const isinBySymbol = new Map<string, string>();
+  for (const r of refs) isinBySymbol.set(r.symbol, r.isin);
+  const metas = await getMetaByIsins([...new Set(refs.map((r) => r.isin))]);
+  const metaByIsin = new Map(metas.map((m) => [m.isin, m]));
+
+  const { quotes, bySource, unpriced, fmpConfigured } = await refreshQuotes(requested, {
+    isinBySymbol,
+    metaByIsin,
+  });
 
   let writeError: string | null = null;
   if (quotes.length) {
@@ -47,6 +73,7 @@ export async function POST() {
           set: {
             close: sql`excluded.close`,
             currency: sql`excluded.currency`,
+            source: sql`excluded.source`,
             updatedAt: new Date(),
           },
         });
@@ -55,13 +82,13 @@ export async function POST() {
     }
   }
   return NextResponse.json({
+    enrichment,
     requested: requested.length,
     inserted: quotes.length,
     unpriced,
     skipped: skipped.length,
     bySource,
     fmpConfigured,
-    twelveDataConfigured,
     writeError,
   });
 }
