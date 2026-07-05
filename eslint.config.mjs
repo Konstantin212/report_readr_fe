@@ -24,4 +24,15 @@ export default [
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // `_`-prefixed identifiers are the standard "intentionally unused"
+      // convention (e.g. a provider implementing an interface method whose
+      // parameter it doesn't need). Don't warn on those.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ];

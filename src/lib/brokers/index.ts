@@ -1,7 +1,7 @@
 import { parseFreedomFinanceStatement } from "./freedom";
 import { parseInteractiveBrokersStatement } from "./ibkr";
 import { detectBroker } from "./detect";
-import type { ParseBrokerStatementInput, ParsedBrokerStatement, BrokerId } from "./types";
+import type { ParseBrokerStatementInput, ParsedBrokerStatement } from "./types";
 import type { ParsedImport } from "@/lib/domain/types";
 
 export function parseBrokerStatement(input: ParseBrokerStatementInput): ParsedImport {

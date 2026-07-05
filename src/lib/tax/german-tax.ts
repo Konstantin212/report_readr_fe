@@ -241,21 +241,6 @@ function kindFor(
   return classifyKind(ticker, classifySector(ticker));
 }
 
-// Section-1 lookup by fund subtype.
-const SECTION1_KEY: Record<FundSubtype, keyof GermanTaxDraft["kapInv"]["section1"]> = {
-  aktien: "Z4_aktienfonds",
-  misch: "Z5_mischfonds",
-  immo_inland: "Z6_immo_inland",
-  immo_ausland: "Z7_immo_ausland",
-  sonstige: "Z8_sonstige",
-};
-const SECTION2_KEY: Record<FundSubtype, keyof GermanTaxDraft["kapInv"]["section2"]> = {
-  aktien: "Z14_aktienfonds",
-  misch: "Z17_mischfonds",
-  immo_inland: "Z20_immo_inland",
-  immo_ausland: "Z23_immo_ausland",
-  sonstige: "Z26_sonstige",
-};
 const SECTION1_FORM_TARGET: Record<FundSubtype, FormTarget> = {
   aktien: "KAP_INV_S1_Z4",
   misch: "KAP_INV_S1_Z5",

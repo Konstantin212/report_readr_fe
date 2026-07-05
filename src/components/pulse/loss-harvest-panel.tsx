@@ -14,8 +14,6 @@ import {
 
 const fmtEur = (v: number) =>
   (v >= 0 ? "" : "−") + "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtEur0 = (v: number) =>
-  (v >= 0 ? "" : "−") + "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 function brokerChip(broker: string): string {
   const norm = broker.toUpperCase();

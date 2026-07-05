@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
 import { getCurrentUser } from "@/lib/auth/server";
 import { getDb } from "@/lib/db/client";
 import { userSettings } from "@/lib/db/schema";

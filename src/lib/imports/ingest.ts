@@ -1,7 +1,7 @@
 import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import * as s from "@/lib/db/schema";
-import { ingestPayloadSchema, type IngestPayload } from "@/lib/domain/zod";
+import { ingestPayloadSchema } from "@/lib/domain/zod";
 import { computeEventFingerprint } from "./fingerprint";
 import { convertEventToEur } from "@/lib/ledger/fx";
 import { replay } from "@/lib/ledger/replay";

@@ -330,7 +330,6 @@ export async function getPositionsData(
   const rows: PositionRow[] = [];
   for (const g of groups.values()) {
     const qty = Number(g.qty);
-    const cost = Number(g.cost);
     if (qty <= 0) continue;
     // Resolve canonical symbol + name from instruments table
     const inst = (g.isin && instrumentByIsin.get(g.isin)) || instrumentBySymbol.get(g.symbol);

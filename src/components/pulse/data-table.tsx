@@ -71,9 +71,6 @@ export function DataTable<R>({
   afterRows,
   className,
 }: DataTableProps<R>) {
-  const gridTemplate = columns.map((c) => c.gridCol).join("_");
-  const gridClass = `grid grid-cols-[${gridTemplate}]`;
-
   return (
     <Card className={cn("p-0 overflow-hidden", className)}>
       {(title || meta || trailingHeader) && (
