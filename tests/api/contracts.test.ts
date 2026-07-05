@@ -49,6 +49,7 @@ const row: PositionRow = {
   feesEur: 1,
   distribution: { policy: "DISTRIBUTING", frequency: "Quarterly" },
   metaSource: null,
+  fifoLots: [{ openedAt: "2025-01-02", qty: 10, costEur: 100 }],
 };
 
 const selected: SelectedPosition = {

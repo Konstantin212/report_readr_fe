@@ -497,12 +497,27 @@ function CandidateRow({
           {avatarLabel(c.symbol, c.name)}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="font-semibold text-[13px]">{c.symbol}</div>
+          <div className="font-semibold text-[13px]">
+            {c.symbol}
+            {c.hiddenLoss && (
+              <span
+                className="font-mono text-[10px] ml-1.5 px-1 py-0.5 rounded bg-amber/10 text-amber cursor-help"
+                title={`Position is ${c.positionPlEur !== null && c.positionPlEur >= 0 ? "+" : ""}€${(c.positionPlEur ?? 0).toFixed(2)} overall, but under FIFO (§20 Abs. 4 EStG) a sale consumes the OLDEST lots first — and the first ${c.qty} share${c.qty === 1 ? "" : "s"} sit above the current price. Selling exactly ${c.qty} realises ${fmtEur(c.unrealisedLossEur)} of loss while keeping the cheaper, profitable lots.`}
+              >
+                FIFO
+              </span>
+            )}
+          </div>
           {c.name && <div className="text-[11px] text-muted truncate">{c.name}</div>}
         </div>
       </div>
       <span className={`hidden lg:inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${brokerChip(c.broker)}`}>{c.broker}</span>
-      <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.qty}</span>
+      <span
+        className="hidden lg:block text-right font-mono text-xs text-muted"
+        title={c.qty < c.positionQty ? `Harvest cap: selling more than ${c.qty} of the ${c.positionQty} held starts consuming cheaper (profitable) lots and erodes the loss.` : undefined}
+      >
+        {c.qty < c.positionQty ? `${c.qty} of ${c.positionQty}` : c.qty}
+      </span>
       <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.avgCostEur.toFixed(2)}</span>
       <span className="hidden lg:block text-right font-mono text-xs">{c.pricePerUnitEur.toFixed(2)}</span>
       <span className="hidden lg:block text-right font-mono font-semibold text-xs text-bad">{fmtEur(c.unrealisedLossEur)}</span>

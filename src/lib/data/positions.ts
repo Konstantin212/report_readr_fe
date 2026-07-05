@@ -85,6 +85,12 @@ export type PositionRow = {
    *  row (JUSTETF/YAHOO/FMP/MANUAL), or null when no OK metadata exists.
    *  Populated for the selected row's detail card. */
   metaSource?: string | null;
+  /** Open FIFO lots backing this row, oldest first — the order a sale
+   *  consumes them under §20 Abs. 4 EStG. costEur is the lot's
+   *  Anschaffungskosten (incl. commissions). Feeds the loss-harvest
+   *  page's lot-aware detection: a position can be profitable on average
+   *  while its OLDEST lots are underwater at the current price. */
+  fifoLots: { openedAt: string; qty: number; costEur: number }[];
 };
 
 export type DetailLot = {
@@ -451,6 +457,10 @@ export async function getPositionsData(
       // Populated only for the selected row (detail card); list rows never
       // render it, so a per-row meta fetch here would be wasted round-trips.
       metaSource: null,
+      fifoLots: [...g.lots]
+        .filter(l => Number(l.qty) > 0)
+        .sort((a, b) => a.openedAt.localeCompare(b.openedAt))
+        .map(l => ({ openedAt: l.openedAt, qty: Number(l.qty), costEur: Number(l.costEur) })),
     });
   }
 

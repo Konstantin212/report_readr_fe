@@ -24,16 +24,69 @@ export type HarvestCandidate = {
   name: string | undefined;
   broker: string;             // "FF" | "IBKR" | …
   bucket: HarvestBucket;
+  /** Shares to sell to realise the maximum harvestable loss. With FIFO
+   *  lots this is the harvest CAP — the prefix of oldest lots up to the
+   *  most-negative point of the cumulative realised-P/L curve; selling
+   *  more starts consuming cheaper profitable lots and erodes the loss. */
   qty: number;
+  /** Cost basis per share of the shares that would actually be sold (the
+   *  FIFO prefix), not the whole-position average. */
   avgCostEur: number;
   pricePerUnitEur: number;
-  /** Always negative — the unrealised loss in EUR (broker view, excl. dividends). */
+  /** Always negative — the maximum loss realisable by selling `qty`. */
   unrealisedLossEur: number;
   /** unrealisedLossEur / qty; always ≤ 0. */
   lossPerShareEur: number;
   quoteSource: string | null;
   asOf: string | null;
+  /** Full position size — `qty` may be smaller (FIFO harvest cap). */
+  positionQty: number;
+  /** Whole-position unrealised P/L (broker view). POSITIVE for hidden-loss
+   *  rows: the position is green on average, the harvest comes purely from
+   *  underwater front lots. */
+  positionPlEur: number | null;
+  /** True when the position is overall profitable but its oldest FIFO lots
+   *  are underwater at the current price (§20 Abs. 4 EStG mandates FIFO,
+   *  so selling exactly `qty` shares realises the loss anyway). */
+  hiddenLoss: boolean;
 };
+
+/** One open FIFO lot, oldest-first ordering expected by the helpers below. */
+export type FifoLot = { qty: number; costEur: number };
+
+/**
+ * Walk the FIFO queue at the current price and find the sell quantity that
+ * realises the MAXIMUM loss. Selling n shares consumes lots oldest-first
+ * (§20 Abs. 4 EStG), so cumulative realised P/L is piecewise linear in n
+ * with kinks only at lot boundaries — scanning lot ends is exact. Returns
+ * the prefix at the curve's minimum, or null when no prefix realises a
+ * loss (i.e. the oldest lots are all at or below the current price).
+ *
+ * This is what makes "hidden" losses harvestable: a position bought high
+ * first and averaged down later is profitable OVERALL, yet selling exactly
+ * the first lots realises their loss while keeping the cheap lots.
+ */
+export function fifoHarvestPrefix(
+  lots: FifoLot[],
+  priceEur: number,
+): { qty: number; lossEur: number; costEur: number } | null {
+  let cumQty = 0;
+  let cumPnl = 0;
+  let cumCost = 0;
+  let best: { qty: number; lossEur: number; costEur: number } | null = null;
+  for (const lot of lots) {
+    if (lot.qty <= 0) continue;
+    cumQty += lot.qty;
+    cumCost += lot.costEur;
+    cumPnl += priceEur * lot.qty - lot.costEur;
+    // Strictly-below keeps the FIRST minimum on plateaus — no reason to
+    // sell extra shares that change the realised loss by nothing.
+    if (cumPnl < -0.005 && (best === null || cumPnl < best.lossEur)) {
+      best = { qty: cumQty, lossEur: cumPnl, costEur: cumCost };
+    }
+  }
+  return best;
+}
 
 export type BucketSnapshot = {
   realisedGainsEur: number;
@@ -74,27 +127,53 @@ export type HarvestResult = {
 export function buildCandidates(rows: PositionRow[]): HarvestCandidate[] {
   const out: HarvestCandidate[] = [];
   for (const r of rows) {
-    const loss = r.views.broker.plEur;
-    if (loss === null || loss >= 0) continue;
     // Explicit null check — a zero price (data-quality glitch) is still a price,
     // not a missing-quote signal. The data layer sets this to null when no
     // quote exists; only that case should skip the row.
     if (r.pricePerUnitEur === null) continue;
-    const qty = r.qty;
-    if (qty <= 0) continue;
-    out.push({
+    if (r.qty <= 0) continue;
+    const positionPl = r.views.broker.plEur;
+    const base = {
       symbol: r.symbol,
       isin: r.isin,
       name: r.name,
       broker: r.broker,
-      bucket: r.kind === "stock" ? "aktien" : "sonstige",
-      qty,
-      avgCostEur: r.views.broker.avgCostEur,
+      bucket: (r.kind === "stock" ? "aktien" : "sonstige") as HarvestBucket,
       pricePerUnitEur: r.pricePerUnitEur,
-      unrealisedLossEur: loss,
-      lossPerShareEur: loss / qty,
       quoteSource: r.quoteSource ?? null,
       asOf: r.asOf,
+      positionQty: r.qty,
+      positionPlEur: positionPl,
+    };
+
+    const lots = r.fifoLots?.filter((l) => l.qty > 0);
+    if (lots?.length) {
+      // Lot-aware path: harvest the FIFO prefix at the cumulative-loss
+      // minimum. Catches BOTH ordinary losers (all lots underwater → prefix
+      // = whole position, at true Anschaffungskosten instead of the avg-cost
+      // approximation) and hidden losses inside overall-profitable positions.
+      const prefix = fifoHarvestPrefix(lots, r.pricePerUnitEur);
+      if (!prefix) continue;
+      out.push({
+        ...base,
+        qty: prefix.qty,
+        avgCostEur: prefix.costEur / prefix.qty,
+        unrealisedLossEur: prefix.lossEur,
+        lossPerShareEur: prefix.lossEur / prefix.qty,
+        hiddenLoss: positionPl !== null && positionPl >= 0,
+      });
+      continue;
+    }
+
+    // Legacy path (no lot data): whole-position average-cost loss only.
+    if (positionPl === null || positionPl >= 0) continue;
+    out.push({
+      ...base,
+      qty: r.qty,
+      avgCostEur: r.views.broker.avgCostEur,
+      unrealisedLossEur: positionPl,
+      lossPerShareEur: positionPl / r.qty,
+      hiddenLoss: false,
     });
   }
   // Biggest absolute loss first — the user's eye lands on highest-impact rows.

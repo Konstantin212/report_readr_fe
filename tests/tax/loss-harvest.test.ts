@@ -14,6 +14,7 @@ import {
   computeHarvest,
   decodeSellParams,
   encodeSellParams,
+  fifoHarvestPrefix,
   suggestedSharesToZero,
   suggestOptimum,
   type HarvestCandidate,
@@ -38,6 +39,9 @@ const makeCand = (overrides: Partial<HarvestCandidate> = {}): HarvestCandidate =
   lossPerShareEur: -10,
   quoteSource: "FMP",
   asOf: "2026-06-05",
+  positionQty: 100,
+  positionPlEur: -1000,
+  hiddenLoss: false,
   ...overrides,
 });
 
@@ -133,6 +137,136 @@ describe("buildCandidates", () => {
     // @ts-expect-error
     const out = buildCandidates(rows);
     expect(out[0].lossPerShareEur).toBe(-20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIFO lot-aware harvesting — hidden losses inside profitable positions
+// ---------------------------------------------------------------------------
+
+describe("fifoHarvestPrefix", () => {
+  it("finds the loss in the oldest lot of an overall-profitable position", () => {
+    // Buy 10 @ €100, then 10 @ €50. Price €80: position = +€100 overall,
+    // but FIFO sells the €100 lot first → selling 10 realises −€200.
+    const prefix = fifoHarvestPrefix(
+      [{ qty: 10, costEur: 1000 }, { qty: 10, costEur: 500 }],
+      80,
+    );
+    expect(prefix).toEqual({ qty: 10, lossEur: -200, costEur: 1000 });
+  });
+
+  it("returns null when the oldest lots are the cheap ones (rising DCA)", () => {
+    // Bought low first, averaged UP. Every FIFO prefix is profitable.
+    const prefix = fifoHarvestPrefix(
+      [{ qty: 10, costEur: 500 }, { qty: 10, costEur: 1000 }],
+      80,
+    );
+    expect(prefix).toBeNull();
+  });
+
+  it("covers the whole position when all lots are underwater", () => {
+    const prefix = fifoHarvestPrefix(
+      [{ qty: 5, costEur: 600 }, { qty: 5, costEur: 550 }],
+      100,
+    );
+    expect(prefix).toEqual({ qty: 10, lossEur: -150, costEur: 1150 });
+  });
+
+  it("sells THROUGH a profitable front lot when a deeper loss lot follows", () => {
+    // Lot 1: 10 @ €70 (gain +100 at price 80); lot 2: 10 @ €120 (loss −400).
+    // Min of the cumulative curve is at qty 20: +100 − 400 = −300.
+    const prefix = fifoHarvestPrefix(
+      [{ qty: 10, costEur: 700 }, { qty: 10, costEur: 1200 }],
+      80,
+    );
+    expect(prefix).toEqual({ qty: 20, lossEur: -300, costEur: 1900 });
+  });
+
+  it("stops at the loss minimum — later cheap lots are never included", () => {
+    // Loss lot, then a big cheap lot. Selling past qty 10 erodes the loss.
+    const prefix = fifoHarvestPrefix(
+      [{ qty: 10, costEur: 1000 }, { qty: 100, costEur: 1000 }],
+      80,
+    );
+    expect(prefix).toEqual({ qty: 10, lossEur: -200, costEur: 1000 });
+  });
+});
+
+describe("buildCandidates — lot-aware (hidden losses)", () => {
+  const baseRow = {
+    broker: "IBKR", asOf: null, quoteSource: null,
+  };
+
+  it("surfaces an overall-PROFITABLE position whose front lots are underwater", () => {
+    const rows = [
+      { ...baseRow, symbol: "ETF1", kind: "etf", qty: 20, pricePerUnitEur: 80,
+        views: { broker: { avgCostEur: 75, plEur: 100 } },
+        fifoLots: [
+          { openedAt: "2024-01-02", qty: 10, costEur: 1000 },
+          { openedAt: "2025-06-01", qty: 10, costEur: 500 },
+        ] },
+    ];
+    // @ts-expect-error — minimal PositionRow shape for the test
+    const out = buildCandidates(rows);
+    expect(out).toHaveLength(1);
+    const c = out[0];
+    expect(c.hiddenLoss).toBe(true);
+    expect(c.bucket).toBe("sonstige");
+    expect(c.qty).toBe(10);            // harvest cap: only the underwater lot
+    expect(c.positionQty).toBe(20);
+    expect(c.unrealisedLossEur).toBe(-200);
+    expect(c.avgCostEur).toBe(100);    // prefix cost basis, not position avg
+  });
+
+  it("skips profitable positions with no underwater prefix", () => {
+    const rows = [
+      { ...baseRow, symbol: "UP", kind: "etf", qty: 20, pricePerUnitEur: 80,
+        views: { broker: { avgCostEur: 40, plEur: 800 } },
+        fifoLots: [
+          { openedAt: "2024-01-02", qty: 10, costEur: 300 },
+          { openedAt: "2025-06-01", qty: 10, costEur: 500 },
+        ] },
+    ];
+    // @ts-expect-error
+    expect(buildCandidates(rows)).toHaveLength(0);
+  });
+
+  it("uses lot-level Anschaffungskosten for ordinary losers too", () => {
+    const rows = [
+      { ...baseRow, symbol: "DOWN", kind: "stock", qty: 10, pricePerUnitEur: 50,
+        views: { broker: { avgCostEur: 100, plEur: -500 } },
+        fifoLots: [{ openedAt: "2024-01-02", qty: 10, costEur: 1020 }] }, // incl. €20 fees
+    ];
+    // @ts-expect-error
+    const out = buildCandidates(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0].hiddenLoss).toBe(false);
+    expect(out[0].unrealisedLossEur).toBe(-520); // lot basis, incl. fees
+    expect(out[0].qty).toBe(10);
+  });
+
+  it("a hidden Sonstige loss becomes pickable against a dividend overage", () => {
+    const rows = [
+      { ...baseRow, symbol: "ETF1", kind: "etf", qty: 20, pricePerUnitEur: 80,
+        views: { broker: { avgCostEur: 75, plEur: 100 } },
+        fifoLots: [
+          { openedAt: "2024-01-02", qty: 10, costEur: 1000 },
+          { openedAt: "2025-06-01", qty: 10, costEur: 500 },
+        ] },
+    ];
+    // @ts-expect-error
+    const candidates = buildCandidates(rows);
+    // €1,150 of Sonstige income vs €1,000 allowance → €150 overage.
+    const inputs = makeInputs({
+      sonstige: { realisedGainsEur: 0, dividendsEur: 1150, interestEur: 0, forecastAdditionalEur: 0, totalIncomeEur: 1150 },
+      candidates,
+    });
+    const optimum = suggestOptimum(inputs);
+    expect(optimum).toHaveLength(1);
+    expect(optimum[0].candidate.symbol).toBe("ETF1");
+    // €150 target at −€20/share → 7.5 shares, well inside the 10-share cap.
+    expect(optimum[0].qtyToSell).toBeCloseTo(7.5, 5);
+    expect(computeHarvest(inputs, optimum).taxableBaseEur).toBeCloseTo(0, 5);
   });
 });
 
