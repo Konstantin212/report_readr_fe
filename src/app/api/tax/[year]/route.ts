@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/server";
 import { getAvailableTaxYears, getTaxData } from "@/lib/data/tax";
+import { taxResponseSchema } from "@/lib/api/contracts";
+import { validatedJson } from "@/lib/api/validate";
 
 export const maxDuration = 30;
 
@@ -22,5 +24,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ year: string }
     getTaxData(u.id, yearNum),
     getAvailableTaxYears(u.id),
   ]);
-  return NextResponse.json({ tax, availableYears });
+  return validatedJson(taxResponseSchema, { tax, availableYears }, "GET /api/tax/[year]");
 }

@@ -10,14 +10,11 @@ import { RealizedLotsTable } from "@/components/pulse/realized-lots-table";
 import { ElsterValuesCard } from "@/components/pulse/elster-values-card";
 import { PreSubmitChecklist } from "@/components/pulse/pre-submit-checklist";
 import { fmtEur } from "@/lib/format";
-import type { TaxData } from "@/lib/data/tax";
+import { taxResponseSchema, type TaxResponse } from "@/lib/api/contracts";
+import { fetchApi } from "@/lib/api/client";
 
-type TaxResponse = { tax: TaxData; availableYears: number[] };
-
-async function fetchTax(year: number): Promise<TaxResponse> {
-  const res = await fetch(`/api/tax/${year}`);
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json() as Promise<TaxResponse>;
+function fetchTax(year: number): Promise<TaxResponse> {
+  return fetchApi(`/api/tax/${year}`, taxResponseSchema);
 }
 
 export function TaxClient({ year: yearNum }: { year: number }) {

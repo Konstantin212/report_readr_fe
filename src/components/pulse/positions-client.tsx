@@ -8,13 +8,9 @@ import { SectorFilter } from "@/components/pulse/sector-filter";
 import { PositionsSection } from "@/components/pulse/positions-section";
 import { CashCard } from "@/components/pulse/cash-card";
 import { PositionDetailPanel, type DetailData } from "@/components/pulse/position-detail-panel";
-import type { PositionsData, SelectedPosition } from "@/lib/data/positions";
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${res.status}`);
-  return res.json() as Promise<T>;
-}
+import type { SelectedPosition } from "@/lib/data/positions";
+import { positionsDataSchema, selectedPositionSchema } from "@/lib/api/contracts";
+import { fetchApi } from "@/lib/api/client";
 
 /** Map the loader's SelectedPosition onto the panel's DetailData shape
  *  (the panel renames plEur→unrealizedEur, asOf→priceAsOf, etc.). */
@@ -66,12 +62,12 @@ export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ib
 
   const listQ = useQuery({
     queryKey: ["positions", broker, sector],
-    queryFn: () => fetchJson<PositionsData>(`/api/positions${suffix}`),
+    queryFn: () => fetchApi(`/api/positions${suffix}`, positionsDataSchema),
   });
 
   const detailQ = useQuery({
     queryKey: ["position", broker, sector, selected],
-    queryFn: () => fetchJson<SelectedPosition>(`/api/positions/${encodeURIComponent(selected!)}${suffix}`),
+    queryFn: () => fetchApi(`/api/positions/${encodeURIComponent(selected!)}${suffix}`, selectedPositionSchema),
     enabled: selected !== null,
   });
 

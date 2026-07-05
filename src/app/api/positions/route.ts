@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/server";
 import { getPositionsData } from "@/lib/data/positions";
+import { positionsDataSchema } from "@/lib/api/contracts";
+import { validatedJson } from "@/lib/api/validate";
 
 export const maxDuration = 30;
 
@@ -18,5 +20,5 @@ export async function GET(req: Request) {
   const sector = sp.get("sector");
 
   const data = await getPositionsData(u.id, { broker, sector, symbol: null });
-  return NextResponse.json(data);
+  return validatedJson(positionsDataSchema, data, "GET /api/positions");
 }

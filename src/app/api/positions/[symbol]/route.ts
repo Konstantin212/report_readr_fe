@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/server";
 import { getPositionsData } from "@/lib/data/positions";
+import { selectedPositionSchema } from "@/lib/api/contracts";
+import { validatedJson } from "@/lib/api/validate";
 
 export const maxDuration = 30;
 
@@ -20,5 +22,5 @@ export async function GET(req: Request, ctx: { params: Promise<{ symbol: string 
 
   const data = await getPositionsData(u.id, { broker, sector, symbol });
   if (!data.selected) return new NextResponse("not found", { status: 404 });
-  return NextResponse.json(data.selected);
+  return validatedJson(selectedPositionSchema, data.selected, "GET /api/positions/[symbol]");
 }
