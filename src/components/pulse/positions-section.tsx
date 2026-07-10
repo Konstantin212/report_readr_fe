@@ -35,6 +35,9 @@ type Row = {
   /** Fund distribution policy — set only for ETFs whose metadata resolved
    *  OK. Drives the Dist/Acc chip in the row subtitle. */
   distribution?: { policy: "DISTRIBUTING" | "ACCUMULATING"; frequency: string | null } | null;
+  /** Prior tickers before a rename (e.g. ["SKHYV"] after SKHYV → SKHY).
+   *  Drives the "was …" provenance chip. Empty/absent when never renamed. */
+  formerTickers?: string[];
 };
 
 /**
@@ -292,6 +295,14 @@ export function PositionsSection({
                       }`}
                     >
                       {r.distribution.policy === "DISTRIBUTING" ? "Dist" : "Acc"}
+                    </span>
+                  )}
+                  {r.formerTickers && r.formerTickers.length > 0 && (
+                    <span
+                      title={`Ticker changed — previously traded as ${r.formerTickers.join(", ")}. Cost basis and holding period carry across the rename.`}
+                      className="font-mono text-[10px] ml-1 px-1 py-0.5 rounded bg-panel2 text-dim"
+                    >
+                      was {r.formerTickers.join(", ")}
                     </span>
                   )}
                   <span className="lg:hidden font-mono text-[10px] text-dim ml-1">

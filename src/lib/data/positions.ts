@@ -11,6 +11,7 @@ import { syntheticIsin } from "@/lib/marketdata/types";
 import type { InstrumentMetaView } from "@/components/pulse/instrument-source-card";
 import { computeCashBalances, loadLatestFxPerCurrency } from "@/lib/data/cash";
 import { yieldOnCost } from "@/lib/analytics/yield-on-cost";
+import { formerTickers } from "@/lib/analytics/former-tickers";
 import { computeUnrealizedPnL, type ResolvedLot } from "@/lib/positions/unrealized-pnl";
 
 /**
@@ -91,6 +92,10 @@ export type PositionRow = {
    *  page's lot-aware detection: a position can be profitable on average
    *  while its OLDEST lots are underwater at the current price. */
   fifoLots: { openedAt: string; qty: number; costEur: number }[];
+  /** Prior ticker symbols this position traded under before a rename
+   *  (e.g. ["SKHYV"] after SKHYV → SKHY). Empty for never-renamed positions.
+   *  Derived from the distinct lot symbols that aren't the current symbol. */
+  formerTickers: string[];
 };
 
 export type DetailLot = {
@@ -281,6 +286,12 @@ export async function getPositionsData(
     nativeCurrency: string | null;
     resolvedLots: ResolvedLot[];
     openedAt: string;
+    /** openedAt of the newest lot — drives which symbol is the CURRENT ticker
+     *  when a position spans a rename (lots carry old + new symbols). */
+    latestAt: string;
+    /** Every lot symbol seen for this identity, in insertion order. Distinct
+     *  values that aren't the display symbol are former tickers (renames). */
+    symbols: string[];
     lots: { openedAt: string; qty: string; costEur: string }[];
   };
   const groups = new Map<string, Agg>();
@@ -296,13 +307,17 @@ export async function getPositionsData(
       nativeCurrency: null,
       resolvedLots: [],
       openedAt: l.openedAt,
+      latestAt: l.openedAt,
+      symbols: [],
       lots: [],
     };
     g.qty = g.qty.plus(l.remainingQty);
     g.cost = g.cost.plus(l.costEur);
     if (l.openedAt < g.openedAt) g.openedAt = l.openedAt;
-    // Keep the latest symbol seen
-    g.symbol = l.symbol;
+    // Display symbol = the newest lot's symbol, so a renamed position shows the
+    // CURRENT ticker rather than whichever lot happened to be seen last.
+    if (l.openedAt >= g.latestAt) { g.latestAt = l.openedAt; g.symbol = l.symbol; }
+    g.symbols.push(l.symbol);
     g.isin = l.isin ?? g.isin;
     g.lots.push({ openedAt: l.openedAt, qty: l.remainingQty, costEur: l.costEur });
 
@@ -461,6 +476,7 @@ export async function getPositionsData(
         .filter(l => Number(l.qty) > 0)
         .sort((a, b) => a.openedAt.localeCompare(b.openedAt))
         .map(l => ({ openedAt: l.openedAt, qty: Number(l.qty), costEur: Number(l.costEur) })),
+      formerTickers: formerTickers(g.symbols, displaySymbol),
     });
   }
 

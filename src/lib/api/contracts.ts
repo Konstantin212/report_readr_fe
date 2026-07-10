@@ -73,6 +73,7 @@ const positionRowObject = z.object({
   distribution: distributionSchema.optional(),
   metaSource: z.string().nullable().optional(),
   fifoLots: z.array(z.object({ openedAt: z.string(), qty: z.number(), costEur: z.number() })),
+  formerTickers: z.array(z.string()),
 });
 
 /** Compile-time binding: if PositionRow changes shape, this line errors. */
