@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import type { NormalizedEvent } from "@/lib/domain/types";
+import { parseSymbolChange } from "./corporate-actions";
 
 export type Lot = {
   symbol: string;
@@ -28,8 +29,6 @@ const TYPE_ORDER: Record<string, number> = {
   TRADE: 0, CORPORATE_ACTION: 1, DIVIDEND: 2, INTEREST: 3,
   WITHHOLDING_TAX: 4, FEE: 5, CASH_TRANSFER: 6, POSITION_SNAPSHOT: 7, FX_CONVERSION: 8,
 };
-
-const identityOf = (e: NormalizedEvent): string => e.isin ?? e.symbol ?? "";
 
 /**
  * Returns -1 for a buy (qty > 0), +1 for a sell (qty < 0), 0 otherwise.
@@ -62,6 +61,35 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
 
   const openLotsByIdentity = new Map<string, Lot[]>();
   const matches: RealizedMatch[] = [];
+
+  // Ticker rename (SKHYV → SKHY) alias, built from SYMBOL_CHANGE corporate
+  // actions before any trade is keyed. A when-issued leg often lacks a stable
+  // ISIN; without this link its lots key by the old symbol and split off into
+  // a separate position, breaking FIFO. The alias folds the old symbol onto
+  // the surviving identity (destination ISIN, else destination symbol).
+  // Two lookups: by old symbol (when-issued leg with no ISIN) and by old ISIN
+  // (CUSIP/ISIN change — the old leg's trades carry a *different* ISIN and
+  // would otherwise never link to the survivor). Both resolve to the surviving
+  // identity: destination ISIN if known, else destination symbol.
+  const aliasBySymbol = new Map<string, string>();
+  const aliasByIsin = new Map<string, string>();
+  for (const e of events) {
+    if (e.type !== "CORPORATE_ACTION") continue;
+    const sc = parseSymbolChange(e.description);
+    if (!sc) continue;
+    const survivor = sc.isin ?? e.isin ?? sc.toSymbol;
+    aliasBySymbol.set(sc.fromSymbol, survivor);
+    const fromIsin = sc.fromIsin ?? undefined;
+    if (fromIsin && fromIsin !== survivor) aliasByIsin.set(fromIsin, survivor);
+  }
+  const resolveIdentity = (e: NormalizedEvent): string => {
+    if (e.isin) return aliasByIsin.get(e.isin) ?? e.isin;
+    if (e.symbol) {
+      const survivor = aliasBySymbol.get(e.symbol);
+      if (survivor) return survivor;
+    }
+    return e.symbol ?? "";
+  };
 
   // Share splits arrive in two broker-specific shapes:
   //
@@ -121,7 +149,7 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
 
   for (const e of sorted) {
     if (e.type === "CORPORATE_ACTION" && /split/i.test(e.description ?? "")) {
-      const id = identityOf(e);
+      const id = resolveIdentity(e);
       if (!id) continue;
 
       // Key by the split's OBSERVABLE identity (symbol-normalized id would
@@ -177,7 +205,7 @@ export function replay(events: NormalizedEvent[]): { lots: Lot[]; matches: Reali
     }
 
     if (e.type !== "TRADE" || !e.symbol) continue;
-    const id = identityOf(e);
+    const id = resolveIdentity(e);
     if (!id) continue;
     const qty = new Decimal(e.quantity ?? "0");
     const amount = new Decimal(e.amountEur ?? e.amount ?? "0").abs();

@@ -6,6 +6,7 @@ import { computeEventFingerprint } from "./fingerprint";
 import { convertEventToEur } from "@/lib/ledger/fx";
 import { replay } from "@/lib/ledger/replay";
 import { derivePositions } from "@/lib/ledger/positions";
+import { resolveInstrumentSymbols } from "./instrument-symbols";
 import type { NormalizedEvent } from "@/lib/domain/types";
 
 type EventWithName = NormalizedEvent & { name?: string };
@@ -57,6 +58,10 @@ export async function ingestParsedImport(ownerUserId: string, raw: unknown): Pro
     const kind = (ev as { instrumentKind?: string }).instrumentKind;
     if (ev.isin && kind && !kindByIsin.has(ev.isin)) kindByIsin.set(ev.isin, kind);
   }
+  // Resolve the CURRENT ticker per ISIN (rename-aware) rather than trusting
+  // whichever event happens to be seen first — a renamed instrument must map
+  // to its surviving, tradeable symbol so quotes don't die on the old ticker.
+  const symbolByIsin = resolveInstrumentSymbols(payload.events);
   const seenIsins = new Set<string>();
   for (const ev of payload.events) {
     const evWithName = ev as EventWithName;
@@ -64,10 +69,11 @@ export async function ingestParsedImport(ownerUserId: string, raw: unknown): Pro
     if (seenIsins.has(evWithName.isin)) continue;
     seenIsins.add(evWithName.isin);
     const kind = kindByIsin.get(evWithName.isin);
+    const symbol = symbolByIsin.get(evWithName.isin) ?? evWithName.symbol;
     await db.insert(s.instruments)
       .values({
         ownerUserId,
-        symbol: evWithName.symbol,
+        symbol,
         isin: evWithName.isin,
         name: evWithName.name,
         currency: evWithName.currency,
@@ -76,7 +82,7 @@ export async function ingestParsedImport(ownerUserId: string, raw: unknown): Pro
       .onConflictDoUpdate({
         target: [s.instruments.ownerUserId, s.instruments.isin],
         set: {
-          symbol: evWithName.symbol,
+          symbol,
           name: evWithName.name,
           currency: evWithName.currency,
           // Preserve a previously-learned kind when this statement has none.
