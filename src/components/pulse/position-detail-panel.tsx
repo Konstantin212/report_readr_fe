@@ -101,7 +101,7 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
       {/* Sliding overlay. On <lg it covers the full screen (bottom-sheet
           feel), at lg+ it's anchored to the right at ~440px wide. */}
       <aside
-        className="fixed z-50 right-0 top-0 h-screen w-full lg:w-[440px] overflow-y-auto bg-panel border-l border-border shadow-2xl"
+        className="fixed z-50 right-0 top-0 h-[100dvh] w-full lg:w-[440px] overflow-y-auto overscroll-contain bg-panel border-l border-border shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="position-detail-symbol"

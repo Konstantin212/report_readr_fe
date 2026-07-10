@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/pulse/card";
@@ -55,6 +55,15 @@ function toDetailData(sel: SelectedPosition): DetailData {
 export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ibkr"; sector: string | null }) {
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Lock background scroll while the detail overlay (loading OR loaded) is
+  // open, so only the panel's own content scrolls — not the page behind it.
+  useEffect(() => {
+    if (selected === null) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [selected]);
+
   const qs = new URLSearchParams();
   if (broker !== "all") qs.set("broker", broker);
   if (sector) qs.set("sector", sector);
@@ -82,8 +91,12 @@ export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ib
             {d ? `${d.rows.length} of ${d.total}` : "…"}
           </span>
         </h1>
-        <div className="flex-1" />
-        {d && <SectorFilter active={sector ?? "all"} sectors={d.sectors} />}
+        <div className="hidden lg:block flex-1" />
+        {d && (
+          <div className="w-full lg:w-auto min-w-0">
+            <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
+          </div>
+        )}
       </div>
 
       {listQ.isPending && (
@@ -147,7 +160,7 @@ function PositionDetailLoading({ onClose, error, onRetry }: { onClose: () => voi
   return (
     <>
       <div className="fixed inset-0 z-40 bg-bg/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
-      <aside className="fixed z-50 right-0 top-0 h-screen w-full lg:w-[440px] bg-panel border-l border-border shadow-2xl">
+      <aside className="fixed z-50 right-0 top-0 h-[100dvh] w-full lg:w-[440px] overflow-y-auto overscroll-contain bg-panel border-l border-border shadow-2xl">
         <div className="p-[22px] flex items-center gap-3 text-muted text-sm">
           {error ? (
             <>
