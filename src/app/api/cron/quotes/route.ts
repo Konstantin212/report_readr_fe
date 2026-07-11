@@ -53,10 +53,17 @@ export async function GET(req: Request) {
   const metaRows = await getMetaByIsins(isins);
   const metaByIsin = new Map(metaRows.map((m) => [m.isin, m]));
 
-  const { quotes, bySource, unpriced, fmpConfigured } = await refreshQuotes(targets, {
+  const { quotes, bySource, unpriced, attempts, fmpConfigured } = await refreshQuotes(targets, {
     isinBySymbol,
     metaByIsin,
   });
+
+  // Surface WHY a symbol stayed unpriced (which provider/listing failed) in the
+  // Vercel function logs — otherwise a null quote is silent.
+  const failed = attempts.filter((a) => !a.ok);
+  if (unpriced.length) {
+    console.log("[cron/quotes] unpriced", JSON.stringify({ unpriced, failed }));
+  }
 
   let writeError: string | null = null;
   if (quotes.length) {

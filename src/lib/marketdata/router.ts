@@ -40,18 +40,23 @@ export function planEnrichment(
 /**
  * Which providers to consult for a QUOTE (EOD price), in order.
  *
- * - If metadata says justETF authoritatively owns this ETF, price it there.
- * - US listings, or synthetic/absent ISINs (a symbol-pinned instrument with
- *   no real ISIN), go to FMP then Yahoo.
- * - Everything else is a plain non-US listing priced from Yahoo.
+ * - justETF-sourced instruments price off justETF by ISIN — for ETFs AND for
+ *   the EU stocks its quote API also covers (e.g. RY4C). No ticker guessing,
+ *   and justETF is reachable from our Vercel IP where Yahoo often is not.
+ * - US listings (and synthetic/absent ISINs) go to FMP, then finviz. Finviz
+ *   replaces Yahoo here: Yahoo's chart endpoint throttles/refuses the Vercel
+ *   data-center IP for many US names, and FMP's free tier only covers a subset
+ *   (DIS/C/HOOD yes; TTWO/NEM/O no) — finviz covers the rest.
+ * - Any other non-US listing tries Yahoo, then justETF; if both miss the user
+ *   pins it via a manual link (Google Finance / Yahoo / justETF).
  */
 export function planQuote(
   ref: InstrumentRef,
   meta: InstrumentMeta | null,
 ): ProviderId[] {
-  if (meta?.source === "JUSTETF" && meta.assetKind === "etf") return ["justetf"];
+  if (meta?.source === "JUSTETF") return ["justetf"];
   if (!ref.isin || isSyntheticIsin(ref.isin) || ref.isin.startsWith("US")) {
-    return ["fmp", "yahoo"];
+    return ["fmp", "finviz"];
   }
-  return ["yahoo"];
+  return ["yahoo", "justetf"];
 }

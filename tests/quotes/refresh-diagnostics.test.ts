@@ -28,12 +28,13 @@ describe("refreshQuotes diagnostics (attempts trace)", () => {
   const orig = globalThis.fetch;
   afterEach(() => { globalThis.fetch = orig; delete process.env.FMP_API_KEY; vi.restoreAllMocks(); });
 
-  it("records a failed FMP attempt then a successful Yahoo attempt for a US name FMP can't price", async () => {
+  it("records a failed FMP attempt then a successful finviz attempt for a US name FMP can't price", async () => {
     process.env.FMP_API_KEY = "k";
+    const finvizPage = `<script>x={"ticker":"BLBD","timeframe":"d","lastClose":66.50,"lastDate":20260710}</script>`;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("financialmodelingprep.com")) return json([]); // FMP miss
-      if (url.includes("finance.yahoo.com/v8/finance/chart/")) return chart(66.5, "USD");
+      if (url.includes("finviz.com")) return new Response(finvizPage, { status: 200 });
       return new Response("nf", { status: 404 });
     }) as typeof globalThis.fetch;
 
@@ -44,9 +45,9 @@ describe("refreshQuotes diagnostics (attempts trace)", () => {
 
     expect(r.attempts).toEqual(expect.arrayContaining([
       { symbol: "BLBD", provider: "fmp", symbolTried: "BLBD", ok: false },
-      { symbol: "BLBD", provider: "yahoo", symbolTried: "BLBD", ok: true },
+      { symbol: "BLBD", provider: "finviz", symbolTried: "BLBD", ok: true },
     ]));
-    expect(r.quotes[0]?.source).toBe("YAHOO");
+    expect(r.quotes[0]?.source).toBe("FINVIZ");
   });
 
   it("auto-prices a GB stock off its derived .L listing even with NO metadata", async () => {

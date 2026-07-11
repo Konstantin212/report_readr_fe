@@ -30,6 +30,7 @@ import { planEnrichment, planQuote } from "./router";
 import { justEtfProvider, fetchEtfQuote } from "./providers/justetf";
 import { yahooProvider, fetchYahooQuoteByMeta, fetchYahooChart } from "./providers/yahoo";
 import { fmpProvider } from "./providers/fmp";
+import { finvizProvider } from "./providers/finviz";
 import { manualListingCandidates } from "./yahoo-listing";
 import {
   getHeldRefs,
@@ -45,7 +46,8 @@ const MAX_FAIL = 5;
 const SPACING_MS = 1_500;
 const DEFAULT_LIMIT = 10;
 
-const META_PROVIDERS: Record<ProviderId, MetadataProvider> = {
+// finviz is quote-only (no metadata); planEnrichment never yields it, hence Partial.
+const META_PROVIDERS: Partial<Record<ProviderId, MetadataProvider>> = {
   justetf: justEtfProvider,
   yahoo: yahooProvider,
   fmp: fmpProvider,
@@ -59,6 +61,7 @@ async function fetchQuoteFor(
 ): Promise<QuoteResult> {
   if (id === "justetf") return fetchEtfQuote(ref.isin);
   if (id === "yahoo") return fetchYahooQuoteByMeta(ref, meta);
+  if (id === "finviz") return finvizProvider.fetchQuote(ref, meta);
   return fmpProvider.fetchQuote(ref, meta);
 }
 
@@ -120,9 +123,11 @@ async function enrichOne(ref: InstrumentRef, manual: ManualLink | null): Promise
   const plan = planEnrichment(ref, manual);
 
   for (const id of plan) {
+    const provider = META_PROVIDERS[id];
+    if (!provider) continue; // quote-only provider (finviz) — not an enrichment source
     let result;
     try {
-      result = await META_PROVIDERS[id].fetchMeta(ref);
+      result = await provider.fetchMeta(ref);
     } catch (e) {
       result = { status: "ERROR" as const, error: (e as Error).message };
     }
@@ -237,9 +242,11 @@ export async function enrichSingle(
 
   const plan = planEnrichment(ref, manual);
   for (const id of plan) {
+    const provider = META_PROVIDERS[id];
+    if (!provider) continue; // quote-only provider (finviz) — not an enrichment source
     let result;
     try {
-      result = await META_PROVIDERS[id].fetchMeta(ref);
+      result = await provider.fetchMeta(ref);
     } catch (e) {
       result = { status: "ERROR" as const, error: (e as Error).message };
     }

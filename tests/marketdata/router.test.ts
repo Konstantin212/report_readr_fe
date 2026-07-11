@@ -64,27 +64,28 @@ describe("planQuote", () => {
     ]);
   });
 
-  it("US ISIN → [fmp, yahoo]", () => {
-    expect(planQuote(ref("US0378331005"), null)).toEqual(["fmp", "yahoo"]);
+  it("US ISIN → [fmp, finviz] (finviz replaces the Vercel-blocked Yahoo path)", () => {
+    expect(planQuote(ref("US0378331005"), null)).toEqual(["fmp", "finviz"]);
   });
 
-  it("synthetic ISIN (SYM:) → [fmp, yahoo]", () => {
-    expect(planQuote(ref("SYM:TRN.L"), null)).toEqual(["fmp", "yahoo"]);
+  it("synthetic ISIN (SYM:) → [fmp, finviz]", () => {
+    expect(planQuote(ref("SYM:TRN.L"), null)).toEqual(["fmp", "finviz"]);
   });
 
-  it("empty ISIN → [fmp, yahoo]", () => {
-    expect(planQuote(ref(""), null)).toEqual(["fmp", "yahoo"]);
+  it("empty ISIN → [fmp, finviz]", () => {
+    expect(planQuote(ref(""), null)).toEqual(["fmp", "finviz"]);
   });
 
-  it("plain non-US stock (YAHOO/stock meta) → [yahoo]", () => {
+  it("plain non-US stock (YAHOO/stock meta) → [yahoo, justetf]", () => {
     expect(planQuote(ref("GB00BKDTK925"), meta({ source: "YAHOO", assetKind: "stock" }))).toEqual([
       "yahoo",
+      "justetf",
     ]);
   });
 
-  it("JUSTETF source but non-etf kind is not special-cased → [yahoo]", () => {
-    expect(planQuote(ref("GB00BKDTK925"), meta({ source: "JUSTETF", assetKind: "stock" }))).toEqual(
-      ["yahoo"],
+  it("JUSTETF-sourced non-ETF (e.g. RY4C, an EU stock justETF prices) → [justetf]", () => {
+    expect(planQuote(ref("IE00BYTBXV33"), meta({ source: "JUSTETF", assetKind: "stock" }))).toEqual(
+      ["justetf"],
     );
   });
 });
