@@ -33,6 +33,7 @@ import { fetchFmpQuotes } from "./fmp";
 import { fetchYahooQuote } from "./yahoo";
 import { fetchQuoteFor } from "@/lib/marketdata/enrich";
 import { planQuote } from "@/lib/marketdata/router";
+import { yahooQuoteCandidates } from "@/lib/marketdata/yahoo-listing";
 import type { InstrumentMeta, InstrumentRef, ProviderId } from "@/lib/marketdata/types";
 
 export type RefreshQuote = { symbol: string; date: string; close: string; currency: string; source: string };
@@ -75,7 +76,7 @@ const PROVIDER_SOURCE: Record<ProviderId, RefreshSource> = {
  *  choice so the diagnostic trace shows what was really requested. */
 function symbolTriedFor(id: ProviderId, ref: InstrumentRef, meta: InstrumentMeta | null): string {
   if (id === "justetf") return ref.isin;
-  if (id === "yahoo") return meta?.yahooQuoteSymbol ?? meta?.yahooSymbol ?? ref.symbol ?? ref.isin;
+  if (id === "yahoo") return yahooQuoteCandidates(ref, meta)[0] ?? ref.symbol;
   return ref.symbol ?? ref.isin;
 }
 

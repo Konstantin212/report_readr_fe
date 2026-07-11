@@ -49,6 +49,31 @@ describe("refreshQuotes diagnostics (attempts trace)", () => {
     expect(r.quotes[0]?.source).toBe("YAHOO");
   });
 
+  it("auto-prices a GB stock off its derived .L listing even with NO metadata", async () => {
+    // The real-world TRN state: Yahoo search-by-ISIN was blocked so no meta
+    // exists. The refresh must still price it off TRN.L (never bare "TRN",
+    // which is Trinity Industries on Yahoo).
+    const tried: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const m = url.match(/v8\/finance\/chart\/([^?]+)/);
+      if (m) {
+        tried.push(decodeURIComponent(m[1]));
+        return chart(256, "GBp");
+      }
+      return new Response("nf", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const r = await refreshQuotes(["TRN"], {
+      isinBySymbol: new Map([["TRN", "GB00BKDTK925"]]),
+      metaByIsin: new Map(), // no meta
+    });
+
+    expect(tried).toEqual(["TRN.L"]);
+    expect(r.attempts).toEqual([{ symbol: "TRN", provider: "yahoo", symbolTried: "TRN.L", ok: true }]);
+    expect(r.quotes[0]).toMatchObject({ symbol: "TRN", currency: "GBP", source: "YAHOO" });
+  });
+
   it("records the pinned Yahoo listing (TRN.L) as the symbol tried for a manually-linked GB stock", async () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
