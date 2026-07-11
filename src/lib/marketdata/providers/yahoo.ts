@@ -33,7 +33,11 @@ import type {
 import { yahooQuoteCandidates } from "../yahoo-listing";
 
 const SEARCH_ENDPOINT = "https://query2.finance.yahoo.com/v1/finance/search";
-const CHART_ENDPOINT = "https://query1.finance.yahoo.com/v8/finance/chart";
+/** query1 and query2 fail independently; try the alternate host on a miss. */
+const CHART_ENDPOINTS = [
+  "https://query1.finance.yahoo.com/v8/finance/chart",
+  "https://query2.finance.yahoo.com/v8/finance/chart",
+];
 
 /**
  * Browser-like headers. Yahoo's JSON hosts reject an empty / non-browser
@@ -222,15 +226,17 @@ export async function fetchYahooQuoteByMeta(
   // the bare broker symbol for a non-US ISIN (would price a same-named US
   // ticker) — see yahoo-listing.ts.
   for (const symbol of yahooQuoteCandidates(ref, meta)) {
-    const url = `${CHART_ENDPOINT}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-    try {
-      const { ok, json } = await getJson(url);
-      if (ok) {
-        const q = parseChartMeta(json);
-        if (q) return q;
+    for (const endpoint of CHART_ENDPOINTS) {
+      const url = `${endpoint}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+      try {
+        const { ok, json } = await getJson(url);
+        if (ok) {
+          const q = parseChartMeta(json);
+          if (q) return q;
+        }
+      } catch {
+        // try the next host / candidate
       }
-    } catch {
-      // try the next candidate
     }
   }
   return null;
