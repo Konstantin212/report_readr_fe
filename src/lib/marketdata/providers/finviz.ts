@@ -24,6 +24,20 @@ const FINVIZ_HEADERS: Record<string, string> = {
 };
 
 const REQUEST_TIMEOUT_MS = 10_000;
+// Finviz rate-limits our Vercel data-center IP after a short burst (~5 rapid
+// requests → the rest 4xx). Space consecutive requests out and retry once on a
+// throttle so a whole US portfolio prices in one refresh pass.
+const MIN_GAP_MS = 1_200;
+const RETRY_BACKOFF_MS = 2_500;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+let lastFetchAt = 0;
+async function spaceRequests(): Promise<void> {
+  const wait = lastFetchAt + MIN_GAP_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastFetchAt = Date.now();
+}
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -56,22 +70,35 @@ export function parseFinvizQuote(html: string, requestedSymbol: string): QuoteRe
   return { close: close.toFixed(2), currency: "USD", date, source: "FINVIZ" };
 }
 
-/** Fetch + parse one US symbol's EOD close from finviz. Any failure → null. */
+/**
+ * Fetch + parse one US symbol's EOD close from finviz. Spaces requests to stay
+ * under finviz's data-center-IP burst limit, and retries once (after a longer
+ * backoff) on a throttle response. Any failure → null.
+ */
 export async function fetchFinvizQuote(symbol: string): Promise<QuoteResult> {
   if (!symbol) return null;
   const url = `${QUOTE_ENDPOINT}?t=${encodeURIComponent(symbol)}`;
-  try {
-    const res = await fetch(url, {
-      headers: FINVIZ_HEADERS,
-      cache: "no-store",
-      redirect: "follow",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-    return parseFinvizQuote(await res.text(), symbol);
-  } catch {
-    return null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await spaceRequests();
+    try {
+      const res = await fetch(url, {
+        headers: FINVIZ_HEADERS,
+        cache: "no-store",
+        redirect: "follow",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (res.ok) return parseFinvizQuote(await res.text(), symbol);
+      // Throttled (429/503/403) → back off past the rate window and retry once.
+      if (attempt === 0 && [429, 503, 403].includes(res.status)) {
+        await sleep(RETRY_BACKOFF_MS);
+        continue;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 export const finvizProvider: QuoteProvider = {
