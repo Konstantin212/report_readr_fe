@@ -226,17 +226,28 @@ export async function fetchYahooQuoteByMeta(
   // the bare broker symbol for a non-US ISIN (would price a same-named US
   // ticker) — see yahoo-listing.ts.
   for (const symbol of yahooQuoteCandidates(ref, meta)) {
-    for (const endpoint of CHART_ENDPOINTS) {
-      const url = `${endpoint}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-      try {
-        const { ok, json } = await getJson(url);
-        if (ok) {
-          const q = parseChartMeta(json);
-          if (q) return q;
-        }
-      } catch {
-        // try the next host / candidate
+    const q = await fetchYahooChart(symbol);
+    if (q) return q;
+  }
+  return null;
+}
+
+/**
+ * Price ONE exact Yahoo symbol off the chart endpoint, trying query1 then
+ * query2 (independent host failures). No candidate derivation — the caller
+ * has already chosen the listing (e.g. a manual-link pin).
+ */
+export async function fetchYahooChart(symbol: string): Promise<QuoteResult> {
+  for (const endpoint of CHART_ENDPOINTS) {
+    const url = `${endpoint}/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    try {
+      const { ok, json } = await getJson(url);
+      if (ok) {
+        const q = parseChartMeta(json);
+        if (q) return q;
       }
+    } catch {
+      // try the next host
     }
   }
   return null;

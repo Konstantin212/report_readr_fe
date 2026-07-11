@@ -7,7 +7,7 @@
  * instead, and never fall back to the bare symbol for a non-US ISIN.
  */
 import { describe, it, expect } from "vitest";
-import { yahooQuoteCandidates } from "@/lib/marketdata/yahoo-listing";
+import { yahooQuoteCandidates, manualListingCandidates } from "@/lib/marketdata/yahoo-listing";
 import type { InstrumentMeta, InstrumentRef } from "@/lib/marketdata/types";
 
 const ref = (isin: string, symbol: string): InstrumentRef => ({ isin, symbol, currency: null });
@@ -41,5 +41,22 @@ describe("yahooQuoteCandidates", () => {
 
   it("returns no guess for a non-US ISIN whose exchange we don't map", () => {
     expect(yahooQuoteCandidates(ref("ZZ0000000001", "FOO"), null)).toEqual([]);
+  });
+});
+
+describe("manualListingCandidates", () => {
+  it("tries the user's pinned listing first, then the derived primary listing", () => {
+    // A thin venue (Stuttgart .SG) that may have no chart data → fall back to
+    // the LSE primary before giving up.
+    expect(manualListingCandidates(ref("GB00BKDTK925", "TRN"), "GB00BKDTK925.SG"))
+      .toEqual(["GB00BKDTK925.SG", "TRN.L"]);
+  });
+
+  it("dedupes when the pin already is the primary listing", () => {
+    expect(manualListingCandidates(ref("GB00BKDTK925", "TRN"), "TRN.L")).toEqual(["TRN.L"]);
+  });
+
+  it("just the pinned symbol for a US name (no country fallback)", () => {
+    expect(manualListingCandidates(ref("US09571B1061", "BLBD"), "BLBD")).toEqual(["BLBD"]);
   });
 });

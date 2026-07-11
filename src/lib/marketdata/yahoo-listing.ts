@@ -18,6 +18,18 @@ export const ISIN_COUNTRY_SUFFIX: Record<string, string> = {
   SE: ".ST", NO: ".OL", DK: ".CO",
 };
 
+/**
+ * Listings to try for a MANUAL Yahoo link: the exact symbol the user pinned
+ * first, then the ISIN-country primary listing as a fallback. Lets a pinned
+ * thin venue (e.g. the Stuttgart ".SG" line with no chart data) fall back to
+ * the primary listing before the link is reported as failed.
+ */
+export function manualListingCandidates(ref: InstrumentRef, pinnedSymbol: string): string[] {
+  const out = [pinnedSymbol];
+  for (const c of yahooQuoteCandidates(ref, null)) if (!out.includes(c)) out.push(c);
+  return out;
+}
+
 export function yahooQuoteCandidates(ref: InstrumentRef, meta: InstrumentMeta | null): string[] {
   const out: string[] = [];
   const push = (s?: string | null) => { if (s && !out.includes(s)) out.push(s); };

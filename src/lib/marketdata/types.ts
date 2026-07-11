@@ -112,6 +112,9 @@ export type InstrumentMeta = {
   failCount: number;
   scrapedAt: string | null;
   updatedAt: string;
+  /** Last error message (ERROR rows), surfaced to the manual-link card so a
+   *  failed pin shows a specific reason instead of a generic retry prompt. */
+  lastError?: string | null;
 } & InstrumentMetaFields;
 
 /** Bookkeeping subset used by the pure `selectCandidates` gate. */

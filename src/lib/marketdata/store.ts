@@ -31,6 +31,7 @@ function toDomain(r: MetaRow): InstrumentMeta {
     failCount: r.failCount,
     scrapedAt: r.scrapedAt ? r.scrapedAt.toISOString() : null,
     updatedAt: r.updatedAt.toISOString(),
+    lastError: r.lastError ?? null,
     name: r.name ?? null,
     sector: r.sector ?? null,
     industry: r.industry ?? null,

@@ -28,8 +28,9 @@ import type { AssetKind } from "@/lib/analytics/sector-map";
 import { isSyntheticIsin } from "./types";
 import { planEnrichment, planQuote } from "./router";
 import { justEtfProvider, fetchEtfQuote } from "./providers/justetf";
-import { yahooProvider, fetchYahooQuoteByMeta } from "./providers/yahoo";
+import { yahooProvider, fetchYahooQuoteByMeta, fetchYahooChart } from "./providers/yahoo";
 import { fmpProvider } from "./providers/fmp";
+import { manualListingCandidates } from "./yahoo-listing";
 import {
   getHeldRefs,
   getMetaByIsins,
@@ -279,11 +280,17 @@ async function enrichManualYahoo(
   yahooSymbol: string,
   manualUrl?: string,
 ): Promise<InstrumentMeta | null> {
-  // PRICE FIRST. The price is what the user is pinning, and Yahoo throttles
-  // the data-center IP — so spend the first (un-rate-limited) request on the
-  // chart endpoint. The classification search runs after and is best-effort;
-  // a search failure must never cost us the price.
-  const q = await fetchYahooQuoteByMeta({ ...ref, symbol: yahooSymbol }, null);
+  // PRICE FIRST. The price is what the user is pinning. Try the pinned listing,
+  // then the ISIN-country primary as a fallback (a thin venue like the ".SG"
+  // Stuttgart line often has no chart data). The classification search runs
+  // after and is best-effort; a search failure must never cost us the price.
+  const candidates = manualListingCandidates(ref, yahooSymbol);
+  let q: Awaited<ReturnType<typeof fetchYahooChart>> = null;
+  let quoteSymbol = yahooSymbol;
+  for (const cand of candidates) {
+    const got = await fetchYahooChart(cand);
+    if (got) { q = got; quoteSymbol = cand; break; }
+  }
   if (q) {
     const symbols = new Set<string>(await getSymbolsByIsin(ref.isin));
     if (ref.symbol) symbols.add(ref.symbol);
@@ -311,19 +318,25 @@ async function enrichManualYahoo(
   } catch {
     // ignore — the pasted symbol is enough to price
   }
-  fields = { ...fields, yahooSymbol: fields.yahooSymbol ?? yahooSymbol, yahooQuoteSymbol: yahooSymbol };
-
-  await upsertMeta({
-    isin: ref.isin,
-    status: "OK",
-    source: "YAHOO",
-    assetKind,
-    fields,
-    // Record whether the price actually landed, so a stale row is diagnosable.
-    error: q ? null : "quote fetch returned no data (provider likely throttled)",
-    manualUrl,
-    markScraped: true,
-  });
+  if (q) {
+    // Pin the listing that actually priced (may be the country fallback, not
+    // the user's exact pin), so the cron reprices off the same one.
+    fields = { ...fields, yahooSymbol: fields.yahooSymbol ?? quoteSymbol, yahooQuoteSymbol: quoteSymbol };
+    await upsertMeta({ isin: ref.isin, status: "OK", source: "YAHOO", assetKind, fields, error: null, manualUrl, markScraped: true });
+  } else {
+    // No listing priced. Don't pin a broken quote symbol — leave routing to
+    // the ISIN-country resolver — and surface a specific, actionable error.
+    await upsertMeta({
+      isin: ref.isin,
+      status: "ERROR",
+      source: "YAHOO",
+      assetKind,
+      fields,
+      error: `Yahoo returned no price for ${candidates.join(" or ")}. Check the ticker, or paste the primary listing / a justETF link.`,
+      manualUrl,
+      bumpFailCount: true,
+    });
+  }
 
   const [m] = await getMetaByIsins([ref.isin]);
   return m ?? null;
