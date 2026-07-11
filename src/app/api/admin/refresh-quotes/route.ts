@@ -62,7 +62,7 @@ export async function POST() {
   const metas = await getMetaByIsins([...new Set(refs.map((r) => r.isin))]);
   const metaByIsin = new Map(metas.map((m) => [m.isin, m]));
 
-  const { quotes, bySource, unpriced, fmpConfigured } = await refreshQuotes(requested, {
+  const { quotes, bySource, unpriced, attempts, fmpConfigured } = await refreshQuotes(requested, {
     isinBySymbol,
     metaByIsin,
   });
@@ -93,6 +93,9 @@ export async function POST() {
     unpriced,
     skipped: skipped.length,
     bySource,
+    // Per-provider trace so an unpriced symbol shows which provider failed on
+    // which listing. Failures first (that's what we're diagnosing).
+    attempts: [...attempts].sort((a, b) => Number(a.ok) - Number(b.ok)),
     fmpConfigured,
     writeError,
   });

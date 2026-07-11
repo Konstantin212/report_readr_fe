@@ -37,10 +37,23 @@ import type { InstrumentMeta, InstrumentRef, ProviderId } from "@/lib/marketdata
 
 export type RefreshQuote = { symbol: string; date: string; close: string; currency: string; source: string };
 export type RefreshSource = "fmp" | "yahoo" | "justEtf" | "none";
+
+/** One provider call: which held symbol, which provider, the exact symbol/ISIN
+ *  actually sent (e.g. "TRN.L" not "TRN"), and whether a quote came back.
+ *  Surfaced via the admin refresh route so an unpriced symbol reveals which
+ *  provider failed and on what listing — instead of a silent snapshot. */
+export type QuoteAttempt = {
+  symbol: string;
+  provider: RefreshSource;
+  symbolTried: string;
+  ok: boolean;
+};
+
 export type RefreshResult = {
   quotes: RefreshQuote[];
   bySource: Record<RefreshSource, number>;
   unpriced: string[];
+  attempts: QuoteAttempt[];
   fmpConfigured: boolean;
   /** Always false — TwelveData was removed; kept so the admin route compiles. */
   twelveDataConfigured: boolean;
@@ -58,6 +71,14 @@ const PROVIDER_SOURCE: Record<ProviderId, RefreshSource> = {
   fmp: "fmp",
 };
 
+/** The exact symbol/ISIN a provider prices on — mirrors each provider's own
+ *  choice so the diagnostic trace shows what was really requested. */
+function symbolTriedFor(id: ProviderId, ref: InstrumentRef, meta: InstrumentMeta | null): string {
+  if (id === "justetf") return ref.isin;
+  if (id === "yahoo") return meta?.yahooQuoteSymbol ?? meta?.yahooSymbol ?? ref.symbol ?? ref.isin;
+  return ref.symbol ?? ref.isin;
+}
+
 export async function refreshQuotes(
   symbols: string[],
   opts?: RefreshOptions,
@@ -65,10 +86,11 @@ export async function refreshQuotes(
   const bySource: Record<RefreshSource, number> = { fmp: 0, yahoo: 0, justEtf: 0, none: 0 };
   const fmpConfigured = Boolean(process.env.FMP_API_KEY);
   if (!symbols.length) {
-    return { quotes: [], bySource, unpriced: [], fmpConfigured, twelveDataConfigured: false };
+    return { quotes: [], bySource, unpriced: [], attempts: [], fmpConfigured, twelveDataConfigured: false };
   }
 
   const got = new Map<string, RefreshQuote>();
+  const attempts: QuoteAttempt[] = [];
   const isinBySymbol = opts?.isinBySymbol;
   const metaByIsin = opts?.metaByIsin;
 
@@ -83,6 +105,7 @@ export async function refreshQuotes(
       const plan = planQuote(ref, meta);
       for (const id of plan) {
         const q = await fetchQuoteFor(id, ref, meta);
+        attempts.push({ symbol, provider: PROVIDER_SOURCE[id], symbolTried: symbolTriedFor(id, ref, meta), ok: Boolean(q) });
         if (q) {
           got.set(symbol, { symbol, date: q.date, close: q.close, currency: q.currency, source: q.source });
           bySource[PROVIDER_SOURCE[id]]++;
@@ -98,6 +121,8 @@ export async function refreshQuotes(
 
   if (fmpConfigured && fallbackTargets.length) {
     const fmpQuotes = await fetchFmpQuotes(fallbackTargets);
+    const fmpBySymbol = new Set(fmpQuotes.map((q) => q.symbol));
+    for (const s of fallbackTargets) attempts.push({ symbol: s, provider: "fmp", symbolTried: s, ok: fmpBySymbol.has(s) });
     for (const q of fmpQuotes) {
       if (!got.has(q.symbol)) {
         got.set(q.symbol, { ...q, source: "FMP" });
@@ -109,6 +134,10 @@ export async function refreshQuotes(
   const yahooTargets = fallbackTargets.filter((s) => !got.has(s));
   if (yahooTargets.length) {
     const yResults = await Promise.allSettled(yahooTargets.map((s) => fetchYahooQuote(s)));
+    yahooTargets.forEach((s, i) => {
+      const r = yResults[i];
+      attempts.push({ symbol: s, provider: "yahoo", symbolTried: s, ok: r.status === "fulfilled" && Boolean(r.value) });
+    });
     for (const r of yResults) {
       if (r.status === "fulfilled" && r.value && !got.has(r.value.symbol)) {
         got.set(r.value.symbol, { ...r.value, source: "YAHOO" });
@@ -119,5 +148,5 @@ export async function refreshQuotes(
 
   const unpriced = symbols.filter((s) => !got.has(s));
   bySource.none = unpriced.length;
-  return { quotes: [...got.values()], bySource, unpriced, fmpConfigured, twelveDataConfigured: false };
+  return { quotes: [...got.values()], bySource, unpriced, attempts, fmpConfigured, twelveDataConfigured: false };
 }
