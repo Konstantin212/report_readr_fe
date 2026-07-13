@@ -53,6 +53,8 @@ const SOURCE_META: Record<string, { short: string; long: string; kind: SourceKin
   TWELVE_DATA:      { short: "12D", long: "Twelve Data API",                kind: "api" },
   YAHOO:            { short: "YAH", long: "Yahoo Finance API",              kind: "api" },
   JUSTETF:          { short: "JETF", long: "justETF EOD",                   kind: "api" },
+  FINVIZ:           { short: "FVZ", long: "Finviz",                         kind: "api" },
+  GOOGLE:           { short: "GOOG", long: "Google Finance",               kind: "api" },
   STOOQ:            { short: "STQ", long: "Stooq CSV API",                  kind: "api" },
   COINGECKO:        { short: "CG",  long: "CoinGecko API",                  kind: "api" },
 };

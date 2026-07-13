@@ -31,6 +31,8 @@ import { justEtfProvider, fetchEtfQuote } from "./providers/justetf";
 import { yahooProvider, fetchYahooQuoteByMeta, fetchYahooChart } from "./providers/yahoo";
 import { fmpProvider } from "./providers/fmp";
 import { finvizProvider } from "./providers/finviz";
+import { fetchGoogleFinanceQuote } from "./providers/googlefinance";
+import { parseManualLink } from "./manual-link";
 import { manualListingCandidates } from "./yahoo-listing";
 import {
   getHeldRefs,
@@ -62,6 +64,14 @@ async function fetchQuoteFor(
   if (id === "justetf") return fetchEtfQuote(ref.isin);
   if (id === "yahoo") return fetchYahooQuoteByMeta(ref, meta);
   if (id === "finviz") return finvizProvider.fetchQuote(ref, meta);
+  if (id === "googlefinance") {
+    // The pinned ticker:exchange lives in the stored manual URL.
+    const link = meta?.manualUrl ? parseManualLink(meta.manualUrl) : null;
+    if (link && "provider" in link && link.provider === "googlefinance") {
+      return fetchGoogleFinanceQuote(link.ticker, link.exchange);
+    }
+    return null;
+  }
   return fmpProvider.fetchQuote(ref, meta);
 }
 
@@ -239,6 +249,9 @@ export async function enrichSingle(
   if (manual && manual.provider === "justetf") {
     return enrichManualJustetf(ref, manualUrl);
   }
+  if (manual && manual.provider === "googlefinance") {
+    return enrichManualGoogle(ref, manual.ticker, manual.exchange, manualUrl);
+  }
 
   const plan = planEnrichment(ref, manual);
   for (const id of plan) {
@@ -405,6 +418,40 @@ async function enrichManualJustetf(
       error: "justETF returned no quote for this ISIN",
       manualUrl,
       markScraped: true,
+    });
+  }
+  const [m] = await getMetaByIsins([ref.isin]);
+  return m ?? null;
+}
+
+/**
+ * Manual Google Finance link: price the pinned ticker:exchange directly off
+ * Google Finance (reachable from Vercel where Yahoo is not) and pin it so the
+ * cron reprices via the same source. Stores the pasted URL so the cron can
+ * reconstruct the ticker:exchange.
+ */
+async function enrichManualGoogle(
+  ref: InstrumentRef,
+  ticker: string,
+  exchange: string,
+  manualUrl?: string,
+): Promise<InstrumentMeta | null> {
+  const q = await fetchGoogleFinanceQuote(ticker, exchange);
+  if (q) {
+    const symbols = new Set<string>(await getSymbolsByIsin(ref.isin));
+    if (ref.symbol) symbols.add(ref.symbol);
+    await writeQuotes(
+      [...symbols].map((symbol) => ({ symbol, close: q.close, currency: q.currency, date: q.date, source: q.source })),
+    );
+    await upsertMeta({ isin: ref.isin, status: "OK", source: "MANUAL", assetKind: "stock", manualUrl, markScraped: true });
+  } else {
+    await upsertMeta({
+      isin: ref.isin,
+      status: "ERROR",
+      source: "MANUAL",
+      error: `Google Finance returned no price for ${ticker}:${exchange}. Check the ticker/exchange in the link.`,
+      manualUrl,
+      bumpFailCount: true,
     });
   }
   const [m] = await getMetaByIsins([ref.isin]);

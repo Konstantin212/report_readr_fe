@@ -13,7 +13,7 @@ import type { AssetKind, FundSubtype } from "@/lib/analytics/sector-map";
 export type MetaStatus = "OK" | "NOT_FOUND" | "ERROR";
 export type MetaSource = "JUSTETF" | "YAHOO" | "FMP" | "MANUAL";
 export type DistributionPolicy = "DISTRIBUTING" | "ACCUMULATING";
-export type ProviderId = "justetf" | "yahoo" | "fmp" | "finviz";
+export type ProviderId = "justetf" | "yahoo" | "fmp" | "finviz" | "googlefinance";
 
 /**
  * Synthetic ISIN key for instruments that have no real ISIN but were
@@ -137,7 +137,8 @@ export type ManualLink =
       yahooSymbol?: string;
       ticker?: string;
       exchange?: string;
-    };
+    }
+  | { provider: "googlefinance"; ticker: string; exchange: string };
 
 // --- Ports (Strategy pattern; one adapter per external source) -----------
 

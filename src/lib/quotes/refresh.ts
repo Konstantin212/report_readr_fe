@@ -37,7 +37,7 @@ import { yahooQuoteCandidates } from "@/lib/marketdata/yahoo-listing";
 import type { InstrumentMeta, InstrumentRef, ProviderId } from "@/lib/marketdata/types";
 
 export type RefreshQuote = { symbol: string; date: string; close: string; currency: string; source: string };
-export type RefreshSource = "fmp" | "yahoo" | "justEtf" | "finviz" | "none";
+export type RefreshSource = "fmp" | "yahoo" | "justEtf" | "finviz" | "google" | "none";
 
 /** One provider call: which held symbol, which provider, the exact symbol/ISIN
  *  actually sent (e.g. "TRN.L" not "TRN"), and whether a quote came back.
@@ -71,6 +71,7 @@ const PROVIDER_SOURCE: Record<ProviderId, RefreshSource> = {
   yahoo: "yahoo",
   fmp: "fmp",
   finviz: "finviz",
+  googlefinance: "google",
 };
 
 /** The exact symbol/ISIN a provider prices on — mirrors each provider's own
@@ -85,7 +86,7 @@ export async function refreshQuotes(
   symbols: string[],
   opts?: RefreshOptions,
 ): Promise<RefreshResult> {
-  const bySource: Record<RefreshSource, number> = { fmp: 0, yahoo: 0, justEtf: 0, finviz: 0, none: 0 };
+  const bySource: Record<RefreshSource, number> = { fmp: 0, yahoo: 0, justEtf: 0, finviz: 0, google: 0, none: 0 };
   const fmpConfigured = Boolean(process.env.FMP_API_KEY);
   if (!symbols.length) {
     return { quotes: [], bySource, unpriced: [], attempts: [], fmpConfigured, twelveDataConfigured: false };

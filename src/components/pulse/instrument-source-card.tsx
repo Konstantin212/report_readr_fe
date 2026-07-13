@@ -59,6 +59,7 @@ export function InstrumentSourceCard({
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -97,6 +98,33 @@ export function InstrumentSourceCard({
     }
   }
 
+  const linkForm = (
+    <form onSubmit={submit} className="space-y-2">
+      <input
+        type="url"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        disabled={submitting}
+        placeholder="Paste a Yahoo, justETF, Google Finance or Stockopedia link"
+        className="w-full bg-panel border border-border rounded-md px-2.5 py-1.5 text-[12px] text-ink placeholder:text-dim focus:outline-none focus:border-mint/50 disabled:opacity-60"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={submitting || !url.trim()}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-mint/15 text-mint border border-mint/30 font-mono text-[11px] tracking-wider hover:bg-mint/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          {submitting ? "Fetching data…" : error ? "Retry" : "Link data source"}
+        </button>
+        {submitting && <span className="font-mono text-[10px] text-dim">Contacting provider…</span>}
+      </div>
+      {error && !submitting && (
+        <div className="font-mono text-[11px] text-bad leading-relaxed">{error}</div>
+      )}
+    </form>
+  );
+
   if (meta) {
     const isEtf = meta.assetKind === "etf";
     const sourceLabel = meta.source ? (SOURCE_LABEL[meta.source] ?? meta.source) : "Unknown";
@@ -105,13 +133,30 @@ export function InstrumentSourceCard({
       <div className="bg-panel2 rounded-[14px] p-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="font-mono text-[10px] text-dim uppercase tracking-widest">Data source</span>
-          <span
-            className="inline-flex items-center px-1.5 py-0.5 rounded bg-mint/10 text-mint border border-mint/25 font-mono text-[10px] tracking-wider"
-            title={isin ? `ISIN ${isin}` : undefined}
-          >
-            {sourceLabel}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setShowForm((v) => !v); setError(null); }}
+              className="font-mono text-[10px] text-dim hover:text-ink tracking-wider"
+            >
+              {showForm ? "Cancel" : "Change"}
+            </button>
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 rounded bg-mint/10 text-mint border border-mint/25 font-mono text-[10px] tracking-wider"
+              title={isin ? `ISIN ${isin}` : undefined}
+            >
+              {sourceLabel}
+            </span>
+          </div>
         </div>
+        {showForm && (
+          <div className="pt-1">
+            <div className="text-[11px] text-muted mb-1.5">
+              Replace the pinned listing — paste a new link (e.g. Google Finance for an LSE stock).
+            </div>
+            {linkForm}
+          </div>
+        )}
         <div className="flex items-baseline gap-2 flex-wrap">
           {meta.assetKind && (
             <span className="px-1.5 py-0.5 rounded bg-panel text-ink font-mono text-[10px] tracking-wider">
@@ -173,32 +218,7 @@ export function InstrumentSourceCard({
         No market data resolved for {symbol}
         {currency ? ` (${currency})` : ""}. Paste a link to pin its listing.
       </div>
-      <form onSubmit={submit} className="space-y-2">
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={submitting}
-          placeholder="Paste a Yahoo, justETF, Google Finance or Stockopedia link"
-          className="w-full bg-panel border border-border rounded-md px-2.5 py-1.5 text-[12px] text-ink placeholder:text-dim focus:outline-none focus:border-mint/50 disabled:opacity-60"
-        />
-        <div className="flex items-center gap-2">
-          <button
-            type="submit"
-            disabled={submitting || !url.trim()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-mint/15 text-mint border border-mint/30 font-mono text-[11px] tracking-wider hover:bg-mint/25 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {submitting ? "Fetching data…" : error ? "Retry" : "Link data source"}
-          </button>
-          {submitting && (
-            <span className="font-mono text-[10px] text-dim">Contacting provider…</span>
-          )}
-        </div>
-      </form>
-      {error && !submitting && (
-        <div className="font-mono text-[11px] text-bad leading-relaxed">{error}</div>
-      )}
+      {linkForm}
     </div>
   );
 }

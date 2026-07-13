@@ -54,6 +54,10 @@ export function planQuote(
   ref: InstrumentRef,
   meta: InstrumentMeta | null,
 ): ProviderId[] {
+  // A manual Google Finance pin wins — it's the user's explicit choice for a
+  // listing Yahoo/justETF/finviz can't reach (e.g. an LSE stock). Detected by
+  // the stored manual URL so no new instrument_meta.source enum value is needed.
+  if (meta?.manualUrl && /\bgoogle\.com\/finance\//i.test(meta.manualUrl)) return ["googlefinance"];
   if (meta?.source === "JUSTETF") return ["justetf"];
   if (!ref.isin || isSyntheticIsin(ref.isin) || ref.isin.startsWith("US")) {
     return ["fmp", "finviz"];

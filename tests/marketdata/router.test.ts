@@ -83,6 +83,12 @@ describe("planQuote", () => {
     ]);
   });
 
+  it("manual Google Finance link (by stored manualUrl) → [googlefinance]", () => {
+    expect(
+      planQuote(ref("GB00BKDTK925"), meta({ manualUrl: "https://www.google.com/finance/quote/TRN:LON" })),
+    ).toEqual(["googlefinance"]);
+  });
+
   it("JUSTETF-sourced non-ETF (e.g. RY4C, an EU stock justETF prices) → [justetf]", () => {
     expect(planQuote(ref("IE00BYTBXV33"), meta({ source: "JUSTETF", assetKind: "stock" }))).toEqual(
       ["justetf"],

@@ -121,7 +121,11 @@ function parseGoogle(segments: string[]): ManualLink | { error: string } {
     };
   }
   const [ticker, exchange] = decodeURIComponent(pair).split(":");
-  return toYahooFromExchange(ticker, exchange);
+  if (!ticker || !exchange) {
+    return { error: "Could not parse ticker and exchange from link." };
+  }
+  // Fetch Google Finance directly (reachable from Vercel; Yahoo is not).
+  return { provider: "googlefinance", ticker, exchange };
 }
 
 function parseStockopedia(segments: string[]): ManualLink | { error: string } {

@@ -45,27 +45,28 @@ describe("parseManualLink — Yahoo Finance", () => {
 });
 
 describe("parseManualLink — Google Finance", () => {
-  it("beta quote TRN:LON → yahooSymbol TRN.L", () => {
+  // Google Finance is now fetched DIRECTLY (it's reachable from Vercel where
+  // Yahoo is not), so the link keeps its raw ticker:exchange — no Yahoo suffix.
+  it("beta quote TRN:LON → googlefinance ticker+exchange", () => {
     expect(parseManualLink("https://www.google.com/finance/beta/quote/TRN:LON")).toEqual({
-      provider: "yahoo",
+      provider: "googlefinance",
       ticker: "TRN",
       exchange: "LON",
-      yahooSymbol: "TRN.L",
     });
   });
 
-  it("US listing (NASDAQ) → bare ticker as yahooSymbol", () => {
+  it("US listing (NASDAQ) → googlefinance ticker+exchange", () => {
     expect(parseManualLink("https://www.google.com/finance/quote/AAPL:NASDAQ")).toEqual({
-      provider: "yahoo",
+      provider: "googlefinance",
       ticker: "AAPL",
       exchange: "NASDAQ",
-      yahooSymbol: "AAPL",
     });
   });
 
-  it("unknown exchange → error naming the code", () => {
-    const out = parseManualLink("https://www.google.com/finance/quote/X:ZZZ");
-    expect(out).toEqual({ error: "Unknown exchange code: ZZZ" });
+  it("missing ticker:exchange → error", () => {
+    expect(parseManualLink("https://www.google.com/finance/quote/AAPL")).toEqual({
+      error: "Google Finance link is missing the /finance/quote/{ticker}:{exchange} path.",
+    });
   });
 });
 
