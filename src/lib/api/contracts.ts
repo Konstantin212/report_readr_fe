@@ -241,6 +241,27 @@ export const taxDataSchema: z.ZodType<TaxData> = z.object({
     taxableBaseEur: z.number(),
     estTaxEur: z.number(),
   }),
+  buckets: z.object({
+    aktien: z.object({
+      gainsEur: z.number(),
+      lossesEur: z.number(),
+      netEur: z.number(),
+      taxableEur: z.number(),
+      carryforwardEur: z.number(),
+    }),
+    sonstige: z.object({
+      gainsEur: z.number(),
+      lossesEur: z.number(),
+      netEur: z.number(),
+      taxableEur: z.number(),
+      dividendsEur: z.number(),
+      interestEur: z.number(),
+    }),
+    allowanceEur: z.number(),
+    allowanceUsedEur: z.number(),
+    taxableBaseEur: z.number(),
+    estTaxEur: z.number(),
+  }),
   allowance: z.object({
     usedEur: z.number(),
     totalEur: z.number(),

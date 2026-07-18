@@ -27,6 +27,11 @@ export type BucketIsolationInputs = {
 export type BucketIsolationResult = {
   aktienNetEur: number;             // floored at 0
   sonstigeNetEur: number;           // floored at 0
+  /** Positive magnitude of the share loss that could NOT be used this year and
+   *  becomes a Verlustvortrag (§20 Abs. 6 S. 4) — it may only ever offset
+   *  FUTURE share gains, never dividends/interest/fund income. 0 when the
+   *  Aktien bucket is net positive. */
+  aktienCarryforwardEur: number;
   combinedNetEur: number;           // aktienNet + sonstigeNet
   taxableBaseEur: number;           // max(0, combined - allowance)
   /** Income consumed against the allowance (clipped). For the progress bar. */
@@ -60,6 +65,7 @@ export function applyBucketIsolation(inputs: BucketIsolationInputs): BucketIsola
 
   return {
     aktienNetEur,
+    aktienCarryforwardEur: Math.max(0, -aktienBaseEur),
     sonstigeNetEur,
     combinedNetEur,
     taxableBaseEur,

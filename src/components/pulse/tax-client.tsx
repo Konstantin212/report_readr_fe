@@ -8,6 +8,7 @@ import { TaxYearSelector } from "@/components/pulse/tax-year-selector";
 import { MetricsGrid } from "@/components/pulse/metrics-grid";
 import { RealizedLotsTable } from "@/components/pulse/realized-lots-table";
 import { ElsterValuesCard } from "@/components/pulse/elster-values-card";
+import { TaxBucketsCard } from "@/components/pulse/tax-buckets-card";
 import { PreSubmitChecklist } from "@/components/pulse/pre-submit-checklist";
 import { fmtEur } from "@/lib/format";
 import { taxResponseSchema, type TaxResponse } from "@/lib/api/contracts";
@@ -219,6 +220,8 @@ export function TaxClient({ year: yearNum }: { year: number }) {
           </a>
         </Card>
       </div>
+
+      <TaxBucketsCard b={d.buckets} />
 
       <ElsterValuesCard draft={d.kapV2} reconciliation={d.reconciliation} />
 

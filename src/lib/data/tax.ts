@@ -9,7 +9,7 @@ import {
   type LegacyGermanTaxDraft,
 } from "@/lib/tax/german-tax";
 import { applyBucketIsolation } from "@/lib/tax/bucket-isolation";
-import { classifyKind, classifySector } from "@/lib/analytics/sector-map";
+import { splitRealizedByBucket } from "@/lib/tax/realized-buckets";
 import { loadClassificationContext } from "@/lib/analytics/classification";
 import { ABGELT_RATE, SAVER_ALLOWANCE_DEFAULT } from "@/lib/tax/constants";
 import {
@@ -72,9 +72,31 @@ export type TaxForecast = {
   estTaxEur: number;
 };
 
+/** One §20 Abs. 6 EStG loss pot, as shown side-by-side on the tax page. */
+export type TaxBucket = {
+  gainsEur: number;   // ≥ 0
+  lossesEur: number;  // ≤ 0
+  netEur: number;     // signed
+  /** What this pot actually contributes to taxable income (floored at 0). */
+  taxableEur: number;
+};
+
 export type TaxData = {
   year: number;
   hero: { netRealizedEur: number; taxableBaseEur: number; estTaxEur: number };
+  /** The two statutory pots. Aktien losses may ONLY offset Aktien gains
+   *  (§20 Abs. 6 S. 4) — they can never reduce ETF gains, dividends or
+   *  interest, so the unusable remainder is a Verlustvortrag. */
+  buckets: {
+    aktien: TaxBucket & { carryforwardEur: number };
+    /** Realized ETF/bond results PLUS dividends and interest — they share the
+     *  general pot. */
+    sonstige: TaxBucket & { dividendsEur: number; interestEur: number };
+    allowanceEur: number;
+    allowanceUsedEur: number;
+    taxableBaseEur: number;
+    estTaxEur: number;
+  };
   allowance: {
     usedEur: number;
     totalEur: number;
@@ -176,15 +198,14 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   // table uses. Without this the dashboard understates the taxable base
   // by the size of any wasted stock-loss — the bug that surfaced as a
   // mismatch between this page (€167) and the loss-harvest page (€171).
-  let aktienRealisedNetEur = 0;
-  let sonstigeRealisedNetEur = 0;
-  for (const m of yrMatches) {
-    const sector = classifySector(m.symbol);
-    const kind = classifyKind(m.symbol, sector);
-    const gain = Number(m.gainEur);
-    if (kind === "stock") aktienRealisedNetEur += gain;
-    else sonstigeRealisedNetEur += gain;
-  }
+  // Classification is ISIN-FIRST (splitRealizedByBucket → kindFor): ticker
+  // symbols collide across listings — the Citigroup bond (US172967MZ11) and
+  // Citigroup stock (US1729674242) both trade as "C", and symbol-only bucketing
+  // filed the bond's loss as an Aktien loss while ELSTER booked it as a
+  // "sonstige" loss, distorting the share-loss carryforward.
+  const split = splitRealizedByBucket(yrMatches, classification);
+  const aktienRealisedNetEur = split.aktien.net;
+  const sonstigeRealisedNetEur = split.sonstige.net;
   // netRealized retains its aggregate definition (sum across both buckets)
   // — that's what the "REALISED" breakdown number means on the dashboard.
 
@@ -294,6 +315,27 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   return {
     year,
     hero: { netRealizedEur: netRealized, taxableBaseEur: taxableBase, estTaxEur: estTax },
+    buckets: {
+      aktien: {
+        gainsEur: split.aktien.gains,
+        lossesEur: split.aktien.losses,
+        netEur: split.aktien.net,
+        taxableEur: bucket.aktienNetEur,
+        carryforwardEur: bucket.aktienCarryforwardEur,
+      },
+      sonstige: {
+        gainsEur: split.sonstige.gains,
+        lossesEur: split.sonstige.losses,
+        netEur: split.sonstige.net,
+        taxableEur: bucket.sonstigeNetEur,
+        dividendsEur,
+        interestEur,
+      },
+      allowanceEur: allowance,
+      allowanceUsedEur: usedEur,
+      taxableBaseEur: taxableBase,
+      estTaxEur: estTax,
+    },
     allowance: {
       usedEur,
       totalEur: allowance,

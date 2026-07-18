@@ -196,7 +196,7 @@ function isNonZero(z: ZeileValue): boolean {
   return new Decimal(z.cents).abs().gt(0);
 }
 
-type ClassificationMap = BuildAnlageKapInput["classification"];
+export type ClassificationMap = BuildAnlageKapInput["classification"];
 
 /** Resolve a classification entry with ISIN-first, symbol-fallback
  *  precedence. ISIN comes FIRST because ticker symbols collide across
@@ -231,7 +231,9 @@ function subtypeFor(
 
 /** Kind resolution: classification override (ISIN-first) → the hardcoded
  *  classifyKind() fallback. */
-function kindFor(
+/** ISIN-first asset-kind resolution (exported: the realized-bucket split needs
+ *  the identical precedence so the tax page and the KAP draft can't drift). */
+export function kindFor(
   ticker: string,
   classification?: ClassificationMap,
   isin?: string,

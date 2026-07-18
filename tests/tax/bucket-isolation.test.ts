@@ -110,3 +110,39 @@ describe("applyBucketIsolation", () => {
     expect(result.taxableBaseEur).toBe(100);
   });
 });
+
+/**
+ * Verlustvortrag (§20 Abs. 6 S. 4). A share loss that exceeds share gains is
+ * NOT relief this year — it is carried forward and may only ever meet future
+ * share gains. The 2025 return made this concrete: €587 share gains against
+ * €2,324 share losses left a €1,642 carryforward while €826 of dividends and
+ * interest still had to face the allowance on its own.
+ */
+describe("applyBucketIsolation — share-loss carryforward", () => {
+  it("reports the unusable share loss as a carryforward", () => {
+    const r = applyBucketIsolation({
+      aktienRealisedNetEur: -1650,
+      sonstigeRealisedNetEur: 55,
+      dividendsEur: 738,
+      interestEur: 32,
+      forecastDividendsEur: 0,
+      allowanceEur: 1000,
+    });
+    expect(r.aktienCarryforwardEur).toBeCloseTo(1650, 2);
+    // The loss cannot touch the Sonstige pot.
+    expect(r.sonstigeNetEur).toBeCloseTo(825, 2);
+    expect(r.taxableBaseEur).toBe(0);
+  });
+
+  it("is zero when the Aktien bucket is net positive", () => {
+    const r = applyBucketIsolation({
+      aktienRealisedNetEur: 400,
+      sonstigeRealisedNetEur: 0,
+      dividendsEur: 0,
+      interestEur: 0,
+      forecastDividendsEur: 0,
+      allowanceEur: 1000,
+    });
+    expect(r.aktienCarryforwardEur).toBe(0);
+  });
+});
