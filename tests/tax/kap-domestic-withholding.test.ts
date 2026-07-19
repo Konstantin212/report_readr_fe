@@ -65,10 +65,10 @@ describe("Anlage KAP — domestic withholding certificates", () => {
   it("never routes German KESt to the FOREIGN withholding lines", () => {
     // The filing handoff doc mislabelled this German KESt as "foreign tax
     // credited ≈ €9.00". It is not creditable foreign tax and must never
-    // reach Z51/Z52.
+    // reach foreignWhtGross/Zeile 41.
     const draft = withCerts([REVOLUT_2025]);
-    expect(draft.kap.lines.Z51.euros).toBe(0);
-    expect(draft.kap.lines.Z52.euros).toBe(0);
+    expect(draft.kap.foreignWhtGross.euros).toBe(0);
+    expect(draft.kap.lines.Z41.euros).toBe(0);
   });
 
   it("sums several certificates (one per German institution)", () => {

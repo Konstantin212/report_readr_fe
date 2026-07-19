@@ -58,10 +58,10 @@ function buildItems(draft: GermanTaxDraft): ChecklistItem[] {
       text: `KAP Zeile 22 = ${draft.kap.lines.Z22.euros} (Verluste ohne Aktienveräußerungen)`,
     });
   }
-  if (draft.kap.lines.Z51.euros > 0) {
+  if (draft.kap.lines.Z41.euros > 0) {
     items.push({
       mark: "yes",
-      text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)`,
+      text: `KAP Zeile 41 = ${draft.kap.lines.Z41.euros} (ausländische Quellensteuer, brutto)`,
     });
   }
   // Unused stock losses only survive into future years if the loss

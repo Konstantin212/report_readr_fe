@@ -37,8 +37,6 @@ const KAP_LABELS = {
   Z37: "Z37 — Kapitalertragsteuer (anrechenbar)",
   Z38: "Z38 — Solidaritätszuschlag (anrechenbar)",
   Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
-  Z51: "Z51 — Ausländische Quellensteuer (brutto)",
-  Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
 };
 const KAP_INV_S1_LABELS = {
   Z4_aktienfonds: "Z4 — Aktienfonds",
@@ -187,8 +185,8 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
         + `~€${draft.kap.stockLossCarryforward.euros} of stock losses exceed this year's stock gains (§20 Abs.6 S.4).`,
     });
   }
-  if (draft.kap.lines.Z51.euros > 0) {
-    items.push({ mark: "yes", text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)` });
+  if (draft.kap.lines.Z41.euros > 0) {
+    items.push({ mark: "yes", text: `KAP Zeile 41 = ${draft.kap.lines.Z41.euros} (ausländische Quellensteuer, brutto)` });
   }
 
   if (draft.kapInv.present) {

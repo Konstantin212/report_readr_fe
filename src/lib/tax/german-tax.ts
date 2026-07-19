@@ -79,11 +79,16 @@ export type KapEvidenceItem = {
 //   Z20 — darin enthaltene Gewinne aus Aktienveräußerungen (§20 Abs.2 Nr.1)
 //   Z22 — darin enthaltene Verluste OHNE Verluste aus Aktienveräußerungen
 //   Z23 — darin enthaltene Verluste AUS Aktienveräußerungen (§20 Abs.6 bucket)
-//   Z51/Z52 — ausländische Quellensteuer (brutto / anrechenbar).
+//   Z41 — Anrechenbare noch nicht angerechnete ausländische Steuern (treaty-capped).
 // Sources: privatsparer.de "Anlage KAP 2025 · Interactive Brokers"; steuern.de.
+//
+// Line numbers verified against the live ELSTER 2025 form on 2026-07-19.
+// Zeilen 51/52 are NOT withholding lines — they are the Steuernummer and
+// income of a foreign Familienstiftung (§15 AStG, section 12). Creditable
+// foreign tax is Zeile 41. See docs/elster-anlage-kap-2025-gaps.md.
 export type FormTarget =
-  | "KAP_Z7" | "KAP_Z37" | "KAP_Z38"
-  | "KAP_Z19" | "KAP_Z20" | "KAP_Z22" | "KAP_Z23" | "KAP_Z51" | "KAP_Z52"
+  | "KAP_Z7" | "KAP_Z37" | "KAP_Z38" | "KAP_Z41"
+  | "KAP_Z19" | "KAP_Z20" | "KAP_Z22" | "KAP_Z23"
   | "KAP_INV_S1_Z4" | "KAP_INV_S1_Z5" | "KAP_INV_S1_Z6" | "KAP_INV_S1_Z7" | "KAP_INV_S1_Z8"
   | "KAP_INV_S2_Z14" | "KAP_INV_S2_Z17" | "KAP_INV_S2_Z20" | "KAP_INV_S2_Z23" | "KAP_INV_S2_Z26";
 
@@ -108,6 +113,10 @@ export type GermanTaxDraft = {
      *  so the unused Aktien loss carries forward (§20 Abs. 6 S. 4 EStG:
      *  stock losses only ever offset stock gains). */
     stockLossCarryforward: ZeileValue;
+    /** Gross foreign withholding actually suffered. Informational — the 2025
+     *  form has NO field for it; only the creditable (treaty-capped) amount
+     *  in Zeile 41 is entered. Kept for the reconciliation view and evidence. */
+    foreignWhtGross: ZeileValue;
     lines: {
       /** Kapitalerträge WITH German withholding, per Steuerbescheinigung
        *  (§45a EStG). Declared from certificates, never derived — the
@@ -120,9 +129,10 @@ export type GermanTaxDraft = {
       Z23: ZeileValue; // darin: Verluste aus Aktienveräußerungen (stock-sale losses, ≥ 0 magnitude)
       Z37: ZeileValue; // Kapitalertragsteuer withheld in Germany (creditable)
       Z38: ZeileValue; // Solidaritätszuschlag on that KESt (creditable)
-      Z41: ZeileValue; // already-paid German AbgSt (always 0 for foreign brokers)
-      Z51: ZeileValue; // foreign WHT paid (gross)
-      Z52: ZeileValue; // foreign WHT eligible for offset (treaty-capped)
+      /** Anrechenbare noch nicht angerechnete ausländische Steuern
+       *  (section 8). Treaty-capped: tax withheld above the treaty rate is
+       *  reclaimable from the source state, not creditable in Germany. */
+      Z41: ZeileValue;
     };
   };
   kapInv: {
@@ -171,7 +181,7 @@ export type BuildAnlageKapInput = {
   dividends: KapDividend[];
   interest: KapInterest[];
   matches: KapMatch[];
-  /** Standalone WITHHOLDING_TAX events (T4). Applied to Z51/Z52 only for
+  /** Standalone WITHHOLDING_TAX events (T4). Applied to foreignWhtGross/Zeile 41 only for
    *  STOCK symbols whose dividend rows carry NO inline whtEur — this avoids
    *  double-counting brokers (FF) that stamp WHT both inline and as a tax
    *  row. ETF/fund WHT is never routed here (not investor-creditable under
@@ -355,7 +365,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       }
       if (wht.gt(0)) {
         warnings.push(
-          `ETF "${d.ticker}" had foreign WHT (€${wht.toFixed(2)}). Under InvStG 2018 fund-distribution WHT is not investor-creditable (Teilfreistellung compensates) — not routed to KAP Z51/Z52.`,
+          `ETF "${d.ticker}" had foreign WHT (€${wht.toFixed(2)}). Under InvStG 2018 fund-distribution WHT is not investor-creditable (Teilfreistellung compensates) — not routed to KAP Zeile 41.`,
         );
       }
       section1[resolved] = section1[resolved].plus(gross);
@@ -419,7 +429,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
 
   // --- Standalone withholding tax (T4) -----------------------------------
   // Some brokers (IBKR) report WHT in a dedicated section, not inline on the
-  // dividend. Aggregate per (broker, symbol); apply to Z51/Z52 only for STOCK
+  // dividend. Aggregate per (broker, symbol); apply to foreignWhtGross/Zeile 41 only for STOCK
   // symbols whose SAME-broker dividend carries NO inline WHT (prefer the inline
   // field — FF stamps WHT both inline and as a tax row, so blindly adding
   // double-counts). Matching per broker keeps a symbol held at two brokers from
@@ -430,7 +440,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
     if (amt.lte(0)) continue;
     if (kindFor(w.symbol, cls, w.isin) === "etf") {
       warnings.push(
-        `ETF/fund WHT on "${w.symbol}" (€${amt.toFixed(2)}) is not investor-creditable under InvStG 2018 — excluded from KAP Z51/Z52.`,
+        `ETF/fund WHT on "${w.symbol}" (€${amt.toFixed(2)}) is not investor-creditable under InvStG 2018 — excluded from KAP Zeile 41.`,
       );
       continue;
     }
@@ -453,7 +463,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       z52 = z52.plus(Decimal.min(agg.wht, div.gross.mul(cap)));
     } else {
       warnings.push(
-        `Withholding tax on "${agg.symbol}"${agg.broker ? ` (${agg.broker})` : ""} (€${agg.wht.toFixed(2)}) couldn't be matched to a same-broker dividend — added to KAP Z51 but not Z52 (creditability unverified). Verify with your Steuerberater.`,
+        `Withholding tax on "${agg.symbol}"${agg.broker ? ` (${agg.broker})` : ""} (€${agg.wht.toFixed(2)}) couldn't be matched to a same-broker dividend — included in gross foreign withholding but not KAP Zeile 41 (creditability unverified). Verify with your Steuerberater.`,
       );
     }
   }
@@ -605,7 +615,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   // withheld at source. Transcribed from the certificate rather than derived:
   // the withheld tax appears in no transaction export, so there is nothing to
   // compute it from. Deliberately kept OUT of Z19 (foreign, untaxed) and out
-  // of Z51/Z52 (creditable FOREIGN withholding) — German KESt is neither.
+  // of foreignWhtGross/Zeile 41 (creditable FOREIGN withholding) — German KESt is neither.
   const domestic = { kapitalertraege: new Decimal(0), kest: new Decimal(0), solz: new Decimal(0) };
   for (const cert of input.domesticCertificates ?? []) {
     const gross = new Decimal(cert.kapitalertraegeEur || 0);
@@ -651,6 +661,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       // future stock gains — surface the amount so the filer ticks the
       // Verlustfeststellung on the Hauptvordruck instead of losing it.
       stockLossCarryforward: toZeile(Decimal.max(0, stockLosses.minus(stockGains))),
+      foreignWhtGross: toZeile(z51, true),
       lines: {
         Z7: toZeile(domestic.kapitalertraege, true), // inländische Kapitalerträge (Steuerbescheinigung)
         Z17: ZERO(),                       // always 0 — let ELSTER auto-allocate the Pauschbetrag
@@ -660,9 +671,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
         Z23: toZeile(stockLosses, true),   // darin: Verluste aus Aktienveräußerungen (magnitude)
         Z37: toZeile(domestic.kest, true), // KESt withheld in Germany (creditable)
         Z38: toZeile(domestic.solz, true), // SolZ on that KESt (creditable)
-        Z41: ZERO(),                       // foreign brokers don't withhold DE AbgSt
-        Z51: toZeile(z51, true),
-        Z52: toZeile(z52, true),
+        Z41: toZeile(z52, true),
       },
     },
     kapInv: {
@@ -707,8 +716,8 @@ export function buildAnlageKap(input: BuildAnlageKapInput): LegacyGermanTaxDraft
       Z21: "0.00",
       Z22: legacyZ22(input).toFixed(2),
       Z41: "0.00",
-      Z51: d.kap.lines.Z51.cents,
-      Z52: d.kap.lines.Z52.cents,
+      Z51: d.kap.foreignWhtGross.cents,
+      Z52: d.kap.lines.Z41.cents,
     },
     evidence: d.evidence,
   };

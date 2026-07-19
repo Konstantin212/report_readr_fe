@@ -349,7 +349,7 @@ function parseSimpleAmountSection(
  * Rows look like: Currency / Date / Description / Amount / Code, e.g.
  * `TSM(US8740391003) Cash Dividend USD 0.780305 per Share - TW Tax` with
  * Amount `-0.49`. Without this, foreign tax withheld is invisible and the
- * ELSTER foreign-tax-credit fields (Z51/52) silently read 0.
+ * ELSTER foreign-tax-credit field (Zeile 41) silently reads 0.
  *
  * `amount` keeps the raw (negative) figure; `withholdingTax` holds the
  * absolute value — the domain field the tax layer reads (mirrors how

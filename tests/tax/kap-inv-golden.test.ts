@@ -66,13 +66,12 @@ describe("buildKapAndKapInv — GF's 2025 golden fixture", () => {
     expect(draft.kapInv.section2.Z26_sonstige.euros).toBe(0);
   });
 
-  it("leaves Anlage KAP Z17 / Z20 / Z22 / Z41 / Z51 / Z52 at zero (no non-fund income)", () => {
+  it("leaves Anlage KAP Z17 / Z20 / Z22 / Z41 / foreignWhtGross at zero (no non-fund income)", () => {
     expect(draft.kap.lines.Z17.euros).toBe(0);
     expect(draft.kap.lines.Z20.euros).toBe(0);
     expect(draft.kap.lines.Z22.euros).toBe(0);
     expect(draft.kap.lines.Z41.euros).toBe(0);
-    expect(draft.kap.lines.Z51.euros).toBe(0);
-    expect(draft.kap.lines.Z52.euros).toBe(0);
+    expect(draft.kap.foreignWhtGross.euros).toBe(0);
   });
 
   it("emits no warnings for the all-known-equity-ETF case", () => {
@@ -136,9 +135,9 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
     }
   });
 
-  it("applies treaty-cap on Z52 (US default = 15%, so 15% × 500 = 75)", () => {
-    expect(draft.kap.lines.Z51.cents).toBe("75.00");
-    expect(draft.kap.lines.Z52.cents).toBe("75.00");
+  it("applies treaty-cap on Zeile 41 (US default = 15%, so 15% × 500 = 75)", () => {
+    expect(draft.kap.foreignWhtGross.cents).toBe("75.00");
+    expect(draft.kap.lines.Z41.cents).toBe("75.00");
   });
 });
 

@@ -11,8 +11,6 @@ const KAP_LABELS = {
   Z37: "Z37 — Kapitalertragsteuer (anrechenbar)",
   Z38: "Z38 — Solidaritätszuschlag (anrechenbar)",
   Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
-  Z51: "Z51 — Ausländische Quellensteuer (brutto)",
-  Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
 } as const;
 
 const KAP_INV_S1_LABELS = {

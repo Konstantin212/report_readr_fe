@@ -226,7 +226,7 @@ export async function getPositionsData(
   //
   // Each broker distribution lands as two atomic rows in our ledger: the
   // gross DIVIDEND, and a negative WITHHOLDING_TAX (so Anlage KAP can use
-  // gross in Z19 and WHT in Z51 separately). For the position-level
+  // gross in Z19 and WHT in foreignWhtGross separately). For the position-level
   // "dividends received" footnote and the net P/L view, we want the
   // user-facing *net cash that arrived* = sum(div.cash) + sum(wht.cash).
   //
