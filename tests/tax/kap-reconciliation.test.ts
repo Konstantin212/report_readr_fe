@@ -102,4 +102,24 @@ describe("swap caveat is conditional", () => {
     const r = buildReconciliation(d, accounts());
     expect(r.caveats.join(" ")).not.toMatch(/equity swap/i);
   });
+
+  it("fires for a Freedom user with swap-shaped symbol (FRHC)", () => {
+    const d = buildKapAndKapInv(
+      buildInputs([], [match({ brokerAccountId: ACCT.ff, symbol: "FRHC", gainEur: "100.00" })], {
+        FRHC: { kind: "stock", subtype: null },
+      }),
+    );
+    const r = buildReconciliation(d, accounts());
+    expect(r.caveats.join(" ")).toMatch(/equity swap/i);
+  });
+
+  it("fires for a Freedom user with swap-shaped symbol (SWAP)", () => {
+    const d = buildKapAndKapInv(
+      buildInputs([], [match({ brokerAccountId: ACCT.ff, symbol: "SWAP", gainEur: "50.00" })], {
+        SWAP: { kind: "stock", subtype: null },
+      }),
+    );
+    const r = buildReconciliation(d, accounts());
+    expect(r.caveats.join(" ")).toMatch(/equity swap/i);
+  });
 });
