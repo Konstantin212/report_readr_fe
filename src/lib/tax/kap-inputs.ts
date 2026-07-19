@@ -379,7 +379,13 @@ export function buildReconciliation(
   // NOT an exclusion: the FF importer still treats equity swaps as ordinary
   // trades (swap tagging is deferred), so we must NOT claim they're filtered —
   // only flag them as unhandled so the user checks manually.
-  if (brokers.has("FREEDOM_FINANCE")) {
+  // Only warn when the ledger actually contains swap-shaped rows. Warning
+  // every Freedom user regardless trained the filer to ignore warnings and
+  // cost a real filing session chasing a phantom figure (2026-07-19).
+  const hasSwapRows = draft.evidence.some(
+    (e) => e.symbol != null && /(^|\W)(FRHC|SWAP)(\W|$)/i.test(e.symbol),
+  );
+  if (hasSwapRows) {
     caveats.push(
       "Freedom equity swaps (Termingeschäfte, §20 Abs.2 Nr.3) are not yet distinguished by the importer — if you traded any, verify them manually with your Steuerberater.",
     );

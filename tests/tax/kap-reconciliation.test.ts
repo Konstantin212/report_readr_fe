@@ -75,8 +75,9 @@ describe("KAP reconciliation subtotals (T5)", () => {
     expect(recon.excluded.some((x) => /crypto/i.test(x))).toBe(true);
     // Equity swaps are NOT filtered (importer doesn't distinguish them yet) →
     // they must appear as an honest caveat, never as a claimed exclusion.
+    // The caveat only fires if swap rows are actually present.
     expect(recon.excluded.some((x) => /swap/i.test(x))).toBe(false);
-    expect(recon.caveats.some((x) => /swap/i.test(x))).toBe(true);
+    expect(recon.caveats.some((x) => /swap/i.test(x))).toBe(false);
   });
 
   it("produces no negative ELSTER value anywhere, except the signed Z19 net total", () => {
@@ -88,5 +89,17 @@ describe("KAP reconciliation subtotals (T5)", () => {
       expect(Number(v.cents)).toBeGreaterThanOrEqual(0);
     }
     expect(draft.kap.lines.Z19.cents).toBe("-1192.63");
+  });
+});
+
+describe("swap caveat is conditional", () => {
+  it("stays silent for a Freedom user with no derivative rows", () => {
+    const d = buildKapAndKapInv(
+      buildInputs([dividend({ brokerAccountId: ACCT.ff, symbol: "GM", amountEur: "10.00" })], [], {
+        GM: { kind: "stock", subtype: null },
+      }),
+    );
+    const r = buildReconciliation(d, accounts());
+    expect(r.caveats.join(" ")).not.toMatch(/equity swap/i);
   });
 });
