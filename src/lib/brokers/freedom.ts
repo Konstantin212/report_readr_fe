@@ -655,11 +655,29 @@ function parseSecuritiesInOuts(rows: FreedomSecurityInOut[], accountNumber: stri
     .filter((event): event is NormalizedEvent => Boolean(event));
 }
 
+/**
+ * Freedom24 restates every dividend a SECOND time in `corporate_actions`
+ * with `operation: "Dividends"`, carrying the amount net of withholding —
+ * the same payments already parsed from `cash_flows.detailed` as DIVIDEND
+ * events (gross, with the withholding on its own row). Reconciling 2025
+ * showed €545.39 gross dividends against €487.91 of these restatements, a
+ * €57.48 difference matching the €57.46 withholding total.
+ *
+ * We keep the row as an audit trail but strip its monetary fields, so no
+ * consumer can sum the year's dividends twice. Same reasoning — and same
+ * treatment — as the informational rows in parseSecuritiesInOuts.
+ */
+function isDividendRestatement(description: string | undefined): boolean {
+  return Boolean(description && /^dividends?$/i.test(description.trim()));
+}
+
 function parseCorporateActions(rows: FreedomCorporateAction[], accountNumber: string): NormalizedEvent[] {
   return rows
     .map((row, index) => {
       const date = dateOnly(cleanString(row.short_date) ?? cleanString(row.date));
       if (!date) return null;
+      const description = cleanString(row.operation) ?? cleanString(row.type);
+      const restatesDividend = isDividendRestatement(description);
       return compactEvent<NormalizedEvent>({
         id: cleanString(row.id) ?? `freedom-corporate-action-${index + 1}`,
         broker: "FREEDOM_FINANCE",
@@ -669,9 +687,9 @@ function parseCorporateActions(rows: FreedomCorporateAction[], accountNumber: st
         currency: cleanString(row.curr_c) ?? cleanString(row.currency) ?? "UNKNOWN",
         symbol: stripFreedomSuffix(cleanString(row.instr_nm) ?? cleanString(row.ticker)),
         isin: cleanString(row.isin),
-        description: cleanString(row.operation) ?? cleanString(row.type),
+        description,
         quantity: cleanNumber(row.q) ?? cleanNumber(row.quantity),
-        amount: cleanNumber(row.summ) ?? cleanNumber(row.amount),
+        amount: restatesDividend ? undefined : cleanNumber(row.summ) ?? cleanNumber(row.amount),
         source: "corporate_actions.detailed",
       });
     })

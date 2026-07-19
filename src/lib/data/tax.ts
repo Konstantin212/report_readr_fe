@@ -17,6 +17,7 @@ import {
   buildReconciliation,
   deriveAccountScope,
   isAccrualSource,
+  isNonDeductibleInterest,
   isinToSymbolMap,
   toClassificationRecord,
 } from "@/lib/tax/kap-inputs";
@@ -186,7 +187,14 @@ export async function getTaxData(ownerUserId: string, year: number): Promise<Tax
   );
   const dividendsEur = yrDivs.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
   const whtPaid = yrDivs.reduce((s, t) => s + Number(t.withholdingTaxEur ?? 0), 0);
-  const yrInterest = allTx.filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yrStr));
+  // Mirrors the interest filter in buildKapInputs: margin debit interest is a
+  // non-deductible financing cost (§20 Abs. 9), not negative income. Without
+  // this the hero/bucket cards understate interest relative to the KAP export.
+  const yrInterest = allTx.filter(t =>
+    t.eventType === "INTEREST"
+    && t.eventDate.startsWith(yrStr)
+    && !isNonDeductibleInterest(t.description ?? null)
+  );
   const interestEur = yrInterest.reduce((s, t) => s + Number(t.amountEur ?? 0), 0);
 
   const settings = settingsRows[0];

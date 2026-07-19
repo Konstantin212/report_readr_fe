@@ -70,6 +70,25 @@ export function isAccrualSource(source: string | null | undefined): boolean {
   return /accrual/i.test(source);
 }
 
+/**
+ * Returns true for INTEREST rows that are non-deductible financing costs
+ * rather than capital income — margin "Debit Interest" (Sollzinsen).
+ *
+ * §20 Abs. 9 EStG allows no deduction of actual Werbungskosten beyond the
+ * Sparer-Pauschbetrag, so debit interest must not be netted against received
+ * interest. Brokers report both in the same statement section, which is how
+ * €0.87 of IBKR margin interest silently reduced the 2025 interest total
+ * from €33.30 to €32.43.
+ *
+ * Deliberately NOT a "drop all negatives" rule: accrued interest paid when
+ * buying a bond (Stückzinsen) is also negative but IS negative capital
+ * income under §20 Abs. 1 Nr. 7 and must survive this filter.
+ */
+export function isNonDeductibleInterest(description: string | null | undefined): boolean {
+  if (!description) return false;
+  return /\bdebit\s+interest\b/i.test(description);
+}
+
 export function isinToSymbolMap(
   rows: Array<{ symbol: string | null; isin: string | null }>,
 ): Map<string, string> {
@@ -148,7 +167,12 @@ export function buildKapInputs(
       broker: brokerFor(t.brokerAccountId),
     }));
   const interest = tx
-    .filter(t => t.eventType === "INTEREST" && t.eventDate.startsWith(yr) && inScope(t.brokerAccountId))
+    .filter(t =>
+      t.eventType === "INTEREST"
+      && t.eventDate.startsWith(yr)
+      && inScope(t.brokerAccountId)
+      && !isNonDeductibleInterest(t.description ?? null)
+    )
     .map(t => ({
       grossEur: t.amountEur ?? "0",
       broker: brokerFor(t.brokerAccountId),
