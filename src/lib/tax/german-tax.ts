@@ -599,6 +599,12 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   // Corporate-action prevention alerts (pre-formatted by the loader).
   for (const alert of input.corporateActionAlerts ?? []) warnings.push(alert);
 
+  // Rounded once here so Z20/Z23 and the carryforward derived from them
+  // (below) always agree with each other — never re-round stockGains/
+  // stockLosses separately downstream.
+  const stockGainsZeile = toZeile(stockGains, true);
+  const stockLossesZeile = toZeile(stockLosses, true);
+
   const kapInvPresent =
     isNonZero(section1Out.Z4_aktienfonds)
     || isNonZero(section1Out.Z5_mischfonds)
@@ -660,15 +666,25 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       // §20 Abs. 6 S. 4: unused stock losses only carry forward against
       // future stock gains — surface the amount so the filer ticks the
       // Verlustfeststellung on the Hauptvordruck instead of losing it.
-      stockLossCarryforward: toZeile(Decimal.max(0, stockLosses.minus(stockGains))),
+      //
+      // Derived from the ROUNDED Z20/Z23 whole-euro values, not from a fresh
+      // rounding of the raw stockLosses/stockGains decimals: the Finanzamt's
+      // Bescheid computes "nicht ausgleichsfähige Verluste" from the amounts
+      // actually printed on the form (Z23 − Z20), so subtracting first and
+      // rounding second can land €1 off what ELSTER itself shows (verified
+      // 2026-07-19: raw 2228.45 − 585.53 = 1642.92 → 1643, but the rounded
+      // form lines 2228 − 586 = 1642, which is what ELSTER printed).
+      stockLossCarryforward: toZeile(
+        new Decimal(Math.max(0, stockLossesZeile.euros - stockGainsZeile.euros)),
+      ),
       foreignWhtGross: toZeile(z51, true),
       lines: {
         Z7: toZeile(domestic.kapitalertraege, true), // inländische Kapitalerträge (Steuerbescheinigung)
         Z17: ZERO(),                       // always 0 — let ELSTER auto-allocate the Pauschbetrag
         Z19: toZeile(z19),                 // Ausländische Kapitalerträge — NET (may be negative)
-        Z20: toZeile(stockGains, true),    // darin: Gewinne aus Aktienveräußerungen
+        Z20: stockGainsZeile,              // darin: Gewinne aus Aktienveräußerungen
         Z22: toZeile(otherLosses, true),   // darin: Verluste ohne Aktienveräußerungen (magnitude)
-        Z23: toZeile(stockLosses, true),   // darin: Verluste aus Aktienveräußerungen (magnitude)
+        Z23: stockLossesZeile,             // darin: Verluste aus Aktienveräußerungen (magnitude)
         Z37: toZeile(domestic.kest, true), // KESt withheld in Germany (creditable)
         Z38: toZeile(domestic.solz, true), // SolZ on that KESt (creditable)
         Z41: toZeile(z52, true),
