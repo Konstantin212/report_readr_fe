@@ -78,6 +78,13 @@
       "when": 1783176042546,
       "tag": "0010_furry_shinko_yamashiro",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784452951060,
+      "tag": "0011_sharp_king_bedlam",
+      "breakpoints": true
     }
   ]
 }

@@ -75,6 +75,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                     INTERACTIVE_BROKERS: { short: "IBKR", label: "Interactive Brokers", mode: "Manual CSV uploads",  chip: "bg-brand-ibkr/15 text-brand-ibkr border border-brand-ibkr/30" },
                     FREEDOM_FINANCE:     { short: "FF",   label: "Freedom Finance",     mode: "Manual JSON uploads", chip: "bg-brand-freedom/15 text-brand-freedom border border-brand-freedom/30" },
                     COINBASE:            { short: "CB",   label: "Coinbase",            mode: "Live API sync",       chip: "bg-brand-coinbase/15 text-brand-coinbase border border-brand-coinbase/30" },
+                    REVOLUT:             { short: "REV",  label: "Revolut",             mode: "Manual XLSX uploads", chip: "bg-panel2 text-fg border border-border" },
                   }[b.broker] ?? { short: b.broker.slice(0, 4).toUpperCase(), label: b.broker, mode: "—", chip: "bg-panel2 text-muted" };
                   return (
                     <div key={b.id} className={`grid grid-cols-[50px_1fr_1fr_1fr_1fr_auto] gap-3.5 py-3.5 items-center ${i > 0 ? "border-t border-border" : ""}`}>

@@ -1,4 +1,4 @@
-export type Broker = "INTERACTIVE_BROKERS" | "FREEDOM_FINANCE" | "COINBASE";
+export type Broker = "INTERACTIVE_BROKERS" | "FREEDOM_FINANCE" | "COINBASE" | "REVOLUT";
 
 export type EventType =
   | "TRADE"

@@ -12,6 +12,7 @@ const brokerLabels = {
   INTERACTIVE_BROKERS: "Interactive Brokers",
   FREEDOM_FINANCE: "Freedom Finance",
   COINBASE: "Coinbase",
+  REVOLUT: "Revolut",
 } as const;
 
 export function ImportForm() {

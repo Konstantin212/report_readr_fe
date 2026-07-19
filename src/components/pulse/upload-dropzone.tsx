@@ -160,7 +160,7 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
           type="file"
           hidden
           multiple
-          accept=".csv,.json,.xml,.qfx"
+          accept=".csv,.json,.xml,.qfx,.xlsx"
           onChange={e => {
             if (e.target.files?.length) addFiles(e.target.files);
             e.target.value = ""; // allow re-selecting the same file(s)
@@ -171,8 +171,13 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
           {processing ? "Processing…" : "Drop statements here"}
         </div>
         <div className="text-muted text-sm mt-2">
-          Freedom Finance JSON or Interactive Brokers Activity CSV — drop several at once.
-          Parsed locally on your device.
+          Freedom Finance JSON, Interactive Brokers Activity CSV, or Revolut XLSX — drop
+          several at once. Parsed locally on your device.
+        </div>
+        <div className="text-muted text-xs mt-1">
+          For Revolut, upload all three exports: savings statement, trading account
+          statement and trading P&amp;L. The P&amp;L is the only one carrying dividends
+          gross of withholding tax, which German tax reporting needs.
         </div>
       </label>
 

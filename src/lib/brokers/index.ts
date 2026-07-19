@@ -1,5 +1,6 @@
 import { parseFreedomFinanceStatement } from "./freedom";
 import { parseInteractiveBrokersStatement } from "./ibkr";
+import { parseRevolutStatement } from "./revolut";
 import { detectBroker } from "./detect";
 import type { ParseBrokerStatementInput, ParsedBrokerStatement } from "./types";
 import type { ParsedImport } from "@/lib/domain/types";
@@ -35,6 +36,10 @@ function parseBroker(input: ParseBrokerStatementInput): ParsedBrokerStatement {
 
   if (broker === "INTERACTIVE_BROKERS") {
     return parseInteractiveBrokersStatement(input.fileName, input.bytes, input.taxYear);
+  }
+
+  if (broker === "REVOLUT") {
+    return parseRevolutStatement(input.fileName, input.bytes, input.taxYear);
   }
 
   return parseFreedomFinanceStatement(input.fileName, input.bytes, input.taxYear);

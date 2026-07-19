@@ -2,7 +2,7 @@ import type { Broker, EventType, NormalizedEvent, SnapshotQuote } from "@/lib/do
 
 export type { NormalizedEvent, SnapshotQuote };
 
-export const brokerIds = ["INTERACTIVE_BROKERS", "FREEDOM_FINANCE"] as const;
+export const brokerIds = ["INTERACTIVE_BROKERS", "FREEDOM_FINANCE", "REVOLUT"] as const;
 
 export type BrokerId = Broker;
 
