@@ -162,7 +162,8 @@ const zeileValueSchema: z.ZodType<ZeileValue> = z.object({
 });
 
 const formTargetSchema = z.enum([
-  "KAP_Z19", "KAP_Z20", "KAP_Z22", "KAP_Z23", "KAP_Z51", "KAP_Z52",
+  "KAP_Z7", "KAP_Z37", "KAP_Z38", "KAP_Z41",
+  "KAP_Z19", "KAP_Z20", "KAP_Z22", "KAP_Z23",
   "KAP_INV_S1_Z4", "KAP_INV_S1_Z5", "KAP_INV_S1_Z6", "KAP_INV_S1_Z7", "KAP_INV_S1_Z8",
   "KAP_INV_S2_Z14", "KAP_INV_S2_Z17", "KAP_INV_S2_Z20", "KAP_INV_S2_Z23", "KAP_INV_S2_Z26",
 ]);
@@ -188,6 +189,7 @@ const germanTaxDraftSchema: z.ZodType<GermanTaxDraft> = z.object({
   kap: z.object({
     Z4_guenstigerpruefung: z.boolean(),
     stockLossCarryforward: zeileValueSchema,
+    foreignWhtGross: zeileValueSchema,
     lines: z.object({
       Z7: zeileValueSchema,
       Z17: zeileValueSchema,
@@ -198,8 +200,6 @@ const germanTaxDraftSchema: z.ZodType<GermanTaxDraft> = z.object({
       Z37: zeileValueSchema,
       Z38: zeileValueSchema,
       Z41: zeileValueSchema,
-      Z51: zeileValueSchema,
-      Z52: zeileValueSchema,
     }),
   }),
   kapInv: z.object({

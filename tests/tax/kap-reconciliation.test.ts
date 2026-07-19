@@ -75,13 +75,51 @@ describe("KAP reconciliation subtotals (T5)", () => {
     expect(recon.excluded.some((x) => /crypto/i.test(x))).toBe(true);
     // Equity swaps are NOT filtered (importer doesn't distinguish them yet) →
     // they must appear as an honest caveat, never as a claimed exclusion.
+    // The caveat only fires if swap rows are actually present.
     expect(recon.excluded.some((x) => /swap/i.test(x))).toBe(false);
-    expect(recon.caveats.some((x) => /swap/i.test(x))).toBe(true);
+    expect(recon.caveats.some((x) => /swap/i.test(x))).toBe(false);
   });
 
-  it("produces no negative ELSTER value anywhere", () => {
-    for (const v of Object.values(draft.kap.lines)) {
+  it("produces no negative ELSTER value anywhere, except the signed Z19 net total", () => {
+    // Z19 is the NET total (Zeilen 20/22/23 are "darin enthaltene"), corrected 2026-07-19.
+    // Here it's legitimately negative: no non-fund/non-stock income, only stock losses
+    // (Z23 = 1192.63) with nothing to offset them.
+    const { Z19: _Z19, ...restKapLines } = draft.kap.lines;
+    for (const v of Object.values(restKapLines)) {
       expect(Number(v.cents)).toBeGreaterThanOrEqual(0);
     }
+    expect(draft.kap.lines.Z19.cents).toBe("-1192.63");
+  });
+});
+
+describe("swap caveat is conditional", () => {
+  it("stays silent for a Freedom user with no derivative rows", () => {
+    const d = buildKapAndKapInv(
+      buildInputs([dividend({ brokerAccountId: ACCT.ff, symbol: "GM", amountEur: "10.00" })], [], {
+        GM: { kind: "stock", subtype: null },
+      }),
+    );
+    const r = buildReconciliation(d, accounts());
+    expect(r.caveats.join(" ")).not.toMatch(/equity swap/i);
+  });
+
+  it("fires for a Freedom user with swap-shaped symbol (FRHC)", () => {
+    const d = buildKapAndKapInv(
+      buildInputs([], [match({ brokerAccountId: ACCT.ff, symbol: "FRHC", gainEur: "100.00" })], {
+        FRHC: { kind: "stock", subtype: null },
+      }),
+    );
+    const r = buildReconciliation(d, accounts());
+    expect(r.caveats.join(" ")).toMatch(/equity swap/i);
+  });
+
+  it("fires for a Freedom user with swap-shaped symbol (SWAP)", () => {
+    const d = buildKapAndKapInv(
+      buildInputs([], [match({ brokerAccountId: ACCT.ff, symbol: "SWAP", gainEur: "50.00" })], {
+        SWAP: { kind: "stock", subtype: null },
+      }),
+    );
+    const r = buildReconciliation(d, accounts());
+    expect(r.caveats.join(" ")).toMatch(/equity swap/i);
   });
 });

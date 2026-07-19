@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, StyleSheet, renderToStream } from "@react-pdf/renderer";
 import React from "react";
 import type { GermanTaxDraft, ZeileValue } from "./german-tax";
+import { KAP_FIELDS, labelFor, fieldFor } from "./elster-fields";
 
 const styles = StyleSheet.create({
   page: { padding: 40, fontSize: 11, fontFamily: "Helvetica" },
@@ -27,19 +28,6 @@ const styles = StyleSheet.create({
   footer: { fontSize: 9, color: "#666", marginTop: 20 },
 });
 
-const KAP_LABELS = {
-  Z7: "Z7 — Inländische Kapitalerträge (mit Steuerabzug)",
-  Z17: "Z17 — Sparer-Pauschbetrag gegen nicht-KAP Erträge",
-  Z19: "Z19 — Ausländische Kapitalerträge (gesamt)",
-  Z20: "Z20 — darin: Gewinne aus Aktienveräußerungen",
-  Z22: "Z22 — darin: Verluste ohne Aktienveräußerungen",
-  Z23: "Z23 — darin: Verluste aus Aktienveräußerungen",
-  Z37: "Z37 — Kapitalertragsteuer (anrechenbar)",
-  Z38: "Z38 — Solidaritätszuschlag (anrechenbar)",
-  Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
-  Z51: "Z51 — Ausländische Quellensteuer (brutto)",
-  Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
-};
 const KAP_INV_S1_LABELS = {
   Z4_aktienfonds: "Z4 — Aktienfonds",
   Z5_mischfonds: "Z5 — Mischfonds",
@@ -55,13 +43,16 @@ const KAP_INV_S2_LABELS = {
   Z26_sonstige: "Z26 — Sonstige Investmentfonds",
 };
 
-function ZeileRow({ label, value }: { label: string; value: ZeileValue }) {
+function ZeileRow({
+  label, value, precision,
+}: { label: string; value: ZeileValue; precision?: "whole_euro" | "euro_cent" }) {
+  const primary = precision === "euro_cent" ? value.cents : String(value.euros);
   return (
     <View style={styles.row}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.valueBox}>
-        <Text style={styles.valueLarge}>{value.euros}</Text>
-        {value.cents !== "0.00" && (
+        <Text style={styles.valueLarge}>{primary}</Text>
+        {value.cents !== "0.00" && precision !== "euro_cent" && (
           <Text style={styles.valueSubtle}>actual €{value.cents}</Text>
         )}
       </View>
@@ -85,9 +76,11 @@ function KapPage({ draft }: { draft: GermanTaxDraft }) {
     <Page size="A4" style={styles.page}>
       <Text style={styles.h1}>Anlage KAP — Steuerjahr {draft.taxYear}</Text>
       <Text style={styles.subtle}>
-        Whole-euro values for ELSTER. Enter the LARGE number exactly — no decimal separator.
-        ELSTER rejects &quot;127,30&quot; with the error: &quot;Volle Geldbeträge müssen als Ziffernfolge
-        ohne Dezimaltrenner eingetragen werden.&quot;
+        Income lines (Zeilen 7, 17, 19–23) take WHOLE EUROS — enter the large
+        number with no decimal separator. The tax-credit lines in section 8
+        (Zeilen 37, 38, 41) take EUROS AND CENTS — enter them exactly as shown,
+        including the decimals. Entering 20 instead of 20,30 discards
+        creditable tax.
       </Text>
 
       <Text style={styles.h2}>Checkbox</Text>
@@ -97,9 +90,17 @@ function KapPage({ draft }: { draft: GermanTaxDraft }) {
       />
 
       <Text style={styles.h2}>Werte</Text>
-      {(Object.keys(KAP_LABELS) as Array<keyof typeof KAP_LABELS>).map((k) => (
-        <ZeileRow key={k} label={KAP_LABELS[k]} value={draft.kap.lines[k]} />
-      ))}
+      {KAP_FIELDS.map((f) => {
+        const key = f.key.replace("KAP_", "") as keyof typeof draft.kap.lines;
+        return (
+          <ZeileRow
+            key={f.key}
+            label={labelFor(f.key)}
+            value={draft.kap.lines[key]}
+            precision={f.precision}
+          />
+        );
+      })}
 
       {draft.warnings.length > 0 && (
         <View style={styles.warningBanner}>
@@ -187,8 +188,11 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
         + `~€${draft.kap.stockLossCarryforward.euros} of stock losses exceed this year's stock gains (§20 Abs.6 S.4).`,
     });
   }
-  if (draft.kap.lines.Z51.euros > 0) {
-    items.push({ mark: "yes", text: `KAP Zeile 51 = ${draft.kap.lines.Z51.euros} (ausländische Quellensteuer, brutto)` });
+  if (Number(draft.kap.lines.Z41.cents) > 0) {
+    items.push({
+      mark: "yes",
+      text: `KAP Zeile 41 = ${draft.kap.lines.Z41.cents} (${fieldFor("KAP_Z41").caption}, gedeckelt durch DBA)`,
+    });
   }
 
   if (draft.kapInv.present) {
@@ -224,7 +228,9 @@ function ChecklistPage({ draft }: { draft: GermanTaxDraft }) {
         <Text style={{ fontWeight: 700, marginBottom: 2 }}>If ELSTER rejects a value:</Text>
         <Text>
           • &quot;Volle Geldbeträge müssen als Ziffernfolge ohne Dezimaltrenner eingetragen werden.&quot;
-          You typed cents — re-enter using only the LARGE whole-euro number on this PDF (no comma, no period, no minus).
+          Applies to the income lines (Zeilen 7, 17, 19–23) — re-enter using only the whole-euro
+          number, no comma or period (Zeile 19 may be negative — keep the minus sign). Section 8
+          lines (Zeilen 37, 38, 41) take EUROS AND CENTS — enter them exactly as shown, decimals included.
         </Text>
       </View>
 

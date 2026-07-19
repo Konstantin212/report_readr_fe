@@ -1,19 +1,6 @@
 import { Card } from "./card";
 import type { GermanTaxDraft, ZeileValue } from "@/lib/tax/german-tax";
-
-const KAP_LABELS = {
-  Z7: "Z7 — Inländische Kapitalerträge (mit Steuerabzug)",
-  Z17: "Z17 — Sparer-Pauschbetrag gegen nicht-KAP Erträge",
-  Z19: "Z19 — Ausländische Kapitalerträge (gesamt)",
-  Z20: "Z20 — darin: Gewinne aus Aktienveräußerungen",
-  Z22: "Z22 — darin: Verluste ohne Aktienveräußerungen",
-  Z23: "Z23 — darin: Verluste aus Aktienveräußerungen",
-  Z37: "Z37 — Kapitalertragsteuer (anrechenbar)",
-  Z38: "Z38 — Solidaritätszuschlag (anrechenbar)",
-  Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
-  Z51: "Z51 — Ausländische Quellensteuer (brutto)",
-  Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
-} as const;
+import { KAP_FIELDS, labelFor } from "@/lib/tax/elster-fields";
 
 const KAP_INV_S1_LABELS = {
   Z4_aktienfonds: "Z4 — Aktienfonds",
@@ -31,16 +18,19 @@ const KAP_INV_S2_LABELS = {
   Z26_sonstige: "Z26 — Sonstige Investmentfonds",
 } as const;
 
-function ZeileRow({ label, value }: { label: string; value: ZeileValue }) {
+function ZeileRow({
+  label, value, precision = "whole_euro",
+}: { label: string; value: ZeileValue; precision?: "whole_euro" | "euro_cent" }) {
   const isZero = value.cents === "0.00";
+  const primary = precision === "euro_cent" ? value.cents : String(value.euros);
   return (
     <div className="flex justify-between items-baseline py-1.5 border-b border-border/40 last:border-0">
       <span className={`text-[12px] ${isZero ? "text-dim" : "text-ink"}`}>{label}</span>
       <span className="flex items-baseline gap-2">
         <span className={`font-mono text-base ${isZero ? "text-dim" : "text-ink font-semibold"}`}>
-          {value.euros}
+          {primary}
         </span>
-        {!isZero && (
+        {!isZero && precision === "whole_euro" && (
           <span className="font-mono text-[10px] text-muted">actual €{value.cents}</span>
         )}
       </span>
@@ -112,9 +102,9 @@ export function ElsterValuesCard({ draft, reconciliation }: { draft: GermanTaxDr
         <div className="font-semibold text-base">ELSTER values · Steuerjahr {draft.taxYear}</div>
         <div
           className="font-mono text-[10px] text-amber uppercase tracking-widest cursor-help"
-          title='ELSTER rejects "127,30" with: "Volle Geldbeträge müssen als Ziffernfolge ohne Dezimaltrenner eingetragen werden." Enter the LARGE whole-euro number only.'
+          title='Income lines (Zeilen 7, 17, 19-23) take WHOLE EUROS -- ELSTER rejects "127,30" there with "Volle Geldbeträge müssen als Ziffernfolge ohne Dezimaltrenner eingetragen werden." Section 8 tax-credit lines (Zeilen 37, 38, 41) take EUROS AND CENTS -- enter them exactly as shown, including the decimals.'
         >
-          Whole euros · no decimals ⓘ
+          Euros · cents on tax-credit lines ⓘ
         </div>
       </div>
 
@@ -134,9 +124,17 @@ export function ElsterValuesCard({ draft, reconciliation }: { draft: GermanTaxDr
           label="Z4 — Antrag auf Günstigerprüfung"
           set={draft.kap.Z4_guenstigerpruefung}
         />
-        {(Object.keys(KAP_LABELS) as Array<keyof typeof KAP_LABELS>).map((k) => (
-          <ZeileRow key={k} label={KAP_LABELS[k]} value={draft.kap.lines[k]} />
-        ))}
+        {KAP_FIELDS.map((f) => {
+          const key = f.key.replace("KAP_", "") as keyof typeof draft.kap.lines;
+          return (
+            <ZeileRow
+              key={f.key}
+              label={labelFor(f.key)}
+              value={draft.kap.lines[key]}
+              precision={f.precision}
+            />
+          );
+        })}
       </div>
 
       {draft.kapInv.present && (

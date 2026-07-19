@@ -66,13 +66,12 @@ describe("buildKapAndKapInv — GF's 2025 golden fixture", () => {
     expect(draft.kapInv.section2.Z26_sonstige.euros).toBe(0);
   });
 
-  it("leaves Anlage KAP Z17 / Z20 / Z22 / Z41 / Z51 / Z52 at zero (no non-fund income)", () => {
+  it("leaves Anlage KAP Z17 / Z20 / Z22 / Z41 / foreignWhtGross at zero (no non-fund income)", () => {
     expect(draft.kap.lines.Z17.euros).toBe(0);
     expect(draft.kap.lines.Z20.euros).toBe(0);
     expect(draft.kap.lines.Z22.euros).toBe(0);
     expect(draft.kap.lines.Z41.euros).toBe(0);
-    expect(draft.kap.lines.Z51.euros).toBe(0);
-    expect(draft.kap.lines.Z52.euros).toBe(0);
+    expect(draft.kap.foreignWhtGross.euros).toBe(0);
   });
 
   it("emits no warnings for the all-known-equity-ETF case", () => {
@@ -113,9 +112,10 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
   });
 
   it("routes individual-stock dividends into the KAP Z19 foreign-income total", () => {
-    // Z19 is the foreign capital-income TOTAL: 500 dividend + 1200 stock gain.
-    expect(draft.kap.lines.Z19.cents).toBe("1700.00");
-    expect(draft.kap.lines.Z19.euros).toBe(1700);
+    // Z19 is the NET total (Zeilen 20/22/23 are "darin enthaltene"), corrected 2026-07-19.
+    // 500 dividend + 1200 stock gain − 200 stock loss (Z23) = 1500.
+    expect(draft.kap.lines.Z19.cents).toBe("1500.00");
+    expect(draft.kap.lines.Z19.euros).toBe(1500);
     expect(draft.kapInv.present).toBe(false);
     expect(draft.kapInv.present).toBe(false);
     expect(draft.kap.Z4_guenstigerpruefung).toBe(false);
@@ -128,15 +128,16 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
     expect(draft.kap.lines.Z23.cents).toBe("200.00");
     expect(draft.kap.lines.Z22.cents).toBe("0.00"); // no non-stock losses
     expect(draft.kapInv.section2.Z14_aktienfonds.euros).toBe(0);
-    // No emitted KAP value is ever negative.
-    for (const v of Object.values(draft.kap.lines)) {
+    // All KAP values except Z19 are non-negative magnitudes; Z19 is signed and may be negative.
+    const { Z19: _Z19, ...restKapLines } = draft.kap.lines;
+    for (const v of Object.values(restKapLines)) {
       expect(Number(v.cents)).toBeGreaterThanOrEqual(0);
     }
   });
 
-  it("applies treaty-cap on Z52 (US default = 15%, so 15% × 500 = 75)", () => {
-    expect(draft.kap.lines.Z51.cents).toBe("75.00");
-    expect(draft.kap.lines.Z52.cents).toBe("75.00");
+  it("applies treaty-cap on Zeile 41 (US default = 15%, so 15% × 500 = 75)", () => {
+    expect(draft.kap.foreignWhtGross.cents).toBe("75.00");
+    expect(draft.kap.lines.Z41.cents).toBe("75.00");
   });
 });
 
