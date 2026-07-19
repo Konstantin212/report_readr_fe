@@ -82,6 +82,7 @@ export type KapEvidenceItem = {
 //   Z51/Z52 — ausländische Quellensteuer (brutto / anrechenbar).
 // Sources: privatsparer.de "Anlage KAP 2025 · Interactive Brokers"; steuern.de.
 export type FormTarget =
+  | "KAP_Z7" | "KAP_Z37" | "KAP_Z38"
   | "KAP_Z19" | "KAP_Z20" | "KAP_Z22" | "KAP_Z23" | "KAP_Z51" | "KAP_Z52"
   | "KAP_INV_S1_Z4" | "KAP_INV_S1_Z5" | "KAP_INV_S1_Z6" | "KAP_INV_S1_Z7" | "KAP_INV_S1_Z8"
   | "KAP_INV_S2_Z14" | "KAP_INV_S2_Z17" | "KAP_INV_S2_Z20" | "KAP_INV_S2_Z23" | "KAP_INV_S2_Z26";
@@ -108,11 +109,17 @@ export type GermanTaxDraft = {
      *  stock losses only ever offset stock gains). */
     stockLossCarryforward: ZeileValue;
     lines: {
+      /** Kapitalerträge WITH German withholding, per Steuerbescheinigung
+       *  (§45a EStG). Declared from certificates, never derived — the
+       *  withheld tax does not appear in any transaction export. */
+      Z7: ZeileValue;
       Z17: ZeileValue; // Sparer-Pauschbetrag against non-KAP income (always 0 — let ELSTER auto-allocate)
       Z19: ZeileValue; // Ausländische Kapitalerträge — total (non-fund dividends + interest + positive realised gains)
       Z20: ZeileValue; // darin: Gewinne aus Aktienveräußerungen (stock-sale gains, ≥ 0)
       Z22: ZeileValue; // darin: Verluste ohne Aktienveräußerungen (bond/other losses, ≥ 0 magnitude)
       Z23: ZeileValue; // darin: Verluste aus Aktienveräußerungen (stock-sale losses, ≥ 0 magnitude)
+      Z37: ZeileValue; // Kapitalertragsteuer withheld in Germany (creditable)
+      Z38: ZeileValue; // Solidaritätszuschlag on that KESt (creditable)
       Z41: ZeileValue; // already-paid German AbgSt (always 0 for foreign brokers)
       Z51: ZeileValue; // foreign WHT paid (gross)
       Z52: ZeileValue; // foreign WHT eligible for offset (treaty-capped)
@@ -142,6 +149,22 @@ export type GermanTaxDraft = {
   evidence: KapEvidenceItem[];
 };
 
+/** One Steuerbescheinigung, transcribed from the certificate. */
+export type KapDomesticCertificate = {
+  /** Issuing institution, e.g. "Revolut Bank UAB, Zweigniederlassung Deutschland". */
+  issuer: string;
+  /** Zeile 7 — Höhe der Kapitalerträge. */
+  kapitalertraegeEur: string;
+  /** Zeile 16/17 — Sparer-Pauschbetrag already applied by the institution. */
+  allowanceUsedEur?: string;
+  /** Zeile 37 — Kapitalertragsteuer. */
+  kestEur: string;
+  /** Zeile 38 — Solidaritätszuschlag. */
+  solzEur: string;
+  /** Zeile 39 — Kirchensteuer. */
+  kirchensteuerEur?: string;
+};
+
 export type BuildAnlageKapInput = {
   taxYear: number;
   settings: KapSettings;
@@ -154,6 +177,18 @@ export type BuildAnlageKapInput = {
    *  row. ETF/fund WHT is never routed here (not investor-creditable under
    *  InvStG 2018) — it only produces a warning. */
   withholding?: KapWithholding[];
+  /** Steuerbescheinigungen from German institutions (§45a EStG).
+   *
+   *  Until Revolut every supported broker was foreign — no German tax
+   *  withheld, everything to Zeile 19. Revolut Bank UAB runs a German
+   *  branch, withholds Kapitalertragsteuer at source, and certifies the
+   *  amounts against named ELSTER lines.
+   *
+   *  These are DECLARED, not derived: the withheld tax appears in no
+   *  transaction export (the statements show net interest and never mention
+   *  it), so the certificate is the only source. Amounts are decimal strings
+   *  in EUR, exactly as printed. */
+  domesticCertificates?: KapDomesticCertificate[];
   /** Per-symbol classification override (T-wire). Consulted BEFORE the
    *  hardcoded sector/subtype maps, so enriched instrument_meta (e.g. a US
    *  equity ETF resolved to kind:"etf") reroutes correctly. `subtype: null`
@@ -560,6 +595,41 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
     || isNonZero(section2Out.Z23_immo_ausland)
     || isNonZero(section2Out.Z26_sonstige);
 
+  // Steuerbescheinigungen (§45a EStG) — income that already had German tax
+  // withheld at source. Transcribed from the certificate rather than derived:
+  // the withheld tax appears in no transaction export, so there is nothing to
+  // compute it from. Deliberately kept OUT of Z19 (foreign, untaxed) and out
+  // of Z51/Z52 (creditable FOREIGN withholding) — German KESt is neither.
+  const domestic = { kapitalertraege: new Decimal(0), kest: new Decimal(0), solz: new Decimal(0) };
+  for (const cert of input.domesticCertificates ?? []) {
+    const gross = new Decimal(cert.kapitalertraegeEur || 0);
+    const kest = new Decimal(cert.kestEur || 0);
+    const solz = new Decimal(cert.solzEur || 0);
+    domestic.kapitalertraege = domestic.kapitalertraege.plus(gross);
+    domestic.kest = domestic.kest.plus(kest);
+    domestic.solz = domestic.solz.plus(solz);
+
+    evidence.push({
+      date: `${input.taxYear}-12-31`,
+      grossEur: gross.toFixed(2),
+      whtEur: kest.plus(solz).toFixed(2),
+      broker: cert.issuer,
+      fingerprint: `steuerbescheinigung:${cert.issuer}:${input.taxYear}`,
+      formTarget: "KAP_Z7",
+    });
+
+    // Tax withheld while the €1,000 allowance sat unused means no
+    // Freistellungsauftrag was lodged. The money comes back via the return,
+    // but only if the certificate is actually declared — and an FSA avoids
+    // the withholding next year entirely.
+    const allowanceUsed = new Decimal(cert.allowanceUsedEur || 0);
+    if (kest.gt(0) && allowanceUsed.isZero()) {
+      warnings.push(
+        `${cert.issuer} withheld €${kest.plus(solz).toFixed(2)} German tax while your Sparer-Pauschbetrag went unused there. Declare the Steuerbescheinigung (Zeile 7 + 37/38) to reclaim it, and consider lodging a Freistellungsauftrag for future years.`,
+      );
+    }
+  }
+
   return {
     taxYear: input.taxYear,
     kap: {
@@ -576,11 +646,14 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       // Verlustfeststellung on the Hauptvordruck instead of losing it.
       stockLossCarryforward: toZeile(Decimal.max(0, stockLosses.minus(stockGains))),
       lines: {
+        Z7: toZeile(domestic.kapitalertraege, true), // inländische Kapitalerträge (Steuerbescheinigung)
         Z17: ZERO(),                       // always 0 — let ELSTER auto-allocate the Pauschbetrag
         Z19: toZeile(z19, true),           // Ausländische Kapitalerträge (total)
         Z20: toZeile(stockGains, true),    // darin: Gewinne aus Aktienveräußerungen
         Z22: toZeile(otherLosses, true),   // darin: Verluste ohne Aktienveräußerungen (magnitude)
         Z23: toZeile(stockLosses, true),   // darin: Verluste aus Aktienveräußerungen (magnitude)
+        Z37: toZeile(domestic.kest, true), // KESt withheld in Germany (creditable)
+        Z38: toZeile(domestic.solz, true), // SolZ on that KESt (creditable)
         Z41: ZERO(),                       // foreign brokers don't withhold DE AbgSt
         Z51: toZeile(z51, true),
         Z52: toZeile(z52, true),

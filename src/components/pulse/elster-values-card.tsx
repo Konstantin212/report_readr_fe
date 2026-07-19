@@ -2,11 +2,14 @@ import { Card } from "./card";
 import type { GermanTaxDraft, ZeileValue } from "@/lib/tax/german-tax";
 
 const KAP_LABELS = {
+  Z7: "Z7 — Inländische Kapitalerträge (mit Steuerabzug)",
   Z17: "Z17 — Sparer-Pauschbetrag gegen nicht-KAP Erträge",
   Z19: "Z19 — Ausländische Kapitalerträge (gesamt)",
   Z20: "Z20 — darin: Gewinne aus Aktienveräußerungen",
   Z22: "Z22 — darin: Verluste ohne Aktienveräußerungen",
   Z23: "Z23 — darin: Verluste aus Aktienveräußerungen",
+  Z37: "Z37 — Kapitalertragsteuer (anrechenbar)",
+  Z38: "Z38 — Solidaritätszuschlag (anrechenbar)",
   Z41: "Z41 — Bereits gezahlte Abgeltungsteuer",
   Z51: "Z51 — Ausländische Quellensteuer (brutto)",
   Z52: "Z52 — Anrechenbare ausl. Quellensteuer (gekappt)",
