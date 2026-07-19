@@ -75,7 +75,7 @@ export type KapEvidenceItem = {
 
 // Anlage KAP 2025 line layout (verified against the official 2025 Formular /
 // ELSTER help; Zeile 21 was removed for 2025 with the derivatives loss cap):
-//   Z19 — Ausländische Kapitalerträge (foreign capital-income TOTAL)
+//   Z19 — Ausländische Kapitalerträge (foreign capital-income NET total)
 //   Z20 — darin enthaltene Gewinne aus Aktienveräußerungen (§20 Abs.2 Nr.1)
 //   Z22 — darin enthaltene Verluste OHNE Verluste aus Aktienveräußerungen
 //   Z23 — darin enthaltene Verluste AUS Aktienveräußerungen (§20 Abs.6 bucket)
@@ -388,7 +388,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       }
       z19 = z19.plus(gross);
       z51 = z51.plus(wht);
-      // Treaty-capped Z52
+      // Treaty-capped creditable foreign tax (Zeile 41)
       const cap = d.country ? (TREATY_CAP[d.country] ?? DEFAULT_TREATY_CAP) : DEFAULT_TREATY_CAP;
       z52 = z52.plus(Decimal.min(wht, gross.mul(cap)));
       const dk = brokerKey(d.broker, d.ticker);

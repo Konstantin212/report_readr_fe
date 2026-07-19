@@ -385,7 +385,7 @@ export function buildReconciliation(
   const hasSwapRows = draft.evidence.some(
     (e) => e.symbol != null && /(^|\W)(FRHC|SWAP)(\W|$)/i.test(e.symbol),
   );
-  if (hasSwapRows) {
+  if (hasSwapRows && brokers.has("FREEDOM_FINANCE")) {
     caveats.push(
       "Freedom equity swaps (Termingeschäfte, §20 Abs.2 Nr.3) are not yet distinguished by the importer — if you traded any, verify them manually with your Steuerberater.",
     );
