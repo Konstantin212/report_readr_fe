@@ -128,7 +128,9 @@ export function PreSubmitChecklist({ draft }: { draft: GermanTaxDraft }) {
       <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2">
         <strong>If ELSTER rejects a value</strong> with{" "}
         <em>&quot;Volle Geldbeträge müssen als Ziffernfolge ohne Dezimaltrenner eingetragen werden&quot;</em> —
-        you typed cents. Re-enter using only the LARGE whole-euro number above (no comma, no period, no minus).
+        that applies to the income lines (Zeilen 7, 17, 19–23): re-enter using only the whole-euro
+        number, no comma or period (Zeile 19 may be negative — keep the minus sign). Section 8 lines
+        (Zeilen 37, 38, 41) take EUROS AND CENTS — enter them exactly as shown, decimals included.
       </div>
     </Card>
   );
