@@ -1,5 +1,6 @@
 import { Card } from "./card";
 import type { GermanTaxDraft } from "@/lib/tax/german-tax";
+import { fieldFor } from "@/lib/tax/elster-fields";
 
 type ChecklistItem = {
   mark: "yes" | "no" | "warn";
@@ -58,10 +59,10 @@ function buildItems(draft: GermanTaxDraft): ChecklistItem[] {
       text: `KAP Zeile 22 = ${draft.kap.lines.Z22.euros} (Verluste ohne Aktienveräußerungen)`,
     });
   }
-  if (draft.kap.lines.Z41.euros > 0) {
+  if (Number(draft.kap.lines.Z41.cents) > 0) {
     items.push({
       mark: "yes",
-      text: `KAP Zeile 41 = ${draft.kap.lines.Z41.euros} (ausländische Quellensteuer, brutto)`,
+      text: `KAP Zeile 41 = ${draft.kap.lines.Z41.cents} (${fieldFor("KAP_Z41").caption}, gedeckelt durch DBA)`,
     });
   }
   // Unused stock losses only survive into future years if the loss
