@@ -114,7 +114,7 @@ export type GermanTaxDraft = {
        *  withheld tax does not appear in any transaction export. */
       Z7: ZeileValue;
       Z17: ZeileValue; // Sparer-Pauschbetrag against non-KAP income (always 0 — let ELSTER auto-allocate)
-      Z19: ZeileValue; // Ausländische Kapitalerträge — total (non-fund dividends + interest + positive realised gains)
+      Z19: ZeileValue; // Ausländische Kapitalerträge — NET total (dividends + interest + gains, minus Z22/Z23; may be negative)
       Z20: ZeileValue; // darin: Gewinne aus Aktienveräußerungen (stock-sale gains, ≥ 0)
       Z22: ZeileValue; // darin: Verluste ohne Aktienveräußerungen (bond/other losses, ≥ 0 magnitude)
       Z23: ZeileValue; // darin: Verluste aus Aktienveräußerungen (stock-sale losses, ≥ 0 magnitude)
@@ -317,15 +317,13 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
   const evidence: KapEvidenceItem[] = [];
 
   // KAP running totals. Losses are accumulated as POSITIVE magnitudes in
-  // their own Zeilen (Z22/Z23) so no emitted value is ever negative — the
-  // §20 Abs.6 loss buckets are enforced by the Finanzamt from these split
-  // lines, not by a single net figure. Z19 is the positive foreign-income
-  // TOTAL (dividends + interest + positive realised gains); the Z20 stock-
-  // gains breakout is a subset of it ("darin enthalten").
-  //
-  // NOTE FOR HUMAN REVIEW: the exact netting the Finanzamt expects between
-  // Z19 and the Z20/Z22/Z23 breakouts is a Steuerberater question — we keep
-  // every magnitude auditable and non-negative rather than pre-netting.
+  // their own Zeilen (Z22/Z23) so those breakout lines are never negative —
+  // the §20 Abs.6 loss buckets are enforced by the Finanzamt from these
+  // split lines. Z19 itself is the NET foreign-income total (dividends +
+  // interest + positive realised gains, then Z22/Z23 subtracted below) and
+  // MAY be negative — see the netting after this loop, corrected 2026-07-19
+  // after a real filing over-declared EUR 3.611 by emitting Z19 gross.
+  // Z20/Z22/Z23 are "darin enthaltene" (contained in Z19), per the form.
   let z19 = new Decimal(0);         // Ausländische Kapitalerträge (total)
   let stockGains = new Decimal(0);  // Z20 — Gewinne aus Aktienveräußerungen
   let stockLosses = new Decimal(0); // Z23 — Verluste aus Aktienveräußerungen
@@ -524,6 +522,14 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
     }
   }
 
+  // Zeile 19 is the NET foreign total. The form's Zeilen 20/22/23 are
+  // "darin enthaltene" — contained in it — and the official help for
+  // Zeilen 18/19 says disposals go here and "zusätzlich" into the breakouts.
+  // Emitting it gross double-counts the losses: ELSTER re-adds the loss
+  // lines when it derives "Kapitalerträge", which is exactly how a real
+  // filing turned EUR 331 of income into EUR 3.584.
+  z19 = z19.minus(stockLosses).minus(otherLosses);
+
   // --- Build KAP-INV ZeileValues with negative-clamp + warnings ---------
   // Section 2 (fund sale gains) is clamped ≥ 0 too: a net fund-sale loss
   // within a subtype can't produce a negative ELSTER value — it warns and
@@ -648,7 +654,7 @@ export function buildKapAndKapInv(input: BuildAnlageKapInput): GermanTaxDraft {
       lines: {
         Z7: toZeile(domestic.kapitalertraege, true), // inländische Kapitalerträge (Steuerbescheinigung)
         Z17: ZERO(),                       // always 0 — let ELSTER auto-allocate the Pauschbetrag
-        Z19: toZeile(z19, true),           // Ausländische Kapitalerträge (total)
+        Z19: toZeile(z19),                 // Ausländische Kapitalerträge — NET (may be negative)
         Z20: toZeile(stockGains, true),    // darin: Gewinne aus Aktienveräußerungen
         Z22: toZeile(otherLosses, true),   // darin: Verluste ohne Aktienveräußerungen (magnitude)
         Z23: toZeile(stockLosses, true),   // darin: Verluste aus Aktienveräußerungen (magnitude)

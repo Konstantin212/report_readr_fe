@@ -113,9 +113,10 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
   });
 
   it("routes individual-stock dividends into the KAP Z19 foreign-income total", () => {
-    // Z19 is the foreign capital-income TOTAL: 500 dividend + 1200 stock gain.
-    expect(draft.kap.lines.Z19.cents).toBe("1700.00");
-    expect(draft.kap.lines.Z19.euros).toBe(1700);
+    // Z19 is the NET total (Zeilen 20/22/23 are "darin enthaltene"), corrected 2026-07-19.
+    // 500 dividend + 1200 stock gain − 200 stock loss (Z23) = 1500.
+    expect(draft.kap.lines.Z19.cents).toBe("1500.00");
+    expect(draft.kap.lines.Z19.euros).toBe(1500);
     expect(draft.kapInv.present).toBe(false);
     expect(draft.kapInv.present).toBe(false);
     expect(draft.kap.Z4_guenstigerpruefung).toBe(false);

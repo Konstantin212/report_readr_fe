@@ -4,15 +4,19 @@
  * Anlage KAP 2025 separates §20 Abs.2 Nr.1 share-sale gains (Z20) from losses
  * (Z23, own §20 Abs.6 bucket) and non-share losses (Z22). Entering a negative
  * number into a gains field is rejected by ELSTER, so every emitted value is a
- * non-negative magnitude. Line numbers verified against the official 2025
- * Formular / privatsparer.de + steuern.de (Zeile 21 removed for 2025).
+ * non-negative magnitude — EXCEPT Z19, which is the NET foreign-income total
+ * (Z20/Z22/Z23 are "darin enthaltene") and may legitimately go negative.
+ * Line numbers verified against the official 2025 Formular / privatsparer.de
+ * + steuern.de (Zeile 21 removed for 2025).
  */
 import { describe, it, expect } from "vitest";
 import { buildKapAndKapInv, type GermanTaxDraft } from "@/lib/tax/german-tax";
 
 function allNonNegative(draft: GermanTaxDraft) {
+  // Z19 excluded: it's the signed NET total, not a magnitude (see Zeile 19 fix, 2026-07-19).
+  const { Z19: _Z19, ...restKapLines } = draft.kap.lines;
   const zeilen = [
-    ...Object.values(draft.kap.lines),
+    ...Object.values(restKapLines),
     ...Object.values(draft.kapInv.section1),
     ...Object.values(draft.kapInv.section2),
   ];
@@ -58,7 +62,7 @@ describe("buildKapAndKapInv — stock gain/loss split (T3)", () => {
     allNonNegative(draft);
   });
 
-  it("a net-loss stock year never produces a negative line", () => {
+  it("a net-loss stock year drags Z19 negative (it's the NET total)", () => {
     const draft = buildKapAndKapInv({
       taxYear: 2025,
       settings: { filingStatus: "SINGLE", saverAllowance: "1000" },
@@ -68,8 +72,9 @@ describe("buildKapAndKapInv — stock gain/loss split (T3)", () => {
     });
     expect(draft.kap.lines.Z23.cents).toBe("411.76");
     expect(draft.kap.lines.Z20.cents).toBe("0.00");
-    // Z19 is a positive total (the 100 dividend), never dragged negative by the loss.
-    expect(draft.kap.lines.Z19.cents).toBe("100.00");
+    // Z19 is the NET total (Zeilen 20/22/23 are "darin enthaltene"), corrected 2026-07-19.
+    // 100 (dividend) - 0 (Z22) - 411.76 (Z23) = -311.76
+    expect(draft.kap.lines.Z19.cents).toBe("-311.76");
     allNonNegative(draft);
   });
 

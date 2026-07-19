@@ -79,9 +79,14 @@ describe("KAP reconciliation subtotals (T5)", () => {
     expect(recon.caveats.some((x) => /swap/i.test(x))).toBe(true);
   });
 
-  it("produces no negative ELSTER value anywhere", () => {
-    for (const v of Object.values(draft.kap.lines)) {
+  it("produces no negative ELSTER value anywhere, except the signed Z19 net total", () => {
+    // Z19 is the NET total (Zeilen 20/22/23 are "darin enthaltene"), corrected 2026-07-19.
+    // Here it's legitimately negative: no non-fund/non-stock income, only stock losses
+    // (Z23 = 1192.63) with nothing to offset them.
+    const { Z19: _Z19, ...restKapLines } = draft.kap.lines;
+    for (const v of Object.values(restKapLines)) {
       expect(Number(v.cents)).toBeGreaterThanOrEqual(0);
     }
+    expect(draft.kap.lines.Z19.cents).toBe("-1192.63");
   });
 });
