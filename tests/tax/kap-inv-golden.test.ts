@@ -129,8 +129,9 @@ describe("buildKapAndKapInv — single-stock dividend (KAP path only)", () => {
     expect(draft.kap.lines.Z23.cents).toBe("200.00");
     expect(draft.kap.lines.Z22.cents).toBe("0.00"); // no non-stock losses
     expect(draft.kapInv.section2.Z14_aktienfonds.euros).toBe(0);
-    // No emitted KAP value is ever negative.
-    for (const v of Object.values(draft.kap.lines)) {
+    // All KAP values except Z19 are non-negative magnitudes; Z19 is signed and may be negative.
+    const { Z19: _Z19, ...restKapLines } = draft.kap.lines;
+    for (const v of Object.values(restKapLines)) {
       expect(Number(v.cents)).toBeGreaterThanOrEqual(0);
     }
   });
