@@ -78,6 +78,23 @@ Same structure exists on the domestic side and IS rendered by ELSTER: Zeile 9
 even though 9/14/15 appeared in the domestic section. Cause unknown — possibly a
 guided-mode field-hiding feature. Resolve before relying on those lines.
 
+**Update 2026-07-19 — the routing above still holds, but the OFFSET rule behind
+it does not.** JStG 2024 struck §20 Abs. 6 Sätze 5 and 6 without replacement:
+the €20.000 annual cap on Termingeschäfte losses and the parallel cap on
+wertlose Kapitalforderungen are gone, and per the BMF-Schreiben v. 14.05.2025
+losses already booked under S. 6 a. F. move into the *sonstige* pot. Existing
+carryforwards from those categories are now offsettable against all capital
+income in every open case.
+
+So Zeilen 21/24/25 remain a **reporting** requirement — the "ausschließlich"
+wording above is current 2025 form text — but they are no longer a restricted
+*offset* bucket. Do not implement them as ring-fenced pots; that would encode
+repealed law. The only surviving §20 ring-fence is Aktien (S. 4).
+
+Related, same source: *"Verluste aus dem wertlosen Verfall von Aktien sind
+Verluste im Sinne des § 20 Absatz 6 Satz 4 EStG"* — a share going worthless is
+an **Aktien** loss (Zeile 23), not a Kapitalforderung write-off (Zeile 25).
+
 ### 3. The Freedom equity-swap caveat cries wolf — **VERIFIED**
 
 Checked 2026-07-19 against the live database: **FRHC appears in no row, in any

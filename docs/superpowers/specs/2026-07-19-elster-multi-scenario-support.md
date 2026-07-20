@@ -97,10 +97,27 @@ what the correct output looks like.
 
 | Dimension | Values | What changes |
 |---|---|---|
-| Filing status | single / **Zusammenveranlagung** | Pauschbetrag €1.000 vs €2.000; **one Anlage KAP per spouse**; Zeile 4's own text references the spouse's attached Anlage KAP |
+| Filing status | single / **Zusammenveranlagung** | Pauschbetrag €1.000 vs €2.000; **one Anlage KAP per spouse**; Zeile 4's own text references the spouse's attached Anlage KAP. **The offset ORDER also inverts** — see the note below |
 | Church membership | none / member | Zeile 6 checkbox, Zeile 39 + 45 amounts, 8 % (BY, BW) vs 9 % rate |
 | Marginal rate | above / below ~25 % | Günstigerprüfung (Zeile 4) becomes worth ticking below ~25 %; it also raises the *zumutbare Belastung* base, which interacts with Anlage Außergewöhnliche Belastungen |
-| Prior-year carryforward | none / has Feststellungsbescheid | Opening loss pots must be seeded; currently assumed zero |
+| Prior-year carryforward | none / has Feststellungsbescheid | Opening loss pots must be seeded; currently assumed zero. **Declared** input from the Bescheid, never derived — see `2026-07-19-carryforward-planner.md` |
+
+**Offset ordering is filing-status-dependent** (BMF v. 14.05.2025, verified
+2026-07-19):
+
+- **Single filer:** losses are consumed FIRST, the Sparer-Pauschbetrag second —
+  *"Ein Freistellungsauftrag wird somit erst nach Berücksichtigung des
+  Verlustverrechnungstopfes angewendet (verbraucht)."* Allowance volume can
+  revive ("aufleben") when a later loss displaces an earlier use of it.
+- **Zusammenveranlagung:** the order **inverts** — the Freistellungsauftrag is
+  applied first, and cross-spouse offsetting happens after. The BMF explicitly
+  rejects the reverse as *"eine nicht zu rechtfertigende Benachteiligung von
+  Ehegatten/Lebenspartnern gegenüber Einzelpersonen"*, because offsetting first
+  would deny the earning spouse their Pauschbetrag.
+
+So the `married-joint` persona is not "the single path with a doubled
+allowance" — it is a different computation order, and Plan 3 must model it as
+one.
 
 ### 3.2 Institution mix
 
@@ -121,9 +138,10 @@ what the correct output looks like.
 |---|---|---|
 | Shares | 19 + 20 / 23 | supported |
 | Bonds sold at a loss | 19 + 22 | supported |
-| **Bond default / worthless write-off** | **25 only** | *excluded* from 19. Folio cannot distinguish this from a sale |
+| **Bond default / worthless write-off** | **25 only** | *excluded* from 19. Folio cannot distinguish this from a sale. Offset restriction abolished — see §3.3a |
+| **Worthless share (wertloser Verfall)** | 19 + **23** | lands in the **Aktien** pot per BMF 14.05.2025, so it CAN consume an Aktien carryforward — unlike a fund loss |
 | **Termingeschäfte gains, Stillhalterprämien** | 19 + 21 | not supported |
-| **Termingeschäfte losses** | **24 only** | *excluded* from 19. Asymmetric with gains |
+| **Termingeschäfte losses** | **24 only** | *excluded* from 19. Asymmetric with gains. Offset restriction abolished — see §3.3a |
 | Equity funds (30 % TF) | KAP-INV 4 / 14 | supported |
 | Mixed funds (15 % TF) | KAP-INV 5 / 17 | classification path exists, untested |
 | Domestic property funds (60 % TF) | KAP-INV 6 / 20 | untested |
@@ -137,6 +155,41 @@ what the correct output looks like.
 | Family foundation (§15 AStG) | KAP 49–54 | no concept |
 | Spezial-Investmentanteile | KAP 34 | no concept |
 | Crypto | Anlage SO | correctly excluded from KAP already |
+
+### 3.3a Loss buckets — CORRECTED 2026-07-19 against BMF v. 14.05.2025
+
+An earlier draft of this spec treated Termingeschäfte and worthless
+Kapitalforderungen as separately ring-fenced loss buckets. **That is no longer
+the law.** JStG 2024 struck §20 Abs. 6 Sätze 5 and 6 without replacement — the
+former €20.000 annual offset cap on Termingeschäfte losses and the parallel cap
+on wertlose Kapitalforderungen are gone. The statute now has five Sätze and
+S. 5 is the Bescheinigung rule.
+
+Transitional rule, per the BMF-Schreiben v. 14.05.2025: losses previously booked
+under S. 6 a. F. **move into the *sonstige* pot** (§20 Abs. 6 S. 1–3), for both
+the Kapitalertragsteuerabzug and carryforwards already assessed. Existing
+carryforwards from those categories are now offsettable against all capital
+income in every open case.
+
+**Keep two things apart when implementing:**
+
+| | Status |
+|---|---|
+| Offset **restriction** (which gains a loss may absorb) | **abolished** for Termingeschäfte and wertlose Kapitalforderungen |
+| Reporting **line** (where the figure is entered) | **still required** — Zeilen 21/24/25 exist on the 2025 form and the help text still says losses go *"ausschließlich"* in 24 / 25 |
+
+A reporting obligation is not an offset restriction. Plan 4 must still route
+these to their own lines and still keep Termingeschäfte losses out of Zeile 19 —
+it just must not model them as a restricted offset bucket.
+
+**The only surviving ring-fence is Aktien** (§20 Abs. 6 S. 4): share-sale losses
+offset share-sale gains and nothing else. Note that a share becoming worthless
+counts as an Aktien loss — *"Verluste aus dem wertlosen Verfall von Aktien sind
+Verluste im Sinne des § 20 Absatz 6 Satz 4 EStG"* — so it feeds Zeile 23, not
+the sonstige pot.
+
+Sources and the resolved ordering questions: see
+`2026-07-19-carryforward-planner.md` §7.
 
 ### 3.4 Filing situation
 
@@ -255,9 +308,14 @@ and a short "do you have any of these?" list for section 6. Drives
 
 ### Plan 4 — Instrument classification completeness
 Termingeschäfte detection (gains → 21, losses → 24, never netted); default /
-write-off vs sale (25 vs 22); fund subtype coverage for 15/60/80 % TF; the
-sell-without-lot warning. Each gets a conditional warning when detected and
-silence when not.
+write-off vs sale (25 vs 22); worthless shares → the **Aktien** pot (Zeile 23,
+not sonstige); fund subtype coverage for 15/60/80 % TF; the sell-without-lot
+warning. Each gets a conditional warning when detected and silence when not.
+
+**Read §3.3a first.** These lines are a *reporting* requirement, not a
+restricted offset bucket — JStG 2024 abolished the Termingeschäfte and
+Kapitalforderung offset caps. Building them as ring-fenced pots would encode
+repealed law.
 
 ### Plan 5 — Vorabpauschale
 Now well understood — ELSTER's own section 4 exposes the full derivation, and
