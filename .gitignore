@@ -48,3 +48,10 @@ playwright-report/
 .env*.local
 tests/fixtures/brokers/freedom-portfolio-2026-06-06.json
 tests/fixtures/brokers/ibkr-portfolio-2026-06-06/
+
+# design-sync (claude.ai/design system sync)
+.ds-sync/                     # staged converter scripts + their node_modules
+ds-bundle/                    # generated upload bundle
+.design-sync/.cache/          # compiled CSS, grades, remote anchor — machine state
+.design-sync/learnings/       # subagent fan-out scratch, folded into NOTES.md
+.design-sync/node_modules     # fork symlink, recreated per clone

@@ -1,0 +1,37 @@
+{
+  "projectId": "3eb0d740-f60b-4b86-9d23-5bf1538842c5",
+  "shape": "package",
+  "pkg": "report-readr-fe",
+  "globalName": "Folio",
+  "srcDir": "src",
+  "tsconfig": "./tsconfig.json",
+  "buildCmd": "npx tailwindcss -c .design-sync/tailwind.sync.ts -i src/app/globals.css -o .design-sync/.cache/tailwind.css --minify && cat .design-sync/preview-extras.css >> .design-sync/.cache/tailwind.css",
+  "cssEntry": ".design-sync/.cache/tailwind.css",
+  "extraFonts": [".design-sync/fonts.css"],
+  "guidelinesGlob": [".design-sync/guidelines/**/*.md"],
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "DataTable": { "cardMode": "column", "viewport": "1280x720" },
+    "KpiStrip": { "cardMode": "column", "viewport": "1280x720" },
+    "MetricsGrid": { "cardMode": "column", "viewport": "1280x720" },
+    "Heatmap": { "cardMode": "column" },
+    "PerfChart": { "cardMode": "column" }
+  },
+  "componentSrcMap": {
+    "Button": "src/components/ui/button.tsx",
+    "Table": "src/components/ui/table.tsx",
+    "Card": "src/components/pulse/card.tsx",
+    "MetricTile": "src/components/pulse/metric-tile.tsx",
+    "KpiStrip": "src/components/pulse/kpi-strip.tsx",
+    "MetricsGrid": "src/components/pulse/metrics-grid.tsx",
+    "DataTable": "src/components/pulse/data-table.tsx",
+    "Donut": "src/components/pulse/donut.tsx",
+    "AllocationDonut": "src/components/pulse/allocation-donut.tsx",
+    "Sparkline": "src/components/pulse/sparkline.tsx",
+    "Heatmap": "src/components/pulse/heatmap.tsx",
+    "CurrencyBars": "src/components/pulse/currency-bars.tsx",
+    "DividendMiniBars": "src/components/pulse/dividend-mini-bars.tsx",
+    "DividendMonthlyBars": "src/components/pulse/dividend-monthly-bars.tsx",
+    "PerfChart": "src/components/pulse/perf-chart.tsx"
+  }
+}

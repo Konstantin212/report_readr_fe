@@ -49,6 +49,7 @@
     "eslint": "^9.16.0",
     "eslint-config-next": "^15.1.0",
     "fast-xml-parser": "^4.5.1",
+    "geist": "^1.7.2",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "tailwindcss-animate": "^1.0.7",

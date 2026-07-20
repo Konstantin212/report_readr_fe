@@ -20,7 +20,7 @@ const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
 >(({ className, ...props }, ref) => (
-  <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
+  <thead ref={ref} className={cn("[&_tr]:border-b [&_tr]:border-border", className)} {...props} />
 ))
 TableHeader.displayName = "TableHeader"
 
@@ -43,7 +43,11 @@ const TableFooter = React.forwardRef<
   <tfoot
     ref={ref}
     className={cn(
-      "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
+      // `panel2`, not shadcn's `bg-muted/50`: on this dark theme `muted` is
+      // a TEXT colour (58% ink), so a 50%-alpha fill of it paints a bright
+      // near-white bar across the footer. `panel2` is the palette's subtle
+      // dark surface, consistent with TableRow's hover state.
+      "border-t border-border bg-panel2 font-medium [&>tr]:last:border-b-0",
       className
     )}
     {...props}
@@ -58,7 +62,10 @@ const TableRow = React.forwardRef<
   <tr
     ref={ref}
     className={cn(
-      "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+      // `panel2`, not shadcn's `bg-muted`: in this theme `muted` is a TEXT
+      // colour (58% ink), so bg-muted would paint a near-white row on a dark
+      // background. `panel2` is the palette's subtle-surface token.
+      "border-b border-border transition-colors hover:bg-panel2 data-[state=selected]:bg-panel2",
       className
     )}
     {...props}

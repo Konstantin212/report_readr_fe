@@ -1,0 +1,33 @@
+/*
+ * Geist Sans + Geist Mono for design-sync previews.
+ *
+ * In the app these fonts are injected by `next/font` at runtime, which sets
+ * --font-geist-sans / --font-geist-mono. Outside Next there is no loader, so
+ * tailwind.config.ts's fontFamily would fall through to "Inter Tight",
+ * system-ui and every preview would render in the wrong typeface.
+ *
+ * This file ships the real variable fonts (copied from the `geist` package,
+ * SIL OFL 1.1 — see GEIST-LICENSE.txt) and defines the same two variables, so
+ * previews and generated designs match production typography.
+ */
+
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+}

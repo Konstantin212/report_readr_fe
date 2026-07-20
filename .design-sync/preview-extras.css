@@ -1,0 +1,39 @@
+/*
+ * Appended to the compiled Tailwind stylesheet by cfg.buildCmd.
+ *
+ * Everything here exists because the design-sync bundle runs OUTSIDE Next,
+ * which normally supplies these at runtime. Kept separate from
+ * src/app/globals.css so the app's own CSS stays untouched.
+ *
+ * 1. --font-geist-* — set by `next/font` in the app. tailwind.config.ts
+ *    declares fontFamily.sans as ["var(--font-geist-sans)", …], so Tailwind's
+ *    preflight emits `font-family: var(--font-geist-sans), …` on html. With
+ *    the variable undefined the WHOLE declaration is invalid and the browser
+ *    falls back to its default serif — which is what every preview rendered
+ *    in before this file existed. The families themselves ship as @font-face
+ *    via cfg.extraFonts (.design-sync/fonts.css).
+ *
+ *    Note the converter copies only @font-face rules out of an extraFonts
+ *    stylesheet, so these :root declarations cannot live there.
+ *
+ * 2. The explicit html/body font-family is belt-and-braces: it survives even
+ *    if preflight is ever trimmed.
+ */
+
+:root {
+  --font-geist-sans: "Geist";
+  --font-geist-mono: "Geist Mono";
+}
+
+html,
+body {
+  font-family: var(--font-geist-sans), "Inter Tight", system-ui, sans-serif;
+}
+
+code,
+kbd,
+samp,
+pre,
+.font-mono {
+  font-family: var(--font-geist-mono), "JetBrains Mono", ui-monospace, monospace;
+}
