@@ -10,7 +10,9 @@
  * Verlustvortrag: real future relief, but worth €0 this year. Showing the pots
  * separately (and the carryforward explicitly) is the only honest presentation.
  */
+import { useState } from "react";
 import { Card } from "@/components/pulse/card";
+import { WhyPotsModal } from "@/components/pulse/why-pots-modal";
 
 type Bucket = {
   gainsEur: number;
@@ -50,11 +52,22 @@ function Row({ label, value, tone, title }: { label: string; value: string; tone
 }
 
 export function TaxBucketsCard({ b }: { b: TaxBucketsView }) {
+  const [showWhy, setShowWhy] = useState(false);
+
   return (
     <Card>
-      <div className="flex justify-between items-center">
-        <div className="font-semibold text-sm">Loss buckets</div>
-        <div className="font-mono text-[11px] text-muted">§20 Abs. 6 EStG</div>
+      <div className="flex justify-between items-baseline gap-3">
+        <div className="font-semibold text-base">How your income is taxed</div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-[11px] text-muted">§20 Abs. 6 EStG</span>
+          <button
+            type="button"
+            onClick={() => setShowWhy(true)}
+            className="font-mono text-[11px] text-muted border border-border rounded-lg px-2.5 py-1 hover:text-ink hover:bg-panel2 transition-colors"
+          >
+            Why two pots? ⓘ
+          </button>
+        </div>
       </div>
 
       <div className="mt-2 text-[12px] text-muted leading-relaxed">
@@ -64,7 +77,7 @@ export function TaxBucketsCard({ b }: { b: TaxBucketsView }) {
 
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Aktien */}
-        <div className="bg-panel2 rounded-[14px] p-3 space-y-1.5">
+        <div className="bg-panel2 rounded-2xl p-4 space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[10px] text-dim uppercase tracking-widest">Aktien</span>
             <span className="font-mono text-[10px] text-dim">Einzelaktien</span>
@@ -84,7 +97,7 @@ export function TaxBucketsCard({ b }: { b: TaxBucketsView }) {
         </div>
 
         {/* Sonstige */}
-        <div className="bg-panel2 rounded-[14px] p-3 space-y-1.5">
+        <div className="bg-panel2 rounded-2xl p-4 space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[10px] text-dim uppercase tracking-widest">Sonstige</span>
             <span className="font-mono text-[10px] text-dim">ETFs · bonds · income</span>
@@ -98,7 +111,7 @@ export function TaxBucketsCard({ b }: { b: TaxBucketsView }) {
         </div>
       </div>
 
-      <div className="mt-3 bg-panel2 rounded-[14px] p-3 space-y-1.5">
+      <div className="mt-3 bg-panel2 rounded-2xl p-4 space-y-1.5">
         <Row label="Combined taxable income" value={eur(b.aktien.taxableEur + b.sonstige.taxableEur)} />
         <Row label={`Sparer-Pauschbetrag used`} value={eur(-b.allowanceUsedEur)} tone="good" />
         <div className="border-t border-border my-1" />
@@ -112,6 +125,8 @@ export function TaxBucketsCard({ b }: { b: TaxBucketsView }) {
           is carried forward. Tax is €0 only because the Sonstige pot stayed under the allowance.
         </div>
       )}
+
+      <WhyPotsModal open={showWhy} onClose={() => setShowWhy(false)} />
     </Card>
   );
 }
