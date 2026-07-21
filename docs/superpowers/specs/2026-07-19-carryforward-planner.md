@@ -8,6 +8,15 @@ use it?
 **Companion to:** `docs/superpowers/specs/2026-07-19-elster-multi-scenario-support.md`
 (the carryforward is listed there as an unrepresented taxpayer dimension).
 
+**Note (2026-07-21):** during the Positions & Tax redesign (presentational
+only, see `docs/CHANGELOG.md`), a display-only `carriedForwardEur` figure
+was briefly added to the Loss Harvest panel and caught in review as
+incorrect — it did not separate the Aktien/Sonstige buckets §20 Abs. 6
+S. 4 EStG requires. It was removed before merge; `src/lib/tax/loss-harvest.ts`
+was never touched. A real bucket-separated carryforward display is still
+this spec's job, not a redesign's, and must go through `tax-advisor` plus
+golden fixtures.
+
 ---
 
 ## 1. The problem
