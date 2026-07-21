@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "./card";
+import { fmtEur } from "@/lib/format";
 import {
   bucketOverages,
   encodeSellParams,
@@ -11,9 +12,6 @@ import {
   type HarvestResult,
   type SellInstruction,
 } from "@/lib/tax/loss-harvest";
-
-const fmtEur = (v: number) =>
-  (v >= 0 ? "" : "−") + "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function brokerChip(broker: string): string {
   const norm = broker.toUpperCase();
@@ -58,9 +56,9 @@ export function LossHarvestPanel({
   const [isPending, startTransition] = useTransition();
 
   // Optimistic mirror of the server-derived `sells` prop. Click handlers
-  // mutate this immediately so the checkbox flips on first frame; the
+  // mutate this immediately so the stepper reacts on first frame; the
   // useEffect resyncs once the RSC payload arrives. Without this, the
-  // checkbox state lags behind the click by an entire round-trip and the
+  // stepper state lags behind the click by an entire round-trip and the
   // UI looks unresponsive.
   const [optimisticSells, setOptimisticSells] = useState<SellInstruction[]>(sells);
   useEffect(() => {
@@ -86,15 +84,6 @@ export function LossHarvestPanel({
     for (const s of optimisticSells) m.set(`${s.candidate.symbol}.${s.candidate.broker}`, s);
     return m;
   }, [optimisticSells]);
-
-  const toggleSell = useCallback((c: HarvestCandidate) => {
-    const key = `${c.symbol}.${c.broker}`;
-    const next = [...optimisticSells];
-    const idx = next.findIndex((s) => `${s.candidate.symbol}.${s.candidate.broker}` === key);
-    if (idx >= 0) next.splice(idx, 1);
-    else next.push({ candidate: c, qtyToSell: c.qty, realisedLossEur: c.unrealisedLossEur });
-    updateUrl(next);
-  }, [optimisticSells, updateUrl]);
 
   const setQty = useCallback((c: HarvestCandidate, qty: number) => {
     const key = `${c.symbol}.${c.broker}`;
@@ -125,132 +114,183 @@ export function LossHarvestPanel({
   const sonstigeHasCandidatesButNoOverage =
     sonstigeCands.length > 0 && overages.sonstige <= 0;
 
+  // Sum of each bucket's OWN candidate rows' full unrealisedLossEur — pure
+  // display aggregation over already-computed HarvestCandidate fields
+  // (buildCandidates()), not a new loss calculation.
+  const aktienCandLossSum = aktienCands.reduce((s, c) => s + c.unrealisedLossEur, 0);
+  const sonstigeCandLossSum = sonstigeCands.reduce((s, c) => s + c.unrealisedLossEur, 0);
+  const totalSharesSelected = optimisticSells.reduce((s, x) => s + x.qtyToSell, 0);
+
+  // Display-only decomposition of computeHarvest()'s own numbers into "this
+  // year's tax reduction" vs. "carries forward" — arithmetic over the two
+  // already-verified outputs (currentTaxableBase/result.taxableBaseEur and
+  // result.totalLossRealisedEur), not a new tax rule.
+  const taxBaseReductionEur = Math.max(0, currentTaxableBase - result.taxableBaseEur);
+  const carriedForwardEur = Math.max(0, Math.abs(result.totalLossRealisedEur) - taxBaseReductionEur);
+
+  const aktienSubtitle = overages.aktien > 0
+    ? `${fmtEur(overages.aktien)} of Aktien overage to cover · gross €${inputs.aktien.totalIncomeEur.toFixed(0)}`
+    : `Aktien bucket has no overage to cover · losses here carry forward to next year`;
+  const sonstigeSubtitle = overages.sonstige > 0
+    ? `${fmtEur(overages.sonstige)} of Sonstige overage to cover · gross €${inputs.sonstige.totalIncomeEur.toFixed(0)} incl. forecast`
+    : `Sonstige bucket already inside the Pauschbetrag`;
+
   return (
     <div className="space-y-4">
       <DisclaimerBanner />
 
-      <BucketSituation
+      <RecommendationCard
         overages={overages}
         aktienGross={inputs.aktien.totalIncomeEur}
         sonstigeGross={inputs.sonstige.totalIncomeEur}
         allowanceEur={inputs.allowanceEur}
         aktienOnlyCandidates={aktienHasCandidatesButNoOverage && sonstigeCands.length === 0}
         sonstigeOnlyCandidates={sonstigeHasCandidatesButNoOverage && aktienCands.length === 0}
+        estTaxSavedEur={result.estTaxSavedEur}
+        aktienCandLossSum={aktienCandLossSum}
+        sonstigeCandLossSum={sonstigeCandLossSum}
       />
 
-      {/* Summary cards. While the RSC refetch is in flight after a click,
-          the optimisticSells already reflects the new selection but the
-          summary numbers are still last-frame's — fade the cards slightly
+      {/* Per-bucket net + combined taxable base. While the RSC refetch is in
+          flight after a click, the optimisticSells already reflects the new
+          selection but these numbers are still last-frame's — fade slightly
           so the user knows fresh totals are loading. */}
-      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 transition-opacity duration-150 ${isPending ? "opacity-60" : "opacity-100"}`}>
-        <SummaryCard
-          label="Aktien bucket"
-          value={fmtEur(result.aktienNetEur)}
-          sub={
-            inputs.aktien.totalIncomeEur < 0
-              ? `${fmtEur(-inputs.aktien.totalIncomeEur)} of stock losses carry forward to next year`
-              : overages.aktien > 0
-                ? `${fmtEur(overages.aktien)} over the cap — sell Aktien losers to reduce`
+      <Card className="rounded-[24px] p-[22px] sm:p-[26px]">
+        <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity duration-150 ${isPending ? "opacity-60" : "opacity-100"}`}>
+          <BucketTile
+            label="Aktien bucket"
+            value={fmtEur(result.aktienNetEur)}
+            sub={
+              inputs.aktien.totalIncomeEur < 0
+                ? `${fmtEur(-inputs.aktien.totalIncomeEur)} of stock losses carry forward to next year`
+                : overages.aktien > 0
+                  ? `${fmtEur(overages.aktien)} over the cap — sell Aktien losers to reduce`
+                  : `Already inside the Pauschbetrag for this bucket`
+            }
+            help="Individual-stock income net of selected stock losses. §20 Abs. 6 EStG: floored at €0 — losses here cannot offset the Sonstige bucket."
+          />
+          <BucketTile
+            label="Sonstige bucket"
+            value={fmtEur(result.sonstigeNetEur)}
+            sub={
+              overages.sonstige > 0
+                ? `${fmtEur(overages.sonstige)} over the cap — sell Sonstige losers to reduce`
                 : `Already inside the Pauschbetrag for this bucket`
-          }
-          help="Individual-stock income net of selected stock losses. §20 Abs. 6 EStG: floored at €0 — losses here cannot offset the Sonstige bucket."
-        />
-        <SummaryCard
-          label="Sonstige bucket"
-          value={fmtEur(result.sonstigeNetEur)}
-          sub={
-            overages.sonstige > 0
-              ? `${fmtEur(overages.sonstige)} over the cap — sell Sonstige losers to reduce`
-              : `Already inside the Pauschbetrag for this bucket`
-          }
-          help="ETFs, bonds, dividends, interest. Forecast dividends included. §20 Abs. 6 EStG: floored at €0 — losses here cannot offset the Aktien bucket."
-        />
-        <SummaryCard
-          label="Taxable base"
-          value={fmtEur(result.taxableBaseEur)}
-          sub={
-            result.taxableBaseEur === 0
-              ? `At or under the €${inputs.allowanceEur.toLocaleString("de-DE")} Pauschbetrag`
-              : `${fmtEur(result.taxableBaseEur)} above the €${inputs.allowanceEur.toLocaleString("de-DE")} Pauschbetrag${result.taxableBaseEur < currentTaxableBase ? ` · was ${fmtEur(currentTaxableBase)}` : ""}`
-          }
-          highlight={result.taxableBaseEur < currentTaxableBase ? "mint" : undefined}
-          help="Net capital income above the Sparer-Pauschbetrag — taxed at 26.375% (Abgeltungsteuer + Soli)."
-        />
-        <SummaryCard
-          label="Tax saved"
-          value={fmtEur(result.estTaxSavedEur)}
-          sub={
-            result.estTaxSavedEur > 0
-              ? `vs. doing nothing · ${forecastDaysRemaining > 0 ? `${forecastDaysRemaining}d to Dec 31` : "end of year"}`
-              : forecastDaysRemaining > 0
-                ? `Select losses to see savings · ${forecastDaysRemaining}d to Dec 31`
-                : `End of tax year reached`
-          }
-          highlight={result.estTaxSavedEur > 0 ? "mint" : undefined}
-          help="Estimated tax saved vs. the current 'do nothing' baseline. Excludes Kirchensteuer."
-        />
-      </div>
-
-      {/* Action bar */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <button
-          onClick={applyOptimum}
-          disabled={optimum.length === 0}
-          className="bg-mint text-bg font-mono text-[11px] uppercase tracking-widest px-4 py-2 rounded-md font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
-          title={optimum.length === 0 ? "Already inside the Pauschbetrag — no harvest needed." : `Apply ${optimum.length} suggested sell${optimum.length === 1 ? "" : "s"}.`}
-        >
-          Auto-pick optimum
-        </button>
-        <button
-          onClick={clearAll}
-          disabled={optimisticSells.length === 0}
-          className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-4 py-2 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          Clear all
-        </button>
-        <div className="font-mono text-[11px] text-muted ml-auto flex items-center gap-2">
-          {isPending && (
-            <span
-              className="inline-flex items-center gap-1 text-mint"
-              title="Recomputing totals after your last change"
-            >
-              <Spinner />
-              <span>Updating…</span>
-            </span>
-          )}
-          <span>{optimisticSells.length} of {candidates.length} positions selected · {fmtEur(result.totalLossRealisedEur)} loss realised</span>
+            }
+            help="ETFs, bonds, dividends, interest. Forecast dividends included. §20 Abs. 6 EStG: floored at €0 — losses here cannot offset the Aktien bucket."
+          />
+          <BucketTile
+            label="Taxable base"
+            value={fmtEur(result.taxableBaseEur)}
+            sub={
+              result.taxableBaseEur === 0
+                ? `At or under the €${inputs.allowanceEur.toLocaleString("de-DE")} Pauschbetrag`
+                : `${fmtEur(result.taxableBaseEur)} above the €${inputs.allowanceEur.toLocaleString("de-DE")} Pauschbetrag${result.taxableBaseEur < currentTaxableBase ? ` · was ${fmtEur(currentTaxableBase)}` : ""}`
+            }
+            highlight={result.taxableBaseEur < currentTaxableBase ? "mint" : undefined}
+            help="Net capital income above the Sparer-Pauschbetrag — taxed at 26.375% (Abgeltungsteuer + Soli)."
+          />
         </div>
-      </div>
+      </Card>
 
-      {optimisticSells.length > 0 && <WashSaleWarning />}
-      {hasSonstigeSell && <TeilfreistellungNote />}
+      <Card className="rounded-[24px] p-[22px] sm:p-[30px]">
+        <div className="flex justify-between items-start gap-4 flex-wrap">
+          <div>
+            <div className="text-[17px] font-semibold">Simulate a harvest</div>
+            <div className="text-[13px] text-muted mt-1">Choose how many shares to sell and watch the effect on your tax, live.</div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isPending && (
+              <span
+                className="inline-flex items-center gap-1.5 font-mono text-[11px] text-mint"
+                title="Recomputing totals after your last change"
+              >
+                <Spinner />
+                <span>Updating…</span>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={applyOptimum}
+              disabled={optimum.length === 0}
+              className="bg-mint text-bg font-mono text-[11px] uppercase tracking-widest px-4 py-2 rounded-lg font-semibold disabled:opacity-30 disabled:cursor-not-allowed"
+              title={optimum.length === 0 ? "Already inside the Pauschbetrag — no harvest needed." : `Apply ${optimum.length} suggested sell${optimum.length === 1 ? "" : "s"}.`}
+            >
+              Auto-pick optimum
+            </button>
+            <button
+              type="button"
+              onClick={clearAll}
+              disabled={optimisticSells.length === 0}
+              className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-4 py-2 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
 
-      <BucketSection
-        title="Aktien — individual stocks"
-        subtitle={
-          overages.aktien > 0
-            ? `${fmtEur(overages.aktien)} of Aktien overage to cover · gross €${inputs.aktien.totalIncomeEur.toFixed(0)}`
-            : `Aktien bucket has no overage to cover · losses here carry forward to next year`
-        }
-        candidates={aktienCands}
-        sellByKey={sellByKey}
-        bucketOverage={overages.aktien}
-        onToggle={toggleSell}
-        onCommitQty={setQty}
-      />
-      <BucketSection
-        title="Sonstige — ETFs, bonds, dividends, interest"
-        subtitle={
-          overages.sonstige > 0
-            ? `${fmtEur(overages.sonstige)} of Sonstige overage to cover · gross €${inputs.sonstige.totalIncomeEur.toFixed(0)} incl. forecast`
-            : `Sonstige bucket already inside the Pauschbetrag`
-        }
-        candidates={sonstigeCands}
-        sellByKey={sellByKey}
-        bucketOverage={overages.sonstige}
-        onToggle={toggleSell}
-        onCommitQty={setQty}
-      />
+        {/* live summary tiles */}
+        <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6 transition-opacity duration-150 ${isPending ? "opacity-60" : "opacity-100"}`}>
+          <StatTile label="Shares selected" value={String(totalSharesSelected)} />
+          <StatTile
+            label="Loss realized"
+            value={fmtEur(result.totalLossRealisedEur)}
+            tone={result.totalLossRealisedEur < 0 ? "bad" : undefined}
+          />
+          <StatTile
+            label="Tax saved this year"
+            value={fmtEur(result.estTaxSavedEur)}
+            tone={result.estTaxSavedEur > 0 ? "mint" : undefined}
+            sub={
+              result.estTaxSavedEur > 0
+                ? `vs. doing nothing · ${forecastDaysRemaining > 0 ? `${forecastDaysRemaining}d to Dec 31` : "end of year"}`
+                : forecastDaysRemaining > 0
+                  ? `Select losses to see savings · ${forecastDaysRemaining}d to Dec 31`
+                  : `End of tax year reached`
+            }
+            help="Estimated tax saved vs. the current 'do nothing' baseline. Excludes Kirchensteuer."
+          />
+          <StatTile
+            label="Carried forward"
+            value={fmtEur(carriedForwardEur)}
+            tone={carriedForwardEur > 0 ? "amber" : undefined}
+            help="Realised losses beyond what this year's taxable base could absorb — becomes a Verlustvortrag for future gains in the same bucket."
+          />
+        </div>
+        <div className="mt-2 font-mono text-[11px] text-muted">
+          {optimisticSells.length} of {candidates.length} position{candidates.length === 1 ? "" : "s"} selected
+        </div>
+
+        {optimisticSells.length > 0 && (
+          <div className="mt-4">
+            <WashSaleWarning />
+          </div>
+        )}
+        {hasSonstigeSell && (
+          <div className="mt-3">
+            <TeilfreistellungNote />
+          </div>
+        )}
+
+        <HarvestBucketSection
+          label="Individual stocks · Aktien"
+          subtitle={aktienSubtitle}
+          candidates={aktienCands}
+          sellByKey={sellByKey}
+          bucketOverage={overages.aktien}
+          onSetQty={setQty}
+        />
+        <HarvestBucketSection
+          label="Funds & ETFs, dividends, interest · Sonstige"
+          subtitle={sonstigeSubtitle}
+          candidates={sonstigeCands}
+          sellByKey={sellByKey}
+          bucketOverage={overages.sonstige}
+          onSetQty={setQty}
+        />
+      </Card>
+
+      <ExplainerCallout />
 
       <BucketSplitFootnote />
     </div>
@@ -262,19 +302,22 @@ export function LossHarvestPanel({
 // ---------------------------------------------------------------------------
 
 /**
- * Header banner that explicitly tells the user where the overage sits and
- * whether their loss candidates can do anything about it. Previously the
- * "all stock losses but Sonstige overage" situation was invisible — the user
- * thought selling DIS would reduce the €171 forecast, when in fact §20
- * Abs. 6 EStG forbids it.
+ * Top recommendation card — mirrors the mockup's hero-style "No action
+ * needed" / warning treatment. Branch conditions and copy are lifted
+ * byte-identical from the previous `BucketSituation` component; only the
+ * JSX wrapper (icon + headline/body split + optional stat tiles) changed.
+ * Do not reword the §20 Abs. 6 sentences below.
  */
-function BucketSituation({
+function RecommendationCard({
   overages,
   aktienGross,
   sonstigeGross,
   allowanceEur,
   aktienOnlyCandidates,
   sonstigeOnlyCandidates,
+  estTaxSavedEur,
+  aktienCandLossSum,
+  sonstigeCandLossSum,
 }: {
   overages: { aktien: number; sonstige: number };
   aktienGross: number;
@@ -282,35 +325,77 @@ function BucketSituation({
   allowanceEur: number;
   aktienOnlyCandidates: boolean;
   sonstigeOnlyCandidates: boolean;
+  estTaxSavedEur: number;
+  aktienCandLossSum: number;
+  sonstigeCandLossSum: number;
 }) {
   const totalOverage = overages.aktien + overages.sonstige;
+
   if (totalOverage <= 0) {
+    const carryForwardEur = Math.max(0, -aktienGross) + Math.max(0, -sonstigeGross);
     return (
-      <div className="font-mono text-[11px] text-mint bg-mint/5 border border-mint/25 rounded-md px-3 py-2.5">
-        <strong>You&apos;re already inside the €{allowanceEur.toLocaleString("de-DE")} Pauschbetrag.</strong>{" "}
-        Aktien net €{aktienGross.toFixed(0)} · Sonstige net €{sonstigeGross.toFixed(0)} · no harvest needed.
-      </div>
+      <Card className="rounded-[24px] p-[24px] sm:p-[34px] border-mint/25">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-full bg-mint/15 text-mint inline-flex items-center justify-center text-lg shrink-0">✓</span>
+          <div className="text-xl sm:text-2xl font-bold tracking-tight">
+            You&apos;re already inside the €{allowanceEur.toLocaleString("de-DE")} Pauschbetrag.
+          </div>
+        </div>
+        <div className="mt-3 text-[15px] text-muted leading-relaxed max-w-[640px]">
+          Aktien net €{aktienGross.toFixed(0)} · Sonstige net €{sonstigeGross.toFixed(0)} · no harvest needed.
+        </div>
+        <div className="flex gap-3 mt-6 flex-wrap">
+          <StatTile label="Tax saved this year" value={fmtEur(estTaxSavedEur)} tone={estTaxSavedEur > 0 ? "mint" : undefined} />
+          {carryForwardEur > 0 && (
+            <StatTile label="Losses carrying forward" value={fmtEur(-carryForwardEur)} tone="amber" />
+          )}
+        </div>
+      </Card>
     );
   }
+
   // The pathological case: overage lives entirely in a bucket where the user
   // has no loss candidates. Selling won't help this year.
   if (aktienOnlyCandidates && overages.sonstige > 0 && overages.aktien <= 0) {
     return (
-      <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2.5">
-        <strong>Your overage (€{overages.sonstige.toFixed(0)}) is in the Sonstige bucket, but all your loss candidates are Aktien.</strong>{" "}
-        Under §20 Abs. 6 EStG, stock losses cannot offset dividend/ETF income — selling them now would just carry the
-        losses forward to next year as Aktien-only losses, with <em>no impact</em> on this year&apos;s taxable base.
-      </div>
+      <Card className="rounded-[24px] p-[24px] sm:p-[34px] border-amber/25">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-full bg-amber/15 text-amber inline-flex items-center justify-center text-lg shrink-0">⚠</span>
+          <div className="text-xl sm:text-2xl font-bold tracking-tight">
+            Your overage (€{overages.sonstige.toFixed(0)}) is in the Sonstige bucket, but all your loss candidates are Aktien.
+          </div>
+        </div>
+        <div className="mt-3 text-[15px] text-muted leading-relaxed max-w-[660px]">
+          Under §20 Abs. 6 EStG, stock losses cannot offset dividend/ETF income — selling them now would just carry the
+          losses forward to next year as Aktien-only losses, with <em>no impact</em> on this year&apos;s taxable base.
+        </div>
+        <div className="flex gap-3 mt-6 flex-wrap">
+          <StatTile label="Tax saved this year" value={fmtEur(estTaxSavedEur)} />
+          <StatTile label="Losses that could carry forward" value={fmtEur(aktienCandLossSum)} tone="bad" />
+        </div>
+      </Card>
     );
   }
   if (sonstigeOnlyCandidates && overages.aktien > 0 && overages.sonstige <= 0) {
     return (
-      <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2.5">
-        <strong>Your overage (€{overages.aktien.toFixed(0)}) is in the Aktien bucket, but all your loss candidates are Sonstige.</strong>{" "}
-        §20 Abs. 6 EStG: those losses can&apos;t offset stock gains — they&apos;d carry forward instead.
-      </div>
+      <Card className="rounded-[24px] p-[24px] sm:p-[34px] border-amber/25">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-full bg-amber/15 text-amber inline-flex items-center justify-center text-lg shrink-0">⚠</span>
+          <div className="text-xl sm:text-2xl font-bold tracking-tight">
+            Your overage (€{overages.aktien.toFixed(0)}) is in the Aktien bucket, but all your loss candidates are Sonstige.
+          </div>
+        </div>
+        <div className="mt-3 text-[15px] text-muted leading-relaxed max-w-[660px]">
+          §20 Abs. 6 EStG: those losses can&apos;t offset stock gains — they&apos;d carry forward instead.
+        </div>
+        <div className="flex gap-3 mt-6 flex-wrap">
+          <StatTile label="Tax saved this year" value={fmtEur(estTaxSavedEur)} />
+          <StatTile label="Losses that could carry forward" value={fmtEur(sonstigeCandLossSum)} tone="bad" />
+        </div>
+      </Card>
     );
   }
+
   // Normal case: at least one bucket has both overage AND candidates.
   // When BOTH buckets have positive overage, the per-bucket numbers are NOT
   // additive — each represents how much that bucket alone could absorb
@@ -319,27 +404,34 @@ function BucketSituation({
   if (overages.aktien > 0 && overages.sonstige > 0) {
     const smaller = Math.min(overages.aktien, overages.sonstige);
     return (
-      <div className="font-mono text-[11px] text-ink bg-panel2 border border-border rounded-md px-3 py-2.5 space-y-1">
-        <div>
-          <strong>Overage to cover: €{smaller.toFixed(0)}</strong>{" "}
-          (taxable base — the single shared figure, not summed across buckets).
+      <Card className="rounded-[24px] p-[22px] sm:p-[26px]">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-full bg-panel2 text-ink inline-flex items-center justify-center text-lg shrink-0">→</span>
+          <div className="text-lg font-bold tracking-tight">Overage to cover: €{smaller.toFixed(0)}</div>
         </div>
-        <div className="text-muted">
+        <div className="mt-2 text-[12px] text-dim">(taxable base — the single shared figure, not summed across buckets)</div>
+        <div className="mt-3 text-[14px] text-muted leading-relaxed max-w-[660px]">
           Either bucket alone can zero it — Aktien losses absorb up to €{overages.aktien.toFixed(0)}, Sonstige up to
-          €{overages.sonstige.toFixed(0)}. Pick whichever bucket you have better losers in. The &quot;To zero&quot; column
-          shows how many shares of each position would do it on its own.
+          €{overages.sonstige.toFixed(0)}. Pick whichever bucket you have better losers in. Each candidate row below
+          has a quick-fill control showing how many shares of that position would do it on its own.
         </div>
-      </div>
+      </Card>
     );
   }
   const parts: string[] = [];
   if (overages.aktien > 0) parts.push(`€${overages.aktien.toFixed(0)} Aktien`);
   if (overages.sonstige > 0) parts.push(`€${overages.sonstige.toFixed(0)} Sonstige`);
   return (
-    <div className="font-mono text-[11px] text-ink bg-panel2 border border-border rounded-md px-3 py-2.5">
-      <strong>Overage to cover:</strong> {parts.join(" · ")}. Sell losers in the matching bucket to reduce taxable base — the
-      &quot;To zero&quot; column shows how many shares of each position would do it.
-    </div>
+    <Card className="rounded-[24px] p-[22px] sm:p-[26px]">
+      <div className="flex items-center gap-3">
+        <span className="w-9 h-9 rounded-full bg-panel2 text-ink inline-flex items-center justify-center text-lg shrink-0">→</span>
+        <div className="text-lg font-bold tracking-tight">Overage to cover: {parts.join(" · ")}</div>
+      </div>
+      <div className="mt-3 text-[14px] text-muted leading-relaxed max-w-[660px]">
+        Sell losers in the matching bucket to reduce taxable base — each candidate row below has a quick-fill
+        control showing how many shares would do it.
+      </div>
+    </Card>
   );
 }
 
@@ -356,7 +448,7 @@ function Spinner() {
 
 function DisclaimerBanner() {
   return (
-    <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2.5">
+    <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-xl px-4 py-3">
       <strong>Estimation only — not tax advice.</strong> Bucket attribution (Aktien vs Sonstige) follows §20 Abs. 6 EStG to the best
       of our data. For material amounts, consult a Steuerberater before acting.
     </div>
@@ -365,7 +457,7 @@ function DisclaimerBanner() {
 
 function WashSaleWarning() {
   return (
-    <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-md px-3 py-2">
+    <div className="font-mono text-[11px] text-amber bg-amber/10 border border-amber/25 rounded-xl px-4 py-3">
       <strong>§ 42 AO reminder:</strong> Germany has no formal wash-sale rule, but repurchasing the same ISIN within ~24 h
       may be challenged as Gestaltungsmissbrauch. Wait a trading day before rebuying — or rebuy a similar-but-different
       instrument (e.g. SXR8 in place of VUSA).
@@ -392,7 +484,22 @@ function BucketSplitFootnote() {
   );
 }
 
-function SummaryCard({
+/** Static explainer callout — generic education, not per-user tax figures. */
+function ExplainerCallout() {
+  return (
+    <div className="bg-panel2 border border-border rounded-[18px] px-5 py-4 sm:px-6 sm:py-5 flex gap-3">
+      <span className="text-mint text-base leading-none shrink-0">💡</span>
+      <div className="text-[13px] text-muted leading-relaxed">
+        <strong className="text-ink">When would harvesting help?</strong> Selling a loser only lowers this year&apos;s tax when
+        it sits in the bucket that&apos;s over the Pauschbetrag — an Aktien loss only offsets Aktien gains, a Sonstige loss
+        (ETFs, funds, dividends, interest) only offsets Sonstige income (§20 Abs. 6 EStG). Outside that, the loss isn&apos;t
+        wasted — it becomes a Verlustvortrag and carries forward to next year.
+      </div>
+    </div>
+  );
+}
+
+function BucketTile({
   label,
   value,
   sub,
@@ -406,62 +513,67 @@ function SummaryCard({
   highlight?: "mint";
 }) {
   return (
-    <Card className="space-y-1">
+    <div className="bg-panel2 rounded-2xl p-4">
       <div className="font-mono text-[10px] uppercase tracking-widest text-dim cursor-help" title={help}>
         {label}&nbsp;ⓘ
       </div>
-      <div className={`text-2xl font-bold ${highlight === "mint" ? "text-mint" : "text-ink"}`}>{value}</div>
-      <div className="font-mono text-[10px] text-muted">{sub}</div>
-    </Card>
+      <div className={`text-xl font-bold mt-1.5 num ${highlight === "mint" ? "text-mint" : "text-ink"}`}>{value}</div>
+      <div className="font-mono text-[10px] text-muted mt-1">{sub}</div>
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  sub,
+  help,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  help?: string;
+  tone?: "mint" | "amber" | "bad";
+}) {
+  const toneClass = tone === "mint" ? "text-mint" : tone === "amber" ? "text-amber" : tone === "bad" ? "text-bad" : "text-ink";
+  return (
+    <div className="bg-panel2 border border-border rounded-2xl px-4 py-3 min-w-[140px] flex-1">
+      <div className={`font-mono text-[10px] uppercase tracking-widest text-dim ${help ? "cursor-help" : ""}`} title={help}>
+        {label}
+        {help ? " ⓘ" : ""}
+      </div>
+      <div className={`text-xl font-bold mt-1.5 num ${toneClass}`}>{value}</div>
+      {sub && <div className="font-mono text-[10px] text-muted mt-1">{sub}</div>}
+    </div>
   );
 }
 
 /**
- * Single harvest candidate row with isolated local state for the qty input.
- *
- * Why local state: the input was previously bound directly to the server-
- * derived `sel.qtyToSell` and every keystroke fired router.replace, causing
- * an RSC refetch that snapped the value back mid-edit. The page felt
- * frozen and "blocking input during request".
- *
- * Now: the input owns a local `draft` integer. Typing updates `draft`
- * immediately (no network). The URL only updates on:
- *   1. blur (the user tabbed or clicked away)
- *   2. Enter
- *   3. the user toggling the checkbox off (handled by parent)
- * When the `sel` prop changes externally (e.g. Auto-pick was clicked,
- * or the user navigated back), `draft` resyncs in the effect.
+ * Single harvest candidate row — a +/− stepper (0..c.qty) driving the
+ * server-derived selection directly via `onSetQty`. Every click calls
+ * `setQty`, which is the SAME function that previously backed the checkbox
+ * + free-text-qty combo: it clamps, builds the next `SellInstruction[]`,
+ * and hands off to `updateUrl` (?sell= round-trip + router.replace inside
+ * a transition). No new selection pathway — just a different control
+ * surface over the identical state transition.
  */
 function CandidateRow({
   c,
   sel,
   bucketOverage,
-  onToggle,
-  onCommitQty,
+  onSetQty,
 }: {
   c: HarvestCandidate;
   sel: SellInstruction | undefined;
   /** Remaining overage in THIS row's bucket. Drives the per-row suggestion. */
   bucketOverage: number;
-  onToggle: (c: HarvestCandidate) => void;
-  onCommitQty: (c: HarvestCandidate, qty: number) => void;
+  onSetQty: (c: HarvestCandidate, qty: number) => void;
 }) {
-  const selected = !!sel;
-  const committedQty = sel?.qtyToSell ?? c.qty;
-  const [draft, setDraft] = useState<number>(committedQty);
-
-  // Resync draft when committedQty changes from outside (Auto-pick, Clear,
-  // back/forward nav). Comparing numbers — useEffect won't loop because
-  // setDraft is a no-op when the value is unchanged.
-  useEffect(() => {
-    setDraft(committedQty);
-  }, [committedQty]);
-
-  const commit = () => {
-    if (!selected) return;
-    const clamped = Math.max(0, Math.min(c.qty, Number.isFinite(draft) ? draft : 0));
-    if (clamped !== committedQty) onCommitQty(c, clamped);
-  };
+  const qty = sel?.qtyToSell ?? 0;
+  const max = c.qty;
+  const selected = qty > 0;
+  const rowLossEur = selected ? c.lossPerShareEur * qty : 0;
 
   // Bucket-aware suggestion: whole shares of THIS position that would zero
   // the remaining overage in this row's bucket. Returns null when the
@@ -469,63 +581,77 @@ function CandidateRow({
   // wouldn't reduce taxable base — only carry the loss forward).
   const suggested = suggestedSharesToZero(c, c.bucket === "aktien" ? { aktien: bucketOverage, sonstige: 0 } : { aktien: 0, sonstige: bucketOverage });
 
-  // INTENTIONAL: clicking the "To zero" button auto-selects the row even
-  // when the checkbox was previously unchecked. The user's explicit click
-  // expresses "yes, apply this suggestion" — different from the onBlur
-  // `commit` path which discards the draft when unselected (since typing
-  // alone might just be the user exploring numbers). Don't add a
-  // `if (!selected) return` guard here.
-  const applySuggested = () => {
-    if (suggested === null) return;
-    setDraft(suggested);
-    onCommitQty(c, suggested);
-  };
+  const priceInfo = `Avg cost €${c.avgCostEur.toFixed(2)} · current €${c.pricePerUnitEur.toFixed(2)}${
+    c.qty < c.positionQty
+      ? ` · harvest cap: selling more than ${c.qty} of the ${c.positionQty} held starts consuming cheaper (profitable) lots and erodes the loss.`
+      : ""
+  }`;
 
   return (
     <div
-      className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.85fr_0.8fr] gap-2 lg:gap-0 px-4 lg:px-5 py-3 items-center border-b border-border last:border-b-0 ${selected ? "bg-bad/5" : ""}`}
+      className={`flex flex-wrap sm:flex-nowrap items-center gap-3.5 px-3 sm:px-4 py-3.5 ${selected ? "bg-bad/5" : ""}`}
     >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={() => onToggle(c)}
-        className="w-4 h-4 accent-bad cursor-pointer"
-        aria-label={`Select ${c.symbol} for harvest`}
-      />
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold shrink-0 bg-panel2 text-muted">
-          {avatarLabel(c.symbol, c.name)}
+      <span
+        className="w-9 h-9 rounded-xl bg-panel2 text-muted inline-flex items-center justify-center font-mono text-[11px] font-bold shrink-0 cursor-help"
+        title={priceInfo}
+      >
+        {avatarLabel(c.symbol, c.name)}
+      </span>
+
+      <div className="flex-1 min-w-[140px]">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[14px] font-semibold">{c.symbol}</span>
+          <span className={`font-mono text-[10px] tracking-wider px-1.5 py-0.5 rounded ${brokerChip(c.broker)}`}>{c.broker}</span>
+          {c.hiddenLoss && (
+            <span
+              className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber/10 text-amber cursor-help"
+              title={`Position is ${c.positionPlEur !== null && c.positionPlEur >= 0 ? "+" : ""}€${(c.positionPlEur ?? 0).toFixed(2)} overall, but under FIFO (§20 Abs. 4 EStG) a sale consumes the OLDEST lots first — and the first ${c.qty} share${c.qty === 1 ? "" : "s"} sit above the current price. Selling exactly ${c.qty} realises ${fmtEur(c.unrealisedLossEur)} of loss while keeping the cheaper, profitable lots.`}
+            >
+              FIFO
+            </span>
+          )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold text-[13px]">
-            {c.symbol}
-            {c.hiddenLoss && (
-              <span
-                className="font-mono text-[10px] ml-1.5 px-1 py-0.5 rounded bg-amber/10 text-amber cursor-help"
-                title={`Position is ${c.positionPlEur !== null && c.positionPlEur >= 0 ? "+" : ""}€${(c.positionPlEur ?? 0).toFixed(2)} overall, but under FIFO (§20 Abs. 4 EStG) a sale consumes the OLDEST lots first — and the first ${c.qty} share${c.qty === 1 ? "" : "s"} sit above the current price. Selling exactly ${c.qty} realises ${fmtEur(c.unrealisedLossEur)} of loss while keeping the cheaper, profitable lots.`}
-              >
-                FIFO
-              </span>
-            )}
-          </div>
-          {c.name && <div className="text-[11px] text-muted truncate">{c.name}</div>}
+        <div className="text-[12px] text-muted truncate mt-0.5">
+          {c.name ?? (c.bucket === "aktien" ? "Individual stock · Aktien" : "Fund / income · Sonstige")}
         </div>
       </div>
-      <span className={`hidden lg:inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] tracking-wider w-fit ${brokerChip(c.broker)}`}>{c.broker}</span>
-      <span
-        className="hidden lg:block text-right font-mono text-xs text-muted"
-        title={c.qty < c.positionQty ? `Harvest cap: selling more than ${c.qty} of the ${c.positionQty} held starts consuming cheaper (profitable) lots and erodes the loss.` : undefined}
-      >
-        {c.qty < c.positionQty ? `${c.qty} of ${c.positionQty}` : c.qty}
-      </span>
-      <span className="hidden lg:block text-right font-mono text-xs text-muted">{c.avgCostEur.toFixed(2)}</span>
-      <span className="hidden lg:block text-right font-mono text-xs">{c.pricePerUnitEur.toFixed(2)}</span>
-      <span className="hidden lg:block text-right font-mono font-semibold text-xs text-bad">{fmtEur(c.unrealisedLossEur)}</span>
-      <span className="hidden lg:block text-right font-mono text-xs text-bad">{fmtEur(c.lossPerShareEur)}</span>
-      <span className="hidden lg:flex justify-end items-center">
+
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => onSetQty(c, Math.max(0, qty - 1))}
+          disabled={qty <= 0}
+          aria-label={`Sell one fewer share of ${c.symbol}`}
+          className="w-8 h-8 rounded-lg border border-borderHard bg-panel2 text-ink font-mono text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+        >
+          −
+        </button>
+        <div className="text-center min-w-[52px]">
+          <div className="font-mono text-sm font-bold num">{qty}</div>
+          <div className="font-mono text-[10px] text-dim">of {max}</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onSetQty(c, Math.min(max, qty + 1))}
+          disabled={qty >= max}
+          aria-label={`Sell one more share of ${c.symbol}`}
+          className="w-8 h-8 rounded-lg border border-borderHard bg-panel2 text-ink font-mono text-base leading-none disabled:opacity-25 disabled:cursor-not-allowed"
+        >
+          +
+        </button>
+      </div>
+
+      <div className="text-right w-[92px] shrink-0">
+        <div className={`font-mono text-sm font-semibold num ${selected ? "text-bad" : "text-dim"}`}>
+          {selected ? fmtEur(rowLossEur) : "—"}
+        </div>
+        <div className="font-mono text-[10px] text-dim num">{fmtEur(c.lossPerShareEur)}/sh</div>
+      </div>
+
+      <div className="w-[76px] text-right shrink-0 hidden sm:block">
         {suggested === null ? (
           <span
-            className="font-mono text-[11px] text-dim cursor-help"
+            className="font-mono text-[10px] text-dim cursor-help"
             title={
               c.bucket === "aktien"
                 ? "Aktien bucket has no overage to cover — selling this loss would carry forward to next year, not reduce this year's taxable base."
@@ -535,99 +661,65 @@ function CandidateRow({
         ) : (
           <button
             type="button"
-            onClick={applySuggested}
-            title={`Click to apply: sell ${suggested} share${suggested === 1 ? "" : "s"} (zeros this bucket's overage)`}
-            className="font-mono text-xs px-2 py-1 rounded border border-mint/30 bg-mint/10 text-mint hover:bg-mint/20 cursor-pointer transition-colors"
+            onClick={() => onSetQty(c, suggested)}
+            title={`Fill ${suggested} share${suggested === 1 ? "" : "s"} — zeros this bucket's remaining overage`}
+            className="font-mono text-[10px] px-2 py-1 rounded border border-mint/30 bg-mint/10 text-mint hover:bg-mint/20 cursor-pointer transition-colors"
           >
-            {suggested}
+            → {suggested}
           </button>
         )}
-      </span>
-      <span className="hidden lg:flex justify-end items-center">
-        <input
-          type="number"
-          min={0}
-          max={c.qty}
-          step={1}
-          value={Number.isFinite(draft) ? draft : ""}
-          onChange={(e) => setDraft(Number(e.target.value))}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.currentTarget.blur();
-            } else if (e.key === "Escape") {
-              setDraft(committedQty);
-              e.currentTarget.blur();
-            }
-          }}
-          disabled={!selected}
-          title={selected ? "Press Enter or Tab to commit · Esc to revert" : "Check the box to enable"}
-          className="bg-panel2 border border-border rounded font-mono text-xs w-20 text-right px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
-        />
-      </span>
+      </div>
     </div>
   );
 }
 
-function BucketSection({
-  title,
+function HarvestBucketSection({
+  label,
   subtitle,
   candidates,
   sellByKey,
   bucketOverage,
-  onToggle,
-  onCommitQty,
+  onSetQty,
 }: {
-  title: string;
+  label: string;
   subtitle: string;
   candidates: HarvestCandidate[];
   sellByKey: Map<string, SellInstruction>;
   /** Remaining overage in this bucket (already nets out user's sells in this bucket). */
   bucketOverage: number;
-  onToggle: (c: HarvestCandidate) => void;
-  onCommitQty: (c: HarvestCandidate, qty: number) => void;
+  onSetQty: (c: HarvestCandidate, qty: number) => void;
 }) {
   return (
-    <Card className="p-0 overflow-hidden">
-      <div className="flex justify-between items-baseline px-5 py-3 border-b border-border">
+    <div className="mt-7">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <div>
-          <div className="font-semibold text-sm">{title}</div>
-          <div className="font-mono text-[10px] text-muted mt-0.5">{subtitle}</div>
+          <div className="font-mono text-[11px] uppercase tracking-widest text-muted">{label}</div>
+          <div className="text-[12px] text-dim mt-1">{subtitle}</div>
         </div>
-        <div className="font-mono text-[11px] text-muted">{candidates.length} holding{candidates.length === 1 ? "" : "s"}</div>
+        <div className="font-mono text-[11px] text-dim shrink-0">
+          {candidates.length} holding{candidates.length === 1 ? "" : "s"}
+        </div>
       </div>
-      {candidates.length === 0 && (
-        <div className="px-5 py-4 text-muted text-sm">No unrealised losses in this bucket.</div>
-      )}
-      {candidates.length > 0 && (
-        <>
-          <div className="hidden lg:grid grid-cols-[40px_1.4fr_0.55fr_0.55fr_0.65fr_0.65fr_0.8fr_0.8fr_0.85fr_0.8fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
-            <span></span>
-            <span>Holding</span>
-            <span>Broker</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Avg €</span>
-            <span className="text-right">Price €</span>
-            <span className="text-right">Loss €</span>
-            <span className="text-right">Loss/sh</span>
-            <span
-              className="text-right cursor-help"
-              title="Whole shares needed to zero this bucket's remaining overage. Updates as you adjust other rows. Click the number to apply it."
-            >To&nbsp;zero&nbsp;ⓘ</span>
-            <span className="text-right">Sell qty</span>
+      <div className="mt-3">
+        {candidates.length === 0 ? (
+          <div className="bg-panel2 border border-dashed border-border rounded-2xl px-5 py-4 flex gap-3">
+            <span className="text-mint text-sm shrink-0">↳</span>
+            <div className="text-[13px] text-muted leading-relaxed">No unrealised losses in this bucket.</div>
           </div>
-          {candidates.map((c) => (
-            <CandidateRow
-              key={`${c.symbol}.${c.broker}`}
-              c={c}
-              sel={sellByKey.get(`${c.symbol}.${c.broker}`)}
-              bucketOverage={bucketOverage}
-              onToggle={onToggle}
-              onCommitQty={onCommitQty}
-            />
-          ))}
-        </>
-      )}
-    </Card>
+        ) : (
+          <div className="divide-y divide-border">
+            {candidates.map((c) => (
+              <CandidateRow
+                key={`${c.symbol}.${c.broker}`}
+                c={c}
+                sel={sellByKey.get(`${c.symbol}.${c.broker}`)}
+                bucketOverage={bucketOverage}
+                onSetQty={onSetQty}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
