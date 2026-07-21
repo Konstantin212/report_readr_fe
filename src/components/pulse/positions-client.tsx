@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/pulse/card";
 import { SectorFilter } from "@/components/pulse/sector-filter";
+import { PositionsHero } from "@/components/pulse/positions-hero";
 import { PositionsSection } from "@/components/pulse/positions-section";
 import { CashCard } from "@/components/pulse/cash-card";
 import { PositionDetailPanel, type DetailData } from "@/components/pulse/position-detail-panel";
@@ -125,6 +126,7 @@ export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ib
 
       {d && (
         <div className="space-y-4">
+          <PositionsHero d={d} />
           <PositionsSection title="Stocks" count={d.rowsByKind.stock.length} rows={d.rowsByKind.stock} onSelect={setSelected} selectedSymbol={selected} showToggle />
           <PositionsSection title="ETFs" count={d.rowsByKind.etf.length} rows={d.rowsByKind.etf} onSelect={setSelected} selectedSymbol={selected} />
           <PositionsSection title="Bonds" count={d.rowsByKind.bond.length} rows={d.rowsByKind.bond} onSelect={setSelected} selectedSymbol={selected} />
