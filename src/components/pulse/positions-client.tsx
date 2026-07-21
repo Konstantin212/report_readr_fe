@@ -97,10 +97,14 @@ export function PositionsClient({ broker, sector, sort }: { broker: "all" | "ff"
           </span>
         </h1>
         <div className="hidden lg:block flex-1" />
-        <PositionsSort active={sort} />
         {d && (
-          <div className="w-full lg:w-auto min-w-0">
-            <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="w-full lg:w-auto min-w-0">
+              <PositionsSort active={sort} />
+            </div>
+            <div className="w-full lg:w-auto min-w-0">
+              <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
+            </div>
           </div>
         )}
       </div>
