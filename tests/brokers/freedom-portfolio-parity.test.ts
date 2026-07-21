@@ -16,12 +16,17 @@
  *     corporate actions, 9 open positions in the snapshot)
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { parseFreedomFinanceStatement } from "@/lib/brokers/freedom";
 import { replay } from "@/lib/ledger/replay";
 import type { NormalizedEvent } from "@/lib/domain/types";
 
-const bytes = readFileSync("tests/fixtures/brokers/freedom-portfolio-2026-06-06.json");
+// Opt-in test: the fixture is a real (redacted) Freedom24 export (gitignored).
+// Skip the whole suite when it's absent so clean checkouts / CI / the pre-push
+// gate stay green; it runs in full once the JSON export is present.
+const FIXTURE = "tests/fixtures/brokers/freedom-portfolio-2026-06-06.json";
+const HAS_FIXTURE = existsSync(FIXTURE);
+const bytes = HAS_FIXTURE ? readFileSync(FIXTURE) : Buffer.alloc(0);
 
 type Expected = { ticker: string; qty: number; entryPrice: number; bookValueNative: number; currency: "EUR" | "USD" };
 
@@ -66,7 +71,7 @@ function runPipeline() {
   return { parsed, events, lots, matches, openBySymbol };
 }
 
-describe("Freedom Finance real-portfolio parity (2026-06-06)", () => {
+describe.skipIf(!HAS_FIXTURE)("Freedom Finance real-portfolio parity (2026-06-06)", () => {
   it("yields exactly 9 open positions — no zombies", () => {
     const { openBySymbol } = runPipeline();
     const openTickers = Array.from(openBySymbol.keys()).sort();

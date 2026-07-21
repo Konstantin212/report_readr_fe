@@ -26,6 +26,12 @@ const FILES = [
   "U00000000_20260101_20260605.csv",
 ];
 
+// Opt-in test: the fixtures are a real IBKR account (gitignored). Skip the
+// whole suite when they're absent so clean checkouts / CI / the pre-push
+// gate stay green; it runs in full once a developer drops the four
+// U00000000_*.csv files into FIXTURE_DIR.
+const HAS_FIXTURE = existsSync(`${FIXTURE_DIR}/${FILES[0]}`);
+
 type Expected = {
   ticker: string;
   qty: number;
@@ -104,7 +110,7 @@ function runPipeline() {
   return { accountNumber, events, lots, matches, openBySymbol, snapshotQuotes: latestSnapshotQuotes ?? [] };
 }
 
-describe("Interactive Brokers real-portfolio parity (U00000000, 2026-06-06)", () => {
+describe.skipIf(!HAS_FIXTURE)("Interactive Brokers real-portfolio parity (U00000000, 2026-06-06)", () => {
   it("parses all four annual statements and produces account U00000000", () => {
     const { accountNumber } = runPipeline();
     expect(accountNumber).toBe("U00000000");
