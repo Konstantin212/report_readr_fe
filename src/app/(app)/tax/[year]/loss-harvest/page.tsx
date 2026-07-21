@@ -82,15 +82,15 @@ export default async function LossHarvestPage({
   return (
     <main className="space-y-4">
       <div className="space-y-2">
-        <a href={`/tax/${yearNum}`} className="font-mono text-[11px] text-muted hover:text-ink inline-block">
-          ← Back to Anlage KAP
+        <a href={`/tax/${yearNum}`} className="font-mono text-[12px] text-muted hover:text-ink inline-block">
+          ← Back to Tax
         </a>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Loss Harvest{" "}
-          <span className="font-mono text-sm text-muted ml-1 tracking-wider block lg:inline">
-            {yearNum} · §20 Abs. 6 EStG · Sparer-Pauschbetrag optimiser
-          </span>
-        </h1>
+        <div>
+          <h1 className="text-[26px] sm:text-[30px] font-bold tracking-tight">Loss Harvest</h1>
+          <div className="font-mono text-[13px] text-muted mt-1 tracking-wide">
+            {yearNum} · could selling at a loss lower your tax?
+          </div>
+        </div>
       </div>
 
       <LossHarvestPanel

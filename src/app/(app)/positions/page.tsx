@@ -1,7 +1,8 @@
 import { requireCurrentUser } from "@/lib/auth/server";
 import { PositionsClient } from "@/components/pulse/positions-client";
+import type { PositionSort } from "@/lib/analytics/positions-view";
 
-type SP = Promise<{ broker?: string; sector?: string }>;
+type SP = Promise<{ broker?: string; sector?: string; sort?: string }>;
 
 /**
  * Thin server shell — enforces auth and reads the cross-page filters from
@@ -15,6 +16,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: SP
   const params = await searchParams;
   const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
   const sector = params.sector ?? null;
+  const sort = (["value", "gain", "az"].includes(params.sort ?? "") ? params.sort : "value") as PositionSort;
 
-  return <PositionsClient broker={broker} sector={sector} />;
+  return <PositionsClient broker={broker} sector={sector} sort={sort} />;
 }

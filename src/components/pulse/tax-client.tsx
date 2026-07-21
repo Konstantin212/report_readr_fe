@@ -1,15 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/pulse/card";
 import { ProgressBar } from "@/components/pulse/progress-bar";
 import { TaxYearSelector } from "@/components/pulse/tax-year-selector";
 import { MetricsGrid } from "@/components/pulse/metrics-grid";
-import { RealizedLotsTable } from "@/components/pulse/realized-lots-table";
-import { ElsterValuesCard } from "@/components/pulse/elster-values-card";
 import { TaxBucketsCard } from "@/components/pulse/tax-buckets-card";
-import { PreSubmitChecklist } from "@/components/pulse/pre-submit-checklist";
+import { RealizedTradesModal } from "@/components/pulse/realized-trades-modal";
 import { fmtEur } from "@/lib/format";
 import { taxResponseSchema, type TaxResponse } from "@/lib/api/contracts";
 import { fetchApi } from "@/lib/api/client";
@@ -20,6 +19,7 @@ function fetchTax(year: number): Promise<TaxResponse> {
 
 export function TaxClient({ year: yearNum }: { year: number }) {
   const q = useQuery({ queryKey: ["tax", yearNum], queryFn: () => fetchTax(yearNum) });
+  const [showRealized, setShowRealized] = useState(false);
 
   if (q.isPending) {
     return (
@@ -57,6 +57,7 @@ export function TaxClient({ year: yearNum }: { year: number }) {
   const year = yearNum;
   const allowanceRemainingEur = Math.max(0, d.allowance.totalEur - d.allowance.usedEur);
   const allowanceExceeded = d.allowance.usedEur >= d.allowance.totalEur;
+  const totalProceedsEur = d.realizedLots.reduce((s, l) => s + l.proceedsEur, 0);
 
   return (
     <main className="space-y-4">
@@ -70,14 +71,15 @@ export function TaxClient({ year: yearNum }: { year: number }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
-        <Card className="relative overflow-hidden">
-          <div className="absolute right-[-40px] top-[-40px] w-[220px] h-[220px] rounded-full"
-            style={{ background: "radial-gradient(circle, rgba(255,210,74,0.13) 0%, transparent 70%)" }} />
-          <div className="flex items-center gap-2 font-mono text-[11px] text-muted uppercase tracking-widest">
-            <span>Tax year {d.year} · Germany</span>
-            <span className="px-2 py-0.5 rounded-full bg-amber/20 text-amber text-[10px]">DRAFT</span>
-          </div>
-          <div className="mt-4 relative">
+        <Card className="relative overflow-hidden rounded-[24px] p-[30px]">
+          <div className="absolute right-[-60px] top-[-70px] w-[320px] h-[320px] rounded-full pointer-events-none"
+            style={{ background: "radial-gradient(circle, rgba(255,210,74,0.13) 0%, transparent 68%)" }} />
+          <div className="relative">
+            <div className="flex items-center gap-3 font-mono text-[11px] text-muted uppercase tracking-widest">
+              <span>Tax year {d.year} · Germany</span>
+              <span className="px-2.5 py-0.5 rounded-full bg-amber/20 text-amber text-[10px] tracking-wider">DRAFT</span>
+            </div>
+            <div className="h-px bg-border mt-6 mb-5" />
             <MetricsGrid
               columns={3}
               metrics={[
@@ -104,9 +106,9 @@ export function TaxClient({ year: yearNum }: { year: number }) {
           </div>
         </Card>
 
-        <Card>
-          <div className="flex justify-between items-center">
-            <div className="font-semibold text-sm">Saver&apos;s allowance</div>
+        <Card className="rounded-[24px] p-[30px]">
+          <div className="flex justify-between items-baseline">
+            <div className="font-semibold text-[17px]">Saver&apos;s allowance</div>
             <div className="font-mono text-[11px] text-muted">Sparer-Pauschbetrag</div>
           </div>
           <div className="mt-4 font-mono text-[11px] text-muted flex justify-between">
@@ -198,47 +200,68 @@ export function TaxClient({ year: yearNum }: { year: number }) {
             <a className="flex-1 bg-mint text-bg font-mono text-[11px] uppercase tracking-widest text-center px-3 py-2.5 rounded-md font-semibold" href={`/tax/${year}/export?format=pdf`}>Export PDF · Anlage KAP</a>
             <a className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold" href={`/tax/${year}/export?format=csv`}>CSV</a>
           </div>
-          <a
-            href={`/tax/${year}/anlage-so`}
-            className="mt-3 block bg-panel2 border border-mint/30 rounded-md px-3 py-2.5 hover:border-mint/60 transition-colors"
-          >
-            <div className="flex justify-between items-baseline">
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mint">Anlage SO →</div>
-              <div className="font-mono text-[10px] text-muted">§22 Nr. 3 EStG · Krypto-Staking</div>
-            </div>
-            <div className="font-mono text-[10px] text-dim mt-1">Separate report for Coinbase staking income</div>
-          </a>
-          <a
-            href={`/tax/${year}/loss-harvest`}
-            className="mt-2 block bg-panel2 border border-amber/30 rounded-md px-3 py-2.5 hover:border-amber/60 transition-colors"
-          >
-            <div className="flex justify-between items-baseline">
-              <div className="font-mono text-[11px] uppercase tracking-widest text-amber">Loss Harvest →</div>
-              <div className="font-mono text-[10px] text-muted">§20 Abs. 6 EStG · Pauschbetrag optimiser</div>
-            </div>
-            <div className="font-mono text-[10px] text-dim mt-1">Sell-at-a-loss candidates to stay under €{d.allowance.totalEur.toLocaleString("de-DE")}</div>
-          </a>
         </Card>
       </div>
 
       <TaxBucketsCard b={d.buckets} />
 
-      <ElsterValuesCard draft={d.kapV2} reconciliation={d.reconciliation} />
-
-      <RealizedLotsTable
-        lots={d.realizedLots}
-        year={yearNum}
-        totalCostEur={d.realizedLots.reduce((s, l) => s + l.costEur, 0)}
-        totalProceedsEur={d.realizedLots.reduce((s, l) => s + l.proceedsEur, 0)}
-        netRealizedEur={d.hero.netRealizedEur}
-      />
-
-      <PreSubmitChecklist draft={d.kapV2} />
+      <Card className="rounded-[24px] p-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-0">
+          <button
+            type="button"
+            onClick={() => setShowRealized(true)}
+            className="text-left rounded-2xl px-[18px] py-[18px] flex justify-between items-center gap-3.5 hover:bg-panel2 transition-colors"
+          >
+            <span>
+              <span className="block text-[15px] font-semibold text-ink">Realized trades</span>
+              <span className="block text-[13px] text-muted mt-0.5">{d.realizedLots.length} matched lots · FIFO · view the details</span>
+            </span>
+            <span className="text-muted text-lg shrink-0">→</span>
+          </button>
+          <a
+            href={`/tax/${year}/elster`}
+            className="rounded-2xl px-[18px] py-[18px] flex justify-between items-center gap-3.5 hover:bg-panel2 transition-colors"
+          >
+            <span>
+              <span className="block text-[15px] font-semibold text-ink">ELSTER values</span>
+              <span className="block text-[13px] text-muted mt-0.5">the exact numbers to type into your tax form</span>
+            </span>
+            <span className="text-muted text-lg shrink-0">→</span>
+          </a>
+          <a
+            href={`/tax/${year}/loss-harvest`}
+            className="rounded-2xl px-[18px] py-[18px] flex justify-between items-center gap-3.5 hover:bg-panel2 transition-colors"
+          >
+            <span>
+              <span className="block text-[15px] font-semibold text-ink">Loss Harvest</span>
+              <span className="block text-[13px] text-muted mt-0.5">could selling losers save you tax?</span>
+            </span>
+            <span className="text-muted text-lg shrink-0">→</span>
+          </a>
+          <a
+            href={`/tax/${year}/anlage-so`}
+            className="rounded-2xl px-[18px] py-[18px] flex justify-between items-center gap-3.5 hover:bg-panel2 transition-colors"
+          >
+            <span>
+              <span className="block text-[15px] font-semibold text-ink">Anlage SO</span>
+              <span className="block text-[13px] text-muted mt-0.5">crypto staking income · separate form</span>
+            </span>
+            <span className="text-muted text-lg shrink-0">→</span>
+          </a>
+        </div>
+      </Card>
 
       <div className="flex gap-2 font-mono text-[11px] text-dim">
         <span>ℹ</span>
         <span>Cost basis matched per Finanzamt rules (FIFO). USD/HKD/GBP converted using ECB reference rates on each trade date. Confirm with your Steuerberater before filing.</span>
       </div>
+
+      <RealizedTradesModal
+        open={showRealized}
+        onClose={() => setShowRealized(false)}
+        lots={d.realizedLots}
+        totals={{ proceedsEur: totalProceedsEur, netRealizedEur: d.hero.netRealizedEur }}
+      />
     </main>
   );
 }

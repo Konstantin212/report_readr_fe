@@ -15,3 +15,11 @@ test("imports page exposes the statement upload workflow", async ({ page }) => {
   await expect(page.getByLabel(/statement file/i)).toBeVisible();
   await expect(page.getByLabel(/tax year/i)).toHaveValue("2024");
 });
+
+test("top chrome is sticky and keeps brand + broker pills", async ({ page }) => {
+  await page.goto("/positions");
+  const header = page.locator("header").first();
+  await expect(header).toHaveCSS("position", "sticky");
+  await expect(page.getByRole("link", { name: /folio/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^All$/ })).toBeVisible();
+});
