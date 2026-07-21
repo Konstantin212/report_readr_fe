@@ -7,6 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "prepare": "sh scripts/setup-git-hooks.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
