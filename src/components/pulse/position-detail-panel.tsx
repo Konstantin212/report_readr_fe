@@ -99,22 +99,23 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
         aria-hidden="true"
       />
       {/* Sliding overlay. On <lg it covers the full screen (bottom-sheet
-          feel), at lg+ it's anchored to the right at ~440px wide. */}
+          feel), at lg+ it's anchored to the right at ~470px wide. */}
       <aside
-        className="fixed z-50 right-0 top-0 h-[100dvh] w-full lg:w-[440px] overflow-y-auto overscroll-contain bg-panel border-l border-border shadow-2xl"
+        className="fixed z-50 right-0 top-0 h-[100dvh] w-full lg:w-[470px] overflow-y-auto overscroll-contain bg-panel border-l border-border shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="position-detail-symbol"
       >
-        <div className="p-[22px] pb-12 lg:pb-[22px] space-y-4">
+        <div className="pt-[26px] px-[22px] lg:px-[28px] pb-[60px]">
+          {/* Header: avatar + symbol + broker/ccy/sector meta + close. */}
           <div className="flex items-start gap-3">
-            <div className="w-14 h-14 rounded-[14px] bg-mint/20 text-mint font-mono font-bold text-[16px] flex items-center justify-center">
+            <div className="w-[52px] h-[52px] rounded-[15px] bg-mint/20 text-mint font-mono font-bold text-[16px] flex items-center justify-center shrink-0">
               {d.symbol.slice(0, 3)}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2 flex-wrap">
-                <div id="position-detail-symbol" className="font-bold text-[22px] tracking-tight">{d.symbol}</div>
-                <div className="px-2 py-0.5 rounded-full bg-panel2 font-mono text-[10px] text-muted tracking-wider">
+                <div id="position-detail-symbol" className="font-bold text-[23px] tracking-tight">{d.symbol}</div>
+                <div className="px-2 py-0.5 rounded-full bg-panel2 font-mono text-[11px] text-muted tracking-wider">
                   {d.broker} · {d.currency} · {d.sector}
                 </div>
               </div>
@@ -124,17 +125,18 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
               type="button"
               onClick={close}
               aria-label="Close"
-              className="rounded-md w-9 h-9 flex items-center justify-center text-muted hover:text-ink hover:bg-panel2 transition-colors"
+              className="rounded-md w-9 h-9 flex items-center justify-center text-muted hover:text-ink hover:bg-panel2 transition-colors shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Two-up: position value | unrealized P/L. */}
+          <div className="grid grid-cols-2 gap-[18px] mt-[26px]">
             <div>
               <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Position value</div>
-              <div className="font-bold text-[28px] num mt-1 tracking-tight">{fmtEur(d.marketEur)}</div>
-              <div className="font-mono text-[11px] text-muted mt-1">{d.qty} × {fmtEur(d.pricePerUnitEur, 2)}</div>
+              <div className="font-bold text-[30px] num mt-1 tracking-tight">{fmtEur(d.marketEur)}</div>
+              <div className="font-mono text-[12px] text-muted mt-1">{d.qty} × {fmtEur(d.pricePerUnitEur, 2)}</div>
               {d.priceAsOf !== undefined && <QuoteFreshnessChip asOf={d.priceAsOf} />}
             </div>
             <div>
@@ -142,10 +144,10 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
                 Unrealized P/L
                 <span className="px-1 py-0.5 rounded bg-panel2 text-mint normal-case tracking-normal text-[9px]">{mode}</span>
               </div>
-              <div className={`font-bold text-[28px] num mt-1 tracking-tight ${v.unrealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
+              <div className={`font-bold text-[30px] num mt-1 tracking-tight ${v.unrealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
                 {(v.unrealizedEur >= 0 ? "+" : "−") + fmtEur(v.unrealizedEur)}
               </div>
-              <div className="font-mono text-[11px] text-muted mt-1">
+              <div className="font-mono text-[12px] text-muted mt-1">
                 {v.unrealizedPct === null ? "—" : (v.unrealizedPct >= 0 ? "+" : "") + v.unrealizedPct.toFixed(1) + "%"} from {fmtEur(v.avgCostEur, 2)}
               </div>
               {(d.feesEur > 0 || d.dividendsTotalEur > 0) && (
@@ -157,7 +159,8 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
             </div>
           </div>
 
-          <div className="bg-panel2 rounded-[14px] p-3">
+          {/* Sparkline. */}
+          <div className="bg-panel2 rounded-[16px] pt-4 pb-4 pl-[18px] pr-[18px] mt-5">
             <div className="flex justify-between items-baseline mb-1">
               <span className="font-mono text-[10px] text-dim uppercase tracking-widest">Price · history</span>
               {d.sparkPctChange !== null && d.sparkPctChange !== undefined && (
@@ -169,37 +172,58 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
             <div className="h-[70px]"><Sparkline values={d.sparkline} /></div>
           </div>
 
-          <InstrumentSourceCard isin={d.isin} symbol={d.symbol} currency={d.currency} meta={d.meta} />
+          {/* Quantity · avg cost · current price · cost basis tiles.
+              Cost basis is derived as qty × avgCostEur (mode-specific) —
+              mathematically identical to the loader's authoritative
+              costEur (avgCostEur is defined as costEur / qty — see
+              buildEurView in lib/data/positions.ts), so this isn't new
+              data, just the product of two values DetailData already
+              carries. */}
+          <div className="grid grid-cols-2 gap-[10px] mt-4">
+            <div className="bg-panel2 rounded-[12px] pt-[14px] pb-[14px] px-4">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Quantity</div>
+              <div className="font-semibold text-[16px] num mt-0.5">{d.qty}</div>
+            </div>
+            <div className="bg-panel2 rounded-[12px] pt-[14px] pb-[14px] px-4">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Avg cost</div>
+              <div className="font-semibold text-[16px] num mt-0.5">{fmtEur(v.avgCostEur, 2)}</div>
+            </div>
+            <div className="bg-panel2 rounded-[12px] pt-[14px] pb-[14px] px-4">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Current price</div>
+              <div className="font-semibold text-[16px] num mt-0.5">{fmtEur(d.pricePerUnitEur, 2)}</div>
+            </div>
+            <div className="bg-panel2 rounded-[12px] pt-[14px] pb-[14px] px-4">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Cost basis</div>
+              <div className="font-semibold text-[16px] num mt-0.5">{fmtEur(d.qty * v.avgCostEur, 2)}</div>
+            </div>
+          </div>
 
-          <div>
-            <div className="font-semibold text-[13px] mb-2">Cost basis · FIFO lots</div>
-            {d.lots.length === 0 && <div className="text-muted text-sm">No lots data.</div>}
-            {d.lots.map((l, i) => {
-              const color = palette[i % palette.length];
-              return (
-                <div key={i} className="mb-2 p-2 rounded-md bg-panel2/40">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-baseline sm:gap-2 font-mono text-[11px] mb-1 sm:mb-0.5">
-                    <div className="flex justify-between items-baseline gap-2 sm:contents">
-                      <span className="text-muted">{l.openedAt}</span>
-                      <span className="text-ink">{l.qty} sh @ €{l.pricePerUnitEur}</span>
-                    </div>
-                    {l.gainPct !== null && (
-                      <span className={`font-semibold text-right sm:text-left ${l.gainPct >= 0 ? "text-mint" : "text-bad"}`}>
-                        {(l.gainPct >= 0 ? "+" : "") + l.gainPct.toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                  <div className="h-1 bg-white/5 rounded-full">
-                    <div className="h-full rounded-full" style={{ width: `${l.pctOfTotal}%`, background: color }} />
-                  </div>
-                </div>
-              );
-            })}
+          {/* Dividend / holding-period tiles. */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+            <div className="bg-panel2 rounded-md p-2.5">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Dividends YTD</div>
+              <div className="font-bold text-[16px] num text-amber mt-0.5">€{d.dividendsYtdEur.toFixed(0)}</div>
+            </div>
+            <div className="bg-panel2 rounded-md p-2.5">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Div received</div>
+              <div className="font-bold text-[16px] num text-amber mt-0.5">€{d.dividendsTotalEur.toFixed(0)}</div>
+              <div className="font-mono text-[10px] text-dim mt-0.5">
+                {d.dividendsTotalCount} payment{d.dividendsTotalCount === 1 ? "" : "s"}
+              </div>
+            </div>
+            <div className="bg-panel2 rounded-md p-2.5">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Yield on cost</div>
+              <div className="font-bold text-[16px] num mt-0.5">{d.yieldOnCostPct.toFixed(1)}%</div>
+            </div>
+            <div className="bg-panel2 rounded-md p-2.5">
+              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Days held</div>
+              <div className="font-bold text-[16px] num mt-0.5">{d.daysHeld}</div>
+            </div>
           </div>
 
           {/* Transaction ledger — every buy/sell for this ticker. Lets the
-              user audit how the FIFO lots above were built. */}
-          <div>
+              user audit how the FIFO lots below were built. */}
+          <div className="mt-5">
             <div className="flex items-baseline justify-between mb-2">
               <div className="font-semibold text-[13px]">Transactions</div>
               <div className="font-mono text-[10px] text-muted">{d.transactions.length}</div>
@@ -228,26 +252,37 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div className="bg-panel2 rounded-md p-2.5">
-              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Dividends YTD</div>
-              <div className="font-bold text-[16px] num text-amber mt-0.5">€{d.dividendsYtdEur.toFixed(0)}</div>
-            </div>
-            <div className="bg-panel2 rounded-md p-2.5">
-              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Div received</div>
-              <div className="font-bold text-[16px] num text-amber mt-0.5">€{d.dividendsTotalEur.toFixed(0)}</div>
-              <div className="font-mono text-[10px] text-dim mt-0.5">
-                {d.dividendsTotalCount} payment{d.dividendsTotalCount === 1 ? "" : "s"}
-              </div>
-            </div>
-            <div className="bg-panel2 rounded-md p-2.5">
-              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Yield on cost</div>
-              <div className="font-bold text-[16px] num mt-0.5">{d.yieldOnCostPct.toFixed(1)}%</div>
-            </div>
-            <div className="bg-panel2 rounded-md p-2.5">
-              <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Days held</div>
-              <div className="font-bold text-[16px] num mt-0.5">{d.daysHeld}</div>
-            </div>
+          {/* Appended below the mockup's content: FIFO lots + the
+              data-source card — richer app features the mockup omits,
+              kept per Task 5's instructions. */}
+          <div className="mt-5">
+            <div className="font-semibold text-[13px] mb-2">Cost basis · FIFO lots</div>
+            {d.lots.length === 0 && <div className="text-muted text-sm">No lots data.</div>}
+            {d.lots.map((l, i) => {
+              const color = palette[i % palette.length];
+              return (
+                <div key={i} className="mb-2 p-2 rounded-md bg-panel2/40">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-baseline sm:gap-2 font-mono text-[11px] mb-1 sm:mb-0.5">
+                    <div className="flex justify-between items-baseline gap-2 sm:contents">
+                      <span className="text-muted">{l.openedAt}</span>
+                      <span className="text-ink">{l.qty} sh @ €{l.pricePerUnitEur}</span>
+                    </div>
+                    {l.gainPct !== null && (
+                      <span className={`font-semibold text-right sm:text-left ${l.gainPct >= 0 ? "text-mint" : "text-bad"}`}>
+                        {(l.gainPct >= 0 ? "+" : "") + l.gainPct.toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="h-1 bg-white/5 rounded-full">
+                    <div className="h-full rounded-full" style={{ width: `${l.pctOfTotal}%`, background: color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-5">
+            <InstrumentSourceCard isin={d.isin} symbol={d.symbol} currency={d.currency} meta={d.meta} />
           </div>
         </div>
       </aside>

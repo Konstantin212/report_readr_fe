@@ -221,14 +221,14 @@ export function PositionsSection({
 
   return (
     <Card className="p-0 overflow-hidden">
-      <div className="flex justify-between items-center px-5 py-3 border-b border-border">
-        <div className="font-semibold text-sm">{title}</div>
+      <div className="flex justify-between items-center px-6 py-[18px] border-b border-border">
+        <div className="font-semibold text-base">{title}</div>
         <div className="flex items-center gap-3">
           {showToggle && <PnlModeToggle />}
-          <div className="font-mono text-[11px] text-muted tracking-wider">{count} holdings</div>
+          <div className="font-mono text-xs text-muted tracking-wider">{count} holdings</div>
         </div>
       </div>
-      <div className="hidden lg:grid grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
+      <div className="hidden lg:grid grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] gap-0 px-6 py-3 font-mono text-[10px] uppercase tracking-widest text-dim border-b border-border">
         <span>Holding</span>
         <span>Broker</span>
         <span
@@ -272,19 +272,19 @@ export function PositionsSection({
             type="button"
             onClick={() => onSelect(r.symbol)}
             style={staleStyle}
-            className={`w-full text-left flex flex-col gap-2 px-4 py-3 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-2 lg:grid lg:grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-5 lg:py-3 lg:items-center ${
+            className={`w-full text-left flex flex-col gap-2 px-6 py-4 min-h-[68px] cursor-pointer hover:bg-panel2/50 border-l-[3px] lg:grid lg:grid-cols-[1.5fr_0.55fr_0.55fr_0.5fr_0.65fr_0.65fr_0.75fr_0.85fr_0.85fr_0.85fr_0.55fr] lg:gap-0 lg:px-6 lg:py-4 lg:items-center ${
               isSelected ? "bg-panel2 border-l-mint" : bk.borderLeft
             } border-b border-border last:border-b-0`}
           >
             {/* Line 1: avatar + symbol + name. On lg, this is column 1 of the grid. */}
-            <div className="flex items-center gap-2.5">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-[11px] font-bold shrink-0 ${
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-[12px] flex items-center justify-center font-mono text-[13px] font-bold shrink-0 ${
                 isSelected ? "bg-mint/20 text-mint" : "bg-panel2 text-muted"
               }`}>{avatarLabel(r.symbol, r.name)}</div>
               <div className="min-w-0 flex-1">
-                <div className="font-semibold text-[13px]">
+                <div className="font-semibold text-base">
                   {r.symbol}{" "}
-                  <span className="font-mono text-[10px] text-dim ml-1">{r.sector} · {r.currency}</span>
+                  <span className="font-mono text-[11px] text-dim ml-1">{r.sector} · {r.currency}</span>
                   {r.distribution && (
                     <span
                       title={
@@ -311,7 +311,7 @@ export function PositionsSection({
                     · avg {v.avgCostEur.toFixed(2)} · {r.pricePerUnitEur === null ? "—" : r.pricePerUnitEur.toFixed(2)}
                   </span>
                 </div>
-                {r.name && <div className="text-[11px] text-muted truncate">{r.name}</div>}
+                {r.name && <div className="text-[13px] text-muted truncate">{r.name}</div>}
               </div>
             </div>
 
@@ -323,20 +323,20 @@ export function PositionsSection({
                 <QuoteSourceIndicator source={r.quoteSource} asOf={r.asOf} updatedAt={r.quoteUpdatedAt} stale={isStale} />
                 <span className="font-mono text-[11px] text-muted">{r.qty} sh</span>
               </div>
-              <span className="font-mono font-semibold text-[13px] text-right shrink-0">
+              <span className="font-mono font-semibold text-[17px] text-right shrink-0">
                 {r.marketEur === null ? "—" : fmtEur(r.marketEur)}
               </span>
             </div>
 
             {/* Line 3 (mobile only): P/L €, P/L ccy, %. */}
-            <div className="flex items-center justify-between gap-3 lg:hidden font-mono text-xs">
-              <span className={`font-semibold ${plEurColor}`}>
+            <div className="flex items-center justify-between gap-3 lg:hidden font-mono">
+              <span className={`font-semibold text-[16px] ${plEurColor}`}>
                 {v.plEur === null ? "—" : (v.plEur >= 0 ? "+" : "−") + fmtEur(v.plEur)}
               </span>
-              <span className={`font-semibold ${plNativeColor}`}>
+              <span className={`font-semibold text-[13px] ${plNativeColor}`}>
                 {v.plNative === null ? "—" : (v.plNative >= 0 ? "+" : "−") + fmtNative(v.plNative, r.nativeCurrency)}
               </span>
-              <span className={`font-semibold ${plPctColor}`}>
+              <span className={`font-semibold text-[13px] ${plPctColor}`}>
                 {fmtPct(v.plPct)}
               </span>
             </div>
@@ -354,14 +354,14 @@ export function PositionsSection({
                 commissions, net includes them). This is the actual
                 Anschaffungskosten figure that maps to Anlage KAP. */}
             <span className="hidden lg:block text-right font-mono text-xs text-muted">{fmtEur(v.costEur)}</span>
-            <span className="hidden lg:block text-right font-mono font-semibold text-xs">{r.marketEur === null ? "—" : fmtEur(r.marketEur)}</span>
-            <span className={`hidden lg:block text-right font-mono font-semibold text-xs ${plEurColor}`}>
+            <span className="hidden lg:block text-right font-mono font-semibold text-[17px]">{r.marketEur === null ? "—" : fmtEur(r.marketEur)}</span>
+            <span className={`hidden lg:block text-right font-mono font-semibold text-[16px] ${plEurColor}`}>
               {v.plEur === null ? "—" : (v.plEur >= 0 ? "+" : "−") + fmtEur(v.plEur)}
             </span>
             <span className={`hidden lg:block text-right font-mono font-semibold text-xs ${plNativeColor}`}>
               {v.plNative === null ? "—" : (v.plNative >= 0 ? "+" : "−") + fmtNative(v.plNative, r.nativeCurrency)}
             </span>
-            <span className={`hidden lg:block text-right font-mono font-semibold text-xs ${plPctColor}`}>
+            <span className={`hidden lg:block text-right font-mono font-semibold text-[13px] ${plPctColor}`}>
               {fmtPct(v.plPct)}
             </span>
           </button>
