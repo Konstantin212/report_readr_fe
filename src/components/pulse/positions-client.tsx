@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Card } from "@/components/pulse/card";
 import { SectorFilter } from "@/components/pulse/sector-filter";
+import { PositionsSort } from "@/components/pulse/positions-sort";
 import { PositionsHero } from "@/components/pulse/positions-hero";
 import { PositionsSection } from "@/components/pulse/positions-section";
 import { CashCard } from "@/components/pulse/cash-card";
@@ -12,6 +13,8 @@ import { PositionDetailPanel, type DetailData } from "@/components/pulse/positio
 import type { SelectedPosition } from "@/lib/data/positions";
 import { positionsDataSchema, selectedPositionSchema } from "@/lib/api/contracts";
 import { fetchApi } from "@/lib/api/client";
+import { sortRows, type PositionSort } from "@/lib/analytics/positions-view";
+import { usePnlMode } from "@/components/pulse/pnl-mode";
 
 /** Map the loader's SelectedPosition onto the panel's DetailData shape
  *  (the panel renames plEur→unrealizedEur, asOf→priceAsOf, etc.). */
@@ -53,8 +56,9 @@ function toDetailData(sel: SelectedPosition): DetailData {
   };
 }
 
-export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ibkr"; sector: string | null }) {
+export function PositionsClient({ broker, sector, sort }: { broker: "all" | "ff" | "ibkr"; sector: string | null; sort: PositionSort }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const { mode } = usePnlMode();
 
   // Lock background scroll while the detail overlay (loading OR loaded) is
   // open, so only the panel's own content scrolls — not the page behind it.
@@ -93,6 +97,7 @@ export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ib
           </span>
         </h1>
         <div className="hidden lg:block flex-1" />
+        <PositionsSort active={sort} />
         {d && (
           <div className="w-full lg:w-auto min-w-0">
             <SectorFilter active={sector ?? "all"} sectors={d.sectors} />
@@ -127,10 +132,10 @@ export function PositionsClient({ broker, sector }: { broker: "all" | "ff" | "ib
       {d && (
         <div className="space-y-4">
           <PositionsHero d={d} />
-          <PositionsSection title="Stocks" count={d.rowsByKind.stock.length} rows={d.rowsByKind.stock} onSelect={setSelected} selectedSymbol={selected} showToggle />
-          <PositionsSection title="ETFs" count={d.rowsByKind.etf.length} rows={d.rowsByKind.etf} onSelect={setSelected} selectedSymbol={selected} />
-          <PositionsSection title="Bonds" count={d.rowsByKind.bond.length} rows={d.rowsByKind.bond} onSelect={setSelected} selectedSymbol={selected} />
-          <PositionsSection title="Other" count={d.rowsByKind.other.length} rows={d.rowsByKind.other} onSelect={setSelected} selectedSymbol={selected} />
+          <PositionsSection title="Stocks" count={d.rowsByKind.stock.length} rows={sortRows(d.rowsByKind.stock, sort, mode)} onSelect={setSelected} selectedSymbol={selected} showToggle />
+          <PositionsSection title="ETFs" count={d.rowsByKind.etf.length} rows={sortRows(d.rowsByKind.etf, sort, mode)} onSelect={setSelected} selectedSymbol={selected} />
+          <PositionsSection title="Bonds" count={d.rowsByKind.bond.length} rows={sortRows(d.rowsByKind.bond, sort, mode)} onSelect={setSelected} selectedSymbol={selected} />
+          <PositionsSection title="Other" count={d.rowsByKind.other.length} rows={sortRows(d.rowsByKind.other, sort, mode)} onSelect={setSelected} selectedSymbol={selected} />
           <CashCard balances={d.cash} />
           {d.rowsByKind.stock.length === 0 &&
             d.rowsByKind.etf.length === 0 &&
