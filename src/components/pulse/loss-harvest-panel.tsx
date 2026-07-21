@@ -121,13 +121,6 @@ export function LossHarvestPanel({
   const sonstigeCandLossSum = sonstigeCands.reduce((s, c) => s + c.unrealisedLossEur, 0);
   const totalSharesSelected = optimisticSells.reduce((s, x) => s + x.qtyToSell, 0);
 
-  // Display-only decomposition of computeHarvest()'s own numbers into "this
-  // year's tax reduction" vs. "carries forward" — arithmetic over the two
-  // already-verified outputs (currentTaxableBase/result.taxableBaseEur and
-  // result.totalLossRealisedEur), not a new tax rule.
-  const taxBaseReductionEur = Math.max(0, currentTaxableBase - result.taxableBaseEur);
-  const carriedForwardEur = Math.max(0, Math.abs(result.totalLossRealisedEur) - taxBaseReductionEur);
-
   const aktienSubtitle = overages.aktien > 0
     ? `${fmtEur(overages.aktien)} of Aktien overage to cover · gross €${inputs.aktien.totalIncomeEur.toFixed(0)}`
     : `Aktien bucket has no overage to cover · losses here carry forward to next year`;
@@ -230,7 +223,7 @@ export function LossHarvestPanel({
         </div>
 
         {/* live summary tiles */}
-        <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6 transition-opacity duration-150 ${isPending ? "opacity-60" : "opacity-100"}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 transition-opacity duration-150 ${isPending ? "opacity-60" : "opacity-100"}`}>
           <StatTile label="Shares selected" value={String(totalSharesSelected)} />
           <StatTile
             label="Loss realized"
@@ -249,12 +242,6 @@ export function LossHarvestPanel({
                   : `End of tax year reached`
             }
             help="Estimated tax saved vs. the current 'do nothing' baseline. Excludes Kirchensteuer."
-          />
-          <StatTile
-            label="Carried forward"
-            value={fmtEur(carriedForwardEur)}
-            tone={carriedForwardEur > 0 ? "amber" : undefined}
-            help="Realised losses beyond what this year's taxable base could absorb — becomes a Verlustvortrag for future gains in the same bucket."
           />
         </div>
         <div className="mt-2 font-mono text-[11px] text-muted">
@@ -332,7 +319,6 @@ function RecommendationCard({
   const totalOverage = overages.aktien + overages.sonstige;
 
   if (totalOverage <= 0) {
-    const carryForwardEur = Math.max(0, -aktienGross) + Math.max(0, -sonstigeGross);
     return (
       <Card className="rounded-[24px] p-[24px] sm:p-[34px] border-mint/25">
         <div className="flex items-center gap-3">
@@ -346,9 +332,6 @@ function RecommendationCard({
         </div>
         <div className="flex gap-3 mt-6 flex-wrap">
           <StatTile label="Tax saved this year" value={fmtEur(estTaxSavedEur)} tone={estTaxSavedEur > 0 ? "mint" : undefined} />
-          {carryForwardEur > 0 && (
-            <StatTile label="Losses carrying forward" value={fmtEur(-carryForwardEur)} tone="amber" />
-          )}
         </div>
       </Card>
     );
