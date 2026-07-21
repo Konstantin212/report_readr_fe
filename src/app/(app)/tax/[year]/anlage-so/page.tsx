@@ -33,11 +33,11 @@ export default async function AnlageSoPage({
     <main className="space-y-4">
       <div className="space-y-2">
         <a href={`/tax/${yearNum}`} className="font-mono text-[11px] text-muted hover:text-ink inline-block">
-          ← Back to Anlage KAP
+          ← Back to Tax
         </a>
         <h1 className="text-2xl font-bold tracking-tight">
-          Anlage SO{" "}
-          <span className="font-mono text-sm text-muted ml-1 tracking-wider block lg:inline">
+          Anlage SO
+          <span className="font-mono text-sm text-muted ml-2 tracking-wider block lg:inline">
             {yearNum} · §22 Nr. 3 EStG · Krypto-Staking
           </span>
         </h1>
