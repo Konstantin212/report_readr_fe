@@ -17,7 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <QueryProvider>
       <PnlModeProvider>
         <TourHost shouldShow={importCount === 0} firstName={firstName ?? null}>
-          <div className="min-h-screen max-w-[1320px] mx-auto px-3 sm:px-5 lg:px-7 pt-4 lg:pt-7 pb-20 lg:pb-7">
+          <div className="min-h-screen max-w-[1160px] mx-auto px-3 sm:px-5 lg:px-7 pt-4 lg:pt-7 pb-20 lg:pb-7">
             <Topbar user={user} />
             {children}
             <BottomNav />

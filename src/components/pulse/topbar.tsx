@@ -10,7 +10,7 @@ export function Topbar({
   user: { name?: string | null; email?: string | null; image?: string | null } | null;
 }) {
   return (
-    <header className="flex items-center gap-6 mb-7">
+    <header className="sticky top-0 z-20 -mx-3 sm:-mx-5 lg:-mx-7 px-3 sm:px-5 lg:px-7 mb-7 flex items-center gap-6 bg-bg/[.86] backdrop-blur-[14px] border-b border-border py-3">
       <Link href="/" className="flex items-center gap-2.5">
         <span className="w-8 h-8 rounded-[10px] bg-mint text-bg font-mono font-bold flex items-center justify-center">◐</span>
         <span className="font-sans font-bold text-lg tracking-tight">folio<span className="text-mint">.</span></span>

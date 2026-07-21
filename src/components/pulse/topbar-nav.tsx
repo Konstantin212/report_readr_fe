@@ -24,8 +24,8 @@ export function TopbarNav() {
           <Link
             key={n.href}
             href={n.href as never}
-            className={`px-3.5 py-2 rounded-[10px] text-[13px] font-medium ${
-              isActive ? "text-ink bg-panel2" : "text-muted hover:text-ink"
+            className={`px-3 py-2 rounded-[10px] text-[13px] font-medium ${
+              isActive ? "bg-panel2 text-ink" : "text-muted hover:text-ink"
             }`}
           >
             {n.label}
