@@ -1,20 +1,21 @@
 import { getEnabledAuthProviders } from "@/lib/auth/providers";
 import { getSignupMode } from "@/lib/auth/signup-mode";
-import { AuthCard } from "@/components/auth/auth-card";
+import { AuthModalTrigger } from "@/components/auth/auth-modal-trigger";
 
 /**
  * Public landing + sign-in. Visitors land here before they have a
- * session; the hero explains what the app does and the sign-in card
- * sits at the bottom of the same scroll. Mobile collapses to stacked
- * cards in the same order.
+ * session; the hero explains what the app does and a "Sign in" button in
+ * the header opens the sign-in/sign-up card in a modal. Mobile collapses
+ * to stacked cards in the same order.
  *
  * Server Component: reads which OAuth providers are actually configured
  * (`getEnabledAuthProviders()` — previously dead code, since this page
  * used to hardcode both OAuth buttons regardless of whether
  * GOOGLE_CLIENT_ID/GITHUB_CLIENT_ID were set) and the current sign-up
- * mode, then hands both down to the interactive `AuthCard` client leaf
- * (OAuth buttons + email/password sign-in/sign-up), keeping "use client"
- * scoped to that leaf rather than the whole page.
+ * mode, then hands both down to the interactive `AuthModalTrigger` client
+ * leaf (header button + modal, wrapping `AuthCard`'s OAuth buttons +
+ * email/password sign-in/sign-up), keeping "use client" scoped to that
+ * leaf rather than the whole page.
  *
  * No data leaves the browser before sign-in — OAuth is a provider
  * redirect, and email/password submits go straight to better-auth's own
@@ -28,12 +29,15 @@ export default function SignIn() {
     <main className="min-h-screen">
       <div className="max-w-[1080px] mx-auto px-5 sm:px-7 py-10 sm:py-16 space-y-12 sm:space-y-16">
 
-        {/* Brand row */}
-        <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-[10px] bg-mint text-bg font-mono font-bold flex items-center justify-center">◐</span>
-          <span className="font-sans font-bold text-lg tracking-tight">
-            folio<span className="text-mint">.</span>
-          </span>
+        {/* Header */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-[10px] bg-mint text-bg font-mono font-bold flex items-center justify-center">◐</span>
+            <span className="font-sans font-bold text-lg tracking-tight">
+              folio<span className="text-mint">.</span>
+            </span>
+          </div>
+          <AuthModalTrigger providers={providers} signupMode={signupMode} />
         </div>
 
         {/* Hero */}
@@ -90,11 +94,6 @@ export default function SignIn() {
           <p className="font-mono text-[11px] text-dim pt-2 leading-relaxed">
             We&apos;ll walk you through each one after sign-in.
           </p>
-        </section>
-
-        {/* Sign-in / sign-up card */}
-        <section className="max-w-[440px]">
-          <AuthCard providers={providers} signupMode={signupMode} />
         </section>
 
         {/* Trust line */}

@@ -149,16 +149,18 @@ const PROVIDER_LABEL_CLASS: Record<AuthProviderId, string> = {
   github: "border border-borderHard text-ink",
 };
 
-type Tab = "sign-in" | "sign-up";
+export type Tab = "sign-in" | "sign-up";
 
 export function AuthCard({
   providers,
   signupMode,
+  initialTab = "sign-in",
 }: {
   providers: AuthProviderLink[];
   signupMode: SignupMode;
+  initialTab?: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("sign-in");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);

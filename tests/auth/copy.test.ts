@@ -40,8 +40,21 @@ describe("AC-11: sign-in page no longer claims the app is invite-only", () => {
     expect(signInSrc.toLowerCase()).not.toMatch(/invite-only|invite only|by invitation/);
   });
 
-  it("renders the AuthCard (email+password sign-up entry point) reachably on the page", () => {
-    expect(signInSrc).toMatch(/<AuthCard\b/);
+  it("renders the AuthModalTrigger (opens the email+password sign-up entry point) reachably on the page", () => {
+    expect(signInSrc).toMatch(/<AuthModalTrigger\b/);
+  });
+
+  it("AuthModalTrigger's modal wraps AuthCard, so the sign-up entry point is reachable end to end", () => {
+    const triggerSrc = readSrc("src/components/auth/auth-modal-trigger.tsx");
+    const modalSrc = readSrc("src/components/auth/auth-modal.tsx");
+    expect(triggerSrc).toMatch(/<AuthModal\b/);
+    expect(modalSrc).toMatch(/<AuthCard\b/);
+  });
+
+  it("AuthModalTrigger renders separate 'Sign in' and 'Create account' entry buttons, not just one", () => {
+    const triggerSrc = readSrc("src/components/auth/auth-modal-trigger.tsx");
+    expect(triggerSrc).toMatch(/>\s*Sign in\s*</);
+    expect(triggerSrc).toMatch(/>\s*Create account\s*</);
   });
 });
 
