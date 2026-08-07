@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { trackPositionsPnlModeChanged } from "@/lib/analytics-events";
 
 /**
  * Two complementary P/L views:
@@ -61,7 +62,7 @@ export function PnlModeToggle({ className }: { className?: string }) {
         type="button"
         role="tab"
         aria-selected={mode === "broker"}
-        onClick={() => setMode("broker")}
+        onClick={() => { trackPositionsPnlModeChanged("broker"); setMode("broker"); }}
         className={`${base} ${mode === "broker" ? "bg-mint/15 text-mint" : "text-muted hover:text-ink"}`}
         title="Cost basis excludes broker commissions; matches FF / IBKR Entry Price × Qty"
       >
@@ -71,7 +72,7 @@ export function PnlModeToggle({ className }: { className?: string }) {
         type="button"
         role="tab"
         aria-selected={mode === "net"}
-        onClick={() => setMode("net")}
+        onClick={() => { trackPositionsPnlModeChanged("net"); setMode("net"); }}
         className={`${base} border-l border-borderHard ${mode === "net" ? "bg-mint/15 text-mint" : "text-muted hover:text-ink"}`}
         title="Cost includes commissions + dividends added to P/L (German Anschaffungskosten / Anlage KAP)"
       >

@@ -1,5 +1,6 @@
 "use client";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { trackPerformanceRangeChanged } from "@/lib/analytics-events";
 
 const RANGES = ["1M", "3M", "6M", "YTD", "1Y", "2Y", "ALL"] as const;
 export type Range = typeof RANGES[number];
@@ -10,6 +11,7 @@ export function RangePicker({ active = "2Y" }: { active?: Range }) {
   const sp = useSearchParams();
 
   function pick(r: Range) {
+    trackPerformanceRangeChanged(r);
     const params = new URLSearchParams(sp.toString());
     params.set("range", r);
     router.replace(`${pathname}?${params.toString()}` as never);

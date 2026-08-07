@@ -9,6 +9,7 @@ import { TaxYearSelector } from "@/components/pulse/tax-year-selector";
 import { MetricsGrid } from "@/components/pulse/metrics-grid";
 import { TaxBucketsCard } from "@/components/pulse/tax-buckets-card";
 import { RealizedTradesModal } from "@/components/pulse/realized-trades-modal";
+import { TaxExportLink } from "@/components/pulse/tax-export-link";
 import { fmtEur } from "@/lib/format";
 import { taxResponseSchema, type TaxResponse } from "@/lib/api/contracts";
 import { fetchApi } from "@/lib/api/client";
@@ -197,8 +198,22 @@ export function TaxClient({ year: yearNum }: { year: number }) {
             </div>
           </div>
           <div className="flex gap-2 mt-4">
-            <a className="flex-1 bg-mint text-bg font-mono text-[11px] uppercase tracking-widest text-center px-3 py-2.5 rounded-md font-semibold" href={`/tax/${year}/export?format=pdf`}>Export PDF · Anlage KAP</a>
-            <a className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold" href={`/tax/${year}/export?format=csv`}>CSV</a>
+            <TaxExportLink
+              className="flex-1 bg-mint text-bg font-mono text-[11px] uppercase tracking-widest text-center px-3 py-2.5 rounded-md font-semibold"
+              href={`/tax/${year}/export?format=pdf`}
+              form="anlage_kap"
+              format="pdf"
+            >
+              Export PDF · Anlage KAP
+            </TaxExportLink>
+            <TaxExportLink
+              className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold"
+              href={`/tax/${year}/export?format=csv`}
+              form="anlage_kap"
+              format="csv"
+            >
+              CSV
+            </TaxExportLink>
           </div>
         </Card>
       </div>

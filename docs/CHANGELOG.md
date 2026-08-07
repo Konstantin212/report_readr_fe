@@ -6,6 +6,73 @@ driving spec/plan (see the `documentation-standards` skill's changelog
 rules). This file is history, not the source of truth for current
 behavior — for that, follow the links into `docs/INDEX.md`.
 
+## 2026-08-07 — Vercel Web Analytics custom-event tracking
+
+**What:** Added lightweight, privacy-minimizing custom-event usage
+analytics via `@vercel/analytics`, covering key user actions across
+Upload, Auth, Tax, Positions/Dashboard, Settings, and Nav/Onboarding.
+
+- **`src/lib/analytics-events.ts` (new):** single boundary module — the
+  only file in the app that imports `track` from `@vercel/analytics`.
+  Exports 24 narrowly-typed `track*` functions (one per event, fixed
+  named-property parameters, no index signature/generic
+  `track(name, props)` escape hatch), so a call site cannot pass an
+  arbitrary or misspelled property key without a TypeScript error. All
+  functions funnel through a private `send()` that wraps `track()` in a
+  `try`/`catch` — analytics failures (ad-blocker, offline, etc.) are
+  swallowed and never break app functionality (AC-G6). Also exports the
+  two enum-taxonomy fixes the AC doc called out (statement-upload
+  `UploadBroker` vs. the Positions/Dividends broker-filter enum are kept
+  separate; `toUploadBroker` mapper returns `null` for `COINBASE`, which
+  has no statement-upload path) and two data-minimization helpers
+  (`sanitizeSectorForAnalytics` clamps unbounded provider-sourced sector
+  labels to a 12-value allow-list; `classifyInstrumentLinkSourceDomain`
+  reduces a pasted URL to a bounded 5-value domain enum instead of
+  sending the raw URL).
+- **`<Analytics />` mounted once** in `src/app/layout.tsx` (root layout,
+  outside the `(app)` route group), so every route — including
+  `/sign-in`, `/verify-email`, `/reset-password` — is covered. No
+  `<Suspense>` wrapper was needed (verified against the installed
+  package: it does not call `useSearchParams()`).
+- **`src/components/pulse/tax-export-link.tsx` (new):** small Client
+  Component wrapping the tax-export `<a>` link, reused by both
+  `tax-client.tsx` and the async Server Component
+  `tax/[year]/anlage-so/page.tsx`, so the export-click event can fire
+  without converting either page to a Client Component.
+- **~20 call sites wired** across `upload-dropzone.tsx`,
+  `auth-card.tsx`, `tax-year-selector.tsx`, `loss-harvest-panel.tsx`,
+  `positions-sort.tsx`, `sector-filter.tsx`, `instrument-source-card.tsx`,
+  `pnl-mode.tsx`, `dividends-table.tsx`, `range-picker.tsx`,
+  `reset-broker-button.tsx`, `crypto-accounts-manager.tsx`,
+  `members-manager.tsx`, `tax-income-row.tsx`, `backfill-fx-button.tsx`,
+  `refresh-quotes-button.tsx`, `topbar-nav.tsx`, `bottom-nav.tsx`, and
+  `welcome-tour.tsx` — each firing on a verified, currently-live
+  interaction point, per the AC's per-event allow/deny property lists.
+- **`welcome-tour.tsx` refactor:** extracted a shared `closeTourState()`
+  helper so `dismiss()` and `finish()` each own exactly one exit-path
+  branch. This also fixes a pre-existing bug where `finish()` routed
+  through `dismiss()` and would have double-fired both an
+  `onboarding_tour_dismissed` and an `onboarding_tour_completed` event
+  on every successful tour completion.
+- Zero new PII fields, tables, or columns — purely client-side
+  instrumentation calling a third-party (Vercel-hosted) collection
+  endpoint with bounded, allow-listed payloads.
+
+**Why:** The team has no visibility into which features (Upload, Tax
+export, Loss Harvest, onboarding) actually get used. This adds that
+signal without ever capturing amounts, identities, or anything that
+could re-identify a user's specific holdings or income — see AC-G1/G2's
+global allow/deny rules and the AC doc's per-event forbidden-property
+notes (e.g. no `taxableIncomeEur`, no raw URLs, no ISIN/symbol values).
+
+**Review:** `code-reviewer` approved with no blocking issues; one minor
+type-widening fix was applied and reverified. Full verification clean:
+typecheck, lint, build, and test suite (909 passed, 0 failed), including
+66 new tests in `tests/lib/analytics-events.test.ts`.
+
+See [AC doc](superpowers/specs/2026-08-07-analytics-events-ac.md) /
+[design spec](superpowers/specs/2026-08-07-analytics-events-design.md).
+
 ## 2026-08-06 — Email verification is now mandatory and blocking (supersedes 2026-08-05's nudge-only decision)
 
 **What:** Sign-in on an unverified email+password account now hard-blocks

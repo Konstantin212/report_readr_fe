@@ -1,6 +1,11 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import {
+  trackSettingsCoinbaseConnected,
+  trackSettingsCoinbaseSyncClicked,
+  trackSettingsCoinbaseDisconnected,
+} from "@/lib/analytics-events";
 
 export type CryptoAccountRow = {
   id: string;
@@ -42,6 +47,7 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       setRows((cur) => [body.account, ...cur]);
+      trackSettingsCoinbaseConnected();
       setBlob("");
       setLabel("");
       setSuccess(`Connected · ${body.coinbaseUser?.email ?? body.coinbaseUser?.id ?? "Coinbase"}`);
@@ -64,6 +70,7 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       setRows((cur) => cur.filter((r) => r.id !== id));
+      trackSettingsCoinbaseDisconnected();
       router.refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -73,6 +80,7 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
   }
 
   async function sync(id: string) {
+    trackSettingsCoinbaseSyncClicked();
     setPending(true);
     setError(null);
     setSuccess(null);

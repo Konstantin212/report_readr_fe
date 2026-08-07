@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { marginalRatePct } from "@/lib/tax/marginal-rate";
+import { trackSettingsTaxIncomeSaved } from "@/lib/analytics-events";
 
 /**
  * Editable "Annual taxable income" row for the Settings → Tax card.
@@ -40,6 +41,7 @@ export function TaxIncomeRow({
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status}).`);
+      trackSettingsTaxIncomeSaved();
       setSaved(data?.taxableIncomeEur ?? "");
       setValue(data?.taxableIncomeEur ?? "");
       router.refresh();

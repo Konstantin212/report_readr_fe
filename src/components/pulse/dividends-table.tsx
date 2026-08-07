@@ -1,7 +1,9 @@
+"use client";
 import { DataTable, type Column } from "./data-table";
 import { Pagination } from "./pagination";
 import { fmtEur } from "@/lib/format";
 import type { DividendRow } from "@/lib/data/dividends";
+import { trackDividendsExportClicked } from "@/lib/analytics-events";
 
 /**
  * Paginated table of dividend distributions. The previous implementation
@@ -50,7 +52,11 @@ export function DividendsTable({
       <DataTable<DividendRow>
         title={`All distributions · ${year}`}
         trailingHeader={
-          <a href={exportHref} className="font-mono text-[11px] text-muted hover:text-ink">
+          <a
+            href={exportHref}
+            onClick={trackDividendsExportClicked}
+            className="font-mono text-[11px] text-muted hover:text-ink"
+          >
             export csv →
           </a>
         }

@@ -9,6 +9,7 @@ import {
   type QueueItem,
   type FileStatus,
 } from "./upload-queue";
+import { trackUploadFilesSelected, trackUploadFileIngested, toUploadBroker, type UploadBroker } from "@/lib/analytics-events";
 
 type ImportRow = {
   id: string;
@@ -35,10 +36,12 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
   // on the item so the queue can continue to the next file.
   async function processItem(item: QueueItem) {
     const { file } = item;
+    let broker: UploadBroker | null = null;
     try {
       patchItem(item.id, { status: "parsing", error: undefined });
       // The worker auto-detects broker (FF-JSON vs IBKR-CSV) and parses.
       const parsed = await parseStatementInWorker(file, parsedYearFor(file));
+      broker = toUploadBroker(parsed.broker);
 
       patchItem(item.id, { status: "uploading" });
       const buf = await file.arrayBuffer();
@@ -85,9 +88,11 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
         },
         ...prev,
       ]);
+      if (broker) trackUploadFileIngested(broker, "success");
     } catch (err) {
       // A failed file must NOT abort the rest of the queue — record and move on.
       patchItem(item.id, { status: "failed", error: (err as Error).message });
+      if (broker) trackUploadFileIngested(broker, "error");
     }
   }
 
@@ -110,6 +115,7 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
   function addFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
     if (!files.length || processing) return;
+    trackUploadFilesSelected(files.length);
     // Each new selection starts a fresh batch (a batch of 1 behaves like the
     // old single-file flow). Retrying failed files re-queues within the batch.
     const batch = sortByName(

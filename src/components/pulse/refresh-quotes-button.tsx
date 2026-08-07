@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackSettingsQuotesRefreshClicked } from "@/lib/analytics-events";
 
 type Result = {
   requested?: number;
@@ -25,6 +26,7 @@ export function RefreshQuotesButton() {
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
+    trackSettingsQuotesRefreshClicked();
     setPending(true);
     setError(null);
     setResult(null);

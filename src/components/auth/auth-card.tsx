@@ -4,6 +4,14 @@ import { useEffect, useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth/client";
 import type { AuthProviderId, AuthProviderLink } from "@/lib/auth/providers";
 import type { SignupMode } from "@/lib/auth/signup-mode";
+import {
+  trackSignInSubmitted,
+  trackSignInSucceeded,
+  trackSignInFailed,
+  trackSignUpSubmitted,
+  trackSignUpAccepted,
+  trackSignUpFailed,
+} from "@/lib/analytics-events";
 
 /**
  * Client-side pre-check mirroring better-auth's own `minPasswordLength: 8`
@@ -253,6 +261,7 @@ export function AuthCard({
     setError(null);
     setWaitState(null);
     setPending(true);
+    trackSignInSubmitted();
     try {
       const { error: signInError } = await authClient.signIn.email({ email, password });
       if (signInError) {
@@ -265,11 +274,14 @@ export function AuthCard({
           setResendState("idle");
           setResendError(null);
           setWaitState({ variant: "blocked-sign-in", correlationId: null });
+          trackSignInFailed("email_not_verified");
           return;
         }
         setError(mapAuthErrorMessage(signInError.code, signInError.message));
+        trackSignInFailed("invalid_credentials");
         return;
       }
+      trackSignInSucceeded();
       window.location.href = "/";
     } finally {
       setPending(false);
@@ -281,9 +293,11 @@ export function AuthCard({
     setError(null);
     if (!isPasswordLongEnough(password)) {
       setError(mapAuthErrorMessage("PASSWORD_TOO_SHORT"));
+      trackSignUpFailed();
       return;
     }
     setPending(true);
+    trackSignUpSubmitted();
     try {
       const signupAttemptId = crypto.randomUUID();
       // better-auth requires `name`; this app has no separate "display
@@ -307,6 +321,7 @@ export function AuthCard({
       });
       if (signUpError) {
         setError(mapAuthErrorMessage(signUpError.code, signUpError.message));
+        trackSignUpFailed();
         return;
       }
       // AC-1/AC-2/AC-4: no redirect, and no distinction between a
@@ -317,6 +332,7 @@ export function AuthCard({
       setResendState("idle");
       setResendError(null);
       setWaitState({ variant: "signup", correlationId: signupAttemptId, startedAtMs: Date.now() });
+      trackSignUpAccepted();
     } finally {
       setPending(false);
     }

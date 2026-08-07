@@ -1,6 +1,7 @@
 "use client";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import type { PositionSort } from "@/lib/analytics/positions-view";
+import { trackPositionsSortChanged } from "@/lib/analytics-events";
 
 const OPTS: { key: PositionSort; label: string }[] = [
   { key: "value", label: "Value" },
@@ -18,6 +19,7 @@ export function PositionsSort({ active }: { active: PositionSort }) {
         <button
           key={o.key}
           onClick={() => {
+            trackPositionsSortChanged(o.key);
             const p = new URLSearchParams(sp.toString());
             if (o.key === "value") p.delete("sort");
             else p.set("sort", o.key);

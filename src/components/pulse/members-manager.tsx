@@ -1,6 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { trackSettingsMemberAdded, trackSettingsMemberRevoked } from "@/lib/analytics-events";
 
 export type AllowedEmailRow = {
   id: string;
@@ -39,6 +40,7 @@ export function MembersManager({ initial }: { initial: AllowedEmailRow[] }) {
         if (cur.find((r) => r.id === body.row.id)) return cur;
         return [body.row, ...cur];
       });
+      trackSettingsMemberAdded();
       setEmail("");
       setNote("");
       router.refresh();
@@ -59,6 +61,7 @@ export function MembersManager({ initial }: { initial: AllowedEmailRow[] }) {
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       setRows((cur) => cur.filter((r) => r.id !== id));
+      trackSettingsMemberRevoked();
       router.refresh();
     } catch (err) {
       setError((err as Error).message);

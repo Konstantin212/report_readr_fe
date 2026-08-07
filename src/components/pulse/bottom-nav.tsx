@@ -2,18 +2,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, TrendingUp, Wallet, Coins, Receipt, Upload, Bitcoin } from "lucide-react";
+import { trackNavLinkClicked } from "@/lib/analytics-events";
 
 export function BottomNav() {
   const pathname = usePathname();
   const currentYear = new Date().getFullYear();
   const NAV = [
-    { href: "/", label: "Dash", Icon: LayoutDashboard, match: (p: string) => p === "/" },
-    { href: "/performance", label: "Perf", Icon: TrendingUp, match: (p: string) => p.startsWith("/performance") },
-    { href: "/positions", label: "Pos", Icon: Wallet, match: (p: string) => p.startsWith("/positions") },
-    { href: "/crypto", label: "Crypto", Icon: Bitcoin, match: (p: string) => p.startsWith("/crypto") },
-    { href: "/dividends", label: "Div", Icon: Coins, match: (p: string) => p.startsWith("/dividends") },
-    { href: `/tax/${currentYear}`, label: "Tax", Icon: Receipt, match: (p: string) => p.startsWith("/tax") },
-    { href: "/upload", label: "Up", Icon: Upload, match: (p: string) => p.startsWith("/upload") },
+    { href: "/", label: "Dash", Icon: LayoutDashboard, destination: "dashboard", match: (p: string) => p === "/" },
+    { href: "/performance", label: "Perf", Icon: TrendingUp, destination: "performance", match: (p: string) => p.startsWith("/performance") },
+    { href: "/positions", label: "Pos", Icon: Wallet, destination: "positions", match: (p: string) => p.startsWith("/positions") },
+    { href: "/crypto", label: "Crypto", Icon: Bitcoin, destination: "crypto", match: (p: string) => p.startsWith("/crypto") },
+    { href: "/dividends", label: "Div", Icon: Coins, destination: "dividends", match: (p: string) => p.startsWith("/dividends") },
+    { href: `/tax/${currentYear}`, label: "Tax", Icon: Receipt, destination: "tax", match: (p: string) => p.startsWith("/tax") },
+    { href: "/upload", label: "Up", Icon: Upload, destination: "upload", match: (p: string) => p.startsWith("/upload") },
   ] as const;
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-bg/95 backdrop-blur border-t border-border">
@@ -25,6 +26,7 @@ export function BottomNav() {
             <Link
               key={n.href}
               href={n.href as never}
+              onClick={() => trackNavLinkClicked(n.destination)}
               className={`flex-1 min-h-[56px] flex flex-col items-center justify-center gap-1 py-2 ${
                 isActive ? "text-mint bg-panel2/50" : "text-muted hover:text-ink"
               }`}

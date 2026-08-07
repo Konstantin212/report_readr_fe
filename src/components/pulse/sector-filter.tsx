@@ -1,5 +1,6 @@
 "use client";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { trackPositionsSectorFiltered } from "@/lib/analytics-events";
 
 export function SectorFilter({ active = "all", sectors }: { active?: string; sectors: string[] }) {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function SectorFilter({ active = "all", sectors }: { active?: string; sec
           <button
             key={s}
             onClick={() => {
+              trackPositionsSectorFiltered(s);
               const p = new URLSearchParams(sp.toString());
               if (s === "all") p.delete("sector");
               else p.set("sector", s);

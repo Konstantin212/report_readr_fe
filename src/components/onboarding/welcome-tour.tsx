@@ -3,10 +3,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, ArrowLeft, ArrowRight } from "lucide-react";
 import { PlatformCard, type Platform } from "./platform-card";
+import {
+  trackOnboardingTourStarted,
+  trackOnboardingPlatformToggled,
+  trackOnboardingTourDismissed,
+  trackOnboardingTourCompleted,
+} from "@/lib/analytics-events";
 
 const DISMISS_KEY = "tour_dismissed";
 
 type StepId = "welcome" | "selector" | Platform | "ready";
+type DismissVia = "close_button" | "skip_button" | "escape_key";
 
 /**
  * First-run welcome tour. Walks a brand-new user through what the app
@@ -43,12 +50,14 @@ export function WelcomeTour({
     if (forceOpen) {
       setOpen(true);
       setStepIdx(0);
+      trackOnboardingTourStarted("manual");
       return;
     }
     if (!shouldShow) return;
     if (typeof window === "undefined") return;
     if (window.localStorage.getItem(DISMISS_KEY) === "1") return;
     setOpen(true);
+    trackOnboardingTourStarted("auto");
   }, [forceOpen, shouldShow]);
 
   // Compute the dynamic step list based on what the user has selected.
@@ -66,7 +75,10 @@ export function WelcomeTour({
   const isFirst = stepIdx === 0;
   const canAdvanceFromSelector = currentStep !== "selector" || selected.size > 0;
 
-  const dismiss = useCallback(() => {
+  // Shared state-teardown only — no tracking here. Both dismiss() and
+  // finish() call this; each fires its own, mutually-exclusive event first
+  // (AC-ON3/AC-ON4).
+  const closeTourState = useCallback(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(DISMISS_KEY, "1");
     }
@@ -74,16 +86,27 @@ export function WelcomeTour({
     onClose?.();
   }, [onClose]);
 
+  const dismiss = useCallback((via: DismissVia) => {
+    trackOnboardingTourDismissed(via);
+    closeTourState();
+  }, [closeTourState]);
+
   const finish = useCallback(() => {
-    dismiss();
-    if (selected.has("ibkr") || selected.has("freedom")) {
+    const nextAction: "upload" | "settings" | "explore" =
+      selected.has("ibkr") || selected.has("freedom") ? "upload"
+      : selected.has("coinbase") ? "settings"
+      : "explore";
+    trackOnboardingTourCompleted(nextAction);
+    closeTourState();
+    if (nextAction === "upload") {
       router.push("/upload");
-    } else if (selected.has("coinbase")) {
+    } else if (nextAction === "settings") {
       router.push("/settings");
     }
-  }, [dismiss, router, selected]);
+  }, [closeTourState, router, selected]);
 
   const toggle = useCallback((p: Platform) => {
+    trackOnboardingPlatformToggled(p);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(p)) next.delete(p);
@@ -96,7 +119,7 @@ export function WelcomeTour({
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") dismiss();
+      if (e.key === "Escape") dismiss("escape_key");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -129,7 +152,7 @@ export function WelcomeTour({
           </span>
           <button
             type="button"
-            onClick={dismiss}
+            onClick={() => dismiss("close_button")}
             className="ml-auto text-muted hover:text-ink rounded-md p-1.5 -mr-1.5"
             aria-label="Close tour"
           >
@@ -161,7 +184,7 @@ export function WelcomeTour({
           </button>
           <button
             type="button"
-            onClick={dismiss}
+            onClick={() => dismiss("skip_button")}
             className="px-3 py-2 rounded-md font-mono text-[11px] uppercase tracking-widest text-dim hover:text-ink"
           >
             skip tour

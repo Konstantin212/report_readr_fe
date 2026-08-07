@@ -5,6 +5,7 @@ import { ProgressBar } from "@/components/pulse/progress-bar";
 import { MetricsGrid } from "@/components/pulse/metrics-grid";
 import { Section23Table } from "@/components/pulse/section23-table";
 import { StakingPerCoinTable } from "@/components/pulse/staking-per-coin-table";
+import { TaxExportLink } from "@/components/pulse/tax-export-link";
 import { fmtEur } from "@/lib/format";
 
 type SP = Promise<{ page?: string }>;
@@ -151,18 +152,22 @@ export default async function AnlageSoPage({
             not lower §22 income.
           </div>
           <div className="flex gap-2 mt-3 flex-wrap">
-            <a
+            <TaxExportLink
               className="bg-mint text-bg font-mono text-[11px] uppercase tracking-widest px-4 py-2.5 rounded-md font-semibold"
               href={`/tax/${yearNum}/anlage-so/export?format=pdf`}
+              form="anlage_so"
+              format="pdf"
             >
               Export PDF · Anlage SO
-            </a>
-            <a
+            </TaxExportLink>
+            <TaxExportLink
               className="border border-borderHard text-ink font-mono text-[11px] uppercase tracking-widest px-3 py-2.5 rounded-md font-semibold"
               href={`/tax/${yearNum}/anlage-so/export?format=csv`}
+              form="anlage_so"
+              format="csv"
             >
               CSV
-            </a>
+            </TaxExportLink>
           </div>
         </Card>
       </div>

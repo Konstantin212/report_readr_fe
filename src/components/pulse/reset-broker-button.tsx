@@ -1,15 +1,18 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackSettingsBrokerResetConfirmed, type UploadBroker } from "@/lib/analytics-events";
 
 export function ResetBrokerButton({
   brokerAccountId,
   brokerLabel,
   accountNumber,
+  broker,
 }: {
   brokerAccountId: string;
   brokerLabel: string;
   accountNumber: string;
+  broker: UploadBroker;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -29,6 +32,7 @@ export function ResetBrokerButton({
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
       }
+      trackSettingsBrokerResetConfirmed(broker);
       setOpen(false);
       router.refresh();
     } catch (err) {

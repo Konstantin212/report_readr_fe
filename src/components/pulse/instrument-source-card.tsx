@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { trackInstrumentLinkSubmitted, classifyInstrumentLinkSourceDomain } from "@/lib/analytics-events";
 
 /**
  * The subset of `instrument_meta` the detail panel's data-source card
@@ -78,6 +79,7 @@ export function InstrumentSourceCard({
         throw new Error(data?.error ?? `Request failed (${res.status}).`);
       }
       if (data?.status === "OK") {
+        trackInstrumentLinkSubmitted(classifyInstrumentLinkSourceDomain(trimmed));
         // Server data now carries the populated meta — refresh so this
         // card re-renders in its populated state. Keep the spinner up
         // (don't clear `submitting`): the refresh unmounts this form.

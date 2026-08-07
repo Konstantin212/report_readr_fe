@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { trackSettingsFxBackfillClicked } from "@/lib/analytics-events";
 
 type Result = {
   fxInserted?: number;
@@ -16,6 +17,7 @@ export function BackfillFxButton() {
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
+    trackSettingsFxBackfillClicked();
     setPending(true);
     setError(null);
     setResult(null);

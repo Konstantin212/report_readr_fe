@@ -18,6 +18,7 @@ import { QuoteStatusTable } from "@/components/pulse/quote-status-table";
 import { getQuoteStatus } from "@/lib/data/quote-status";
 import { MembersManager } from "@/components/pulse/members-manager";
 import { CryptoAccountsManager } from "@/components/pulse/crypto-accounts-manager";
+import { toUploadBroker } from "@/lib/analytics-events";
 
 type SP = Promise<{ section?: string }>;
 
@@ -104,6 +105,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                         brokerAccountId={b.id}
                         brokerLabel={meta.label}
                         accountNumber={b.accountNumber}
+                        broker={toUploadBroker(b.broker) ?? "ibkr"}
                       />
                     </div>
                   );

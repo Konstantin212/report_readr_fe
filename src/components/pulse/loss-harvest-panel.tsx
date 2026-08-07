@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "./card";
 import { fmtEur } from "@/lib/format";
+import { trackLossHarvestActionTaken } from "@/lib/analytics-events";
 import {
   bucketOverages,
   encodeSellParams,
@@ -86,6 +87,7 @@ export function LossHarvestPanel({
   }, [optimisticSells]);
 
   const setQty = useCallback((c: HarvestCandidate, qty: number) => {
+    trackLossHarvestActionTaken("adjust_qty"); // covers stepper AND quick-fill
     const key = `${c.symbol}.${c.broker}`;
     const clamped = Math.max(0, Math.min(c.qty, Number.isFinite(qty) ? qty : 0));
     const next = optimisticSells
@@ -94,8 +96,14 @@ export function LossHarvestPanel({
     updateUrl(next);
   }, [optimisticSells, updateUrl]);
 
-  const applyOptimum = useCallback(() => updateUrl(optimum), [optimum, updateUrl]);
-  const clearAll = useCallback(() => updateUrl([]), [updateUrl]);
+  const applyOptimum = useCallback(() => {
+    trackLossHarvestActionTaken("auto_pick");
+    updateUrl(optimum);
+  }, [optimum, updateUrl]);
+  const clearAll = useCallback(() => {
+    trackLossHarvestActionTaken("clear");
+    updateUrl([]);
+  }, [updateUrl]);
 
   const aktienCands = candidates.filter((c) => c.bucket === "aktien");
   const sonstigeCands = candidates.filter((c) => c.bucket === "sonstige");
