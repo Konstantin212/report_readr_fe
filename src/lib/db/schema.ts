@@ -35,10 +35,12 @@ export const eventTypeEnum = pgEnum("event_type", [
 ]);
 
 /**
- * Email allowlist for the private app. Only emails in this table (plus
- * the AUTHORIZED_EMAILS env var, which is kept as a bootstrap fallback)
- * can complete the OAuth sign-up flow. Managed via the Settings page by
- * the admin user — see lib/auth/admin.ts for the admin-email check.
+ * Email allowlist. Only enforced when AUTH_SIGNUP_MODE=restricted
+ * (default is open self-service sign-up — see
+ * docs/superpowers/specs/2026-08-05-open-signup-design.md). Kept, not
+ * deleted, for anyone running a private instance. Managed via the
+ * Settings page by the admin user — see lib/auth/admin.ts for the
+ * admin-email check.
  */
 export const allowedEmails = pgTable("allowed_emails", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -48,6 +50,14 @@ export const allowedEmails = pgTable("allowed_emails", {
   addedByUserId: text("added_by_user_id").references(() => user.id, { onDelete: "set null" }),
 });
 
+// NOTE: every table below with an owner-scoped FK to `user.id` (an
+// `ownerUserId`-shaped column, always `onDelete: "cascade"`) is enumerated
+// in the auth-cleanup abandoned-account safeguard — see
+// `abandonedCandidatePredicate()` in
+// `src/lib/auth/auth-cleanup.ts` and design doc §23.2. Adding a
+// new owner-scoped table? Add it to that predicate too, or the 6-month
+// never-verified-account sweep could delete a user who actually has real
+// data in it.
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name"),
@@ -56,6 +66,15 @@ export const user = pgTable("user", {
   image: text("image"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Transient passthrough for the cross-device sign-up session-grant
+  // mechanism (email-verification-gate design doc §2.2/§2.4). Populated
+  // only for the instant between `internalAdapter.createUser(...)` and
+  // `databaseHooks.user.create.after` running (which copies it into
+  // `signupAttempts` and nulls it back out) — never durable, never
+  // surfaced (`returned: false` on the matching `user.additionalFields`
+  // entry in setup.ts hides it from every sign-up response shape,
+  // genuine or synthetic-duplicate).
+  signupAttemptId: text("signup_attempt_id"),
 });
 
 export const session = pgTable("session", {
@@ -96,6 +115,27 @@ export const verification = pgTable("verification", {
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/**
+ * Cross-device session-grant correlation for fresh sign-up only (AC-13/
+ * AC-14 — see email-verification-gate design doc §2). Deliberately
+ * excluded from the auth-cleanup abandoned-account safeguard's
+ * `notExists()` list — like `session`/`account`/`verification`, this is
+ * auth *mechanism*, not user-owned data, so its presence must never block
+ * deletion of an abandoned account (see doc-comment above `user` and
+ * auth-cleanup.ts). Swept unconditionally (expired or consumed) by the
+ * daily auth-cleanup cron, same as expired `verification` rows.
+ */
+export const signupAttempts = pgTable("signup_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  attemptId: text("attempt_id").notNull().unique(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const brokerAccounts = pgTable(

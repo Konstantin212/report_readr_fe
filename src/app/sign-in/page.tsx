@@ -1,5 +1,6 @@
-"use client";
-import { authClient } from "@/lib/auth/client";
+import { getEnabledAuthProviders } from "@/lib/auth/providers";
+import { getSignupMode } from "@/lib/auth/signup-mode";
+import { AuthCard } from "@/components/auth/auth-card";
 
 /**
  * Public landing + sign-in. Visitors land here before they have a
@@ -7,10 +8,22 @@ import { authClient } from "@/lib/auth/client";
  * sits at the bottom of the same scroll. Mobile collapses to stacked
  * cards in the same order.
  *
- * No data leaves the browser on this page — auth happens through
- * Better Auth's social provider redirect, not a form submit.
+ * Server Component: reads which OAuth providers are actually configured
+ * (`getEnabledAuthProviders()` — previously dead code, since this page
+ * used to hardcode both OAuth buttons regardless of whether
+ * GOOGLE_CLIENT_ID/GITHUB_CLIENT_ID were set) and the current sign-up
+ * mode, then hands both down to the interactive `AuthCard` client leaf
+ * (OAuth buttons + email/password sign-in/sign-up), keeping "use client"
+ * scoped to that leaf rather than the whole page.
+ *
+ * No data leaves the browser before sign-in — OAuth is a provider
+ * redirect, and email/password submits go straight to better-auth's own
+ * API routes.
  */
 export default function SignIn() {
+  const providers = getEnabledAuthProviders();
+  const signupMode = getSignupMode();
+
   return (
     <main className="min-h-screen">
       <div className="max-w-[1080px] mx-auto px-5 sm:px-7 py-10 sm:py-16 space-y-12 sm:space-y-16">
@@ -79,38 +92,19 @@ export default function SignIn() {
           </p>
         </section>
 
-        {/* Sign-in card */}
+        {/* Sign-in / sign-up card */}
         <section className="max-w-[440px]">
-          <div className="bg-panel border border-border rounded-2xl p-6 sm:p-7 space-y-4">
-            <div className="font-bold text-[22px] tracking-tight">Sign in</div>
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={() => authClient.signIn.social({ provider: "google", callbackURL: "/" })}
-                className="block w-full text-center bg-mint text-bg font-mono text-xs uppercase tracking-widest py-3 rounded-lg font-semibold"
-              >
-                Continue with Google
-              </button>
-              <button
-                type="button"
-                onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/" })}
-                className="block w-full text-center border border-borderHard text-ink font-mono text-xs uppercase tracking-widest py-3 rounded-lg"
-              >
-                Continue with GitHub
-              </button>
-            </div>
-            <p className="text-muted text-[12px] leading-relaxed">
-              Access is invite-only. If your email isn&apos;t on the allowlist,
-              ask Kostiantyn to add it.
-            </p>
-          </div>
+          <AuthCard providers={providers} signupMode={signupMode} />
         </section>
 
         {/* Trust line */}
-        <section className="border-t border-border pt-6">
+        <section className="border-t border-border pt-6 space-y-2">
           <p className="font-mono text-[11px] text-dim leading-relaxed max-w-[640px]">
             No data leaves your browser before you sign in. Statements are parsed locally;
             only normalized events are stored.
+          </p>
+          <p className="font-mono text-[11px] text-dim">
+            <a href="/privacy" className="underline hover:text-muted">Privacy policy</a>
           </p>
         </section>
       </div>

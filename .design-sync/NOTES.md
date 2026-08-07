@@ -147,3 +147,9 @@ Two consequences:
 - **`guidelinesGlob` is pinned** to `.design-sync/guidelines/**/*.md`. The
   default (`docs/*.md`) swept this repo's German tax research into the design
   system, which is irrelevant to a design agent.
+
+## Re-sync gotchas (2026-07-21)
+
+- **esbuild postinstall is blocked by npm's allow-scripts policy.** After `(cd .ds-sync && npm i esbuild ts-morph @types/react)`, esbuild's platform binary is NOT fetched (`npm warn allow-scripts ... esbuild postinstall`). Run `(cd .ds-sync && npm rebuild esbuild)` before the driver, or the build fails at bundle time.
+- **No chromium in this environment** → `package-validate.mjs` emits `✗ [RENDER_SKIPPED]` and the driver verdict is `ok:false`. On a re-sync where `verification.changed`/`added`/`pendingGrade` are all empty (no render changed), this is safe to accept: the render hashes match the previously-verified anchor, so there is nothing new to verify. `[FONT_MISSING]` (Inter Tight / JetBrains Mono) is the standing non-blocking fallback.
+- **App-layer redesigns don't produce a design-system diff.** Restyling page-level compositions (positions/tax pages, detail panels, modals) leaves all `componentSrcMap` foundational components `unchanged`; a re-sync then uploads only build churn (CSS re-JIT `styling:true` + converter re-emit), never new component renders. To surface new UI in the DS, author `.design-sync/previews/*.tsx` for the new components first.

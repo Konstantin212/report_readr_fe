@@ -90,7 +90,7 @@ export function MembersManager({ initial }: { initial: AllowedEmailRow[] }) {
           disabled={pending}
           className="bg-mint text-bg font-mono text-[11px] uppercase tracking-widest px-4 py-2 rounded-md font-semibold disabled:opacity-50"
         >
-          {pending ? "Adding…" : "Invite"}
+          {pending ? "Adding…" : "Add"}
         </button>
       </form>
       {error && (
@@ -99,9 +99,7 @@ export function MembersManager({ initial }: { initial: AllowedEmailRow[] }) {
         </div>
       )}
       {rows.length === 0 ? (
-        <div className="text-muted text-sm">
-          No one invited yet. Add an email above and share <code className="text-mint">/sign-in</code> with them.
-        </div>
+        <div className="text-muted text-sm">No entries yet.</div>
       ) : (
         <div className="divide-y divide-border">
           {rows.map((r) => (

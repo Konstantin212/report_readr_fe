@@ -29,6 +29,17 @@ export async function getCurrentUser(): Promise<AppSessionUser | null> {
       return null;
     }
 
+    // AC-6 (email-verification-gate design doc §6): a session that
+    // exists but belongs to an unverified account must not pass this
+    // single choke point — closes the gap for a session created before
+    // this feature shipped (or one that slips through some other path).
+    // requireCurrentUser()'s existing redirect("/sign-in") on null
+    // already routes an unverified user to the (now hard-blocking)
+    // sign-in card, which offers resend.
+    if (session.user.emailVerified === false) {
+      return null;
+    }
+
     return {
       id: session.user.id,
       email: session.user.email,

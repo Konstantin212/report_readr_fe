@@ -1,6 +1,7 @@
 import { desc } from "drizzle-orm";
 import { requireCurrentUser } from "@/lib/auth/server";
 import { isAdminEmail } from "@/lib/auth/admin";
+import { getSignupMode } from "@/lib/auth/signup-mode";
 import { getSettings } from "@/lib/data/settings";
 import { getDb } from "@/lib/db/client";
 import { allowedEmails } from "@/lib/db/schema";
@@ -26,6 +27,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
   const params = await searchParams;
   const section = params.section ?? "brokers";
   const isAdmin = isAdminEmail(user.email);
+  const signupMode = getSignupMode();
   const members = isAdmin && section === "members"
     ? await getDb().select().from(allowedEmails).orderBy(desc(allowedEmails.addedAt))
     : [];
@@ -145,7 +147,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
                 <div>
                   <div className="font-semibold text-base">Members</div>
                   <div className="font-mono text-[11px] text-muted mt-1">
-                    Emails allowed to sign in to this workspace. Add a friend&apos;s Google account here, then share the sign-in link with them.
+                    {signupMode === "open"
+                      ? "Sign-up is currently open to anyone — this allowlist has no effect until restricted mode is enabled (AUTH_SIGNUP_MODE=restricted)."
+                      : "Sign-up is restricted — only emails listed here (or in AUTHORIZED_EMAILS) can sign up or sign in."}
                   </div>
                 </div>
                 <div className="font-mono text-[10px] text-amber tracking-wider">ADMIN ONLY</div>

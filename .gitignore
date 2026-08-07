@@ -55,3 +55,9 @@ ds-bundle/                    # generated upload bundle
 .design-sync/.cache/          # compiled CSS, grades, remote anchor — machine state
 .design-sync/learnings/       # subagent fan-out scratch, folded into NOTES.md
 .design-sync/node_modules     # fork symlink, recreated per clone
+
+# design-sync converter scratch (staged scripts, build output, caches)
+/.ds-sync/
+/ds-bundle/
+/.design-sync/.cache/
+/.design-sync/learnings/

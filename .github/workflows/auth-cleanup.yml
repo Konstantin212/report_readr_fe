@@ -1,0 +1,63 @@
+name: Auth cleanup (abandoned signups)
+
+# Vercel Hobby caps cron jobs at one run per day, and this job only
+# needs to run once a day anyway (design doc §18/§24: expired
+# password-reset tokens + 6-month-abandoned, never-verified, zero-data
+# signups). Mirrors the quotes-refresh.yml pattern: GitHub Actions hits
+# our existing /api/cron/auth-cleanup endpoint on a schedule.
+#
+# Required setup (one-time, on the GitHub repo):
+#   Settings → Secrets and variables → Actions
+#     Secrets:
+#       CRON_SECRET            same value as Vercel's CRON_SECRET env
+#     Variables:
+#       VERCEL_PRODUCTION_URL  https://<your-project>.vercel.app
+#
+# AUTH_CLEANUP_DELETE_ENABLED (Vercel env) gates whether abandoned
+# accounts are actually deleted or only logged (dry-run) — see
+# src/app/api/cron/auth-cleanup/route.ts and design doc §23/§24.
+# Expired verification (password-reset token) rows are always deleted
+# regardless of that flag; only the abandoned-*account* deletion is
+# gated.
+#
+# Cost: a few seconds per run × 1 run/day. Negligible against GitHub
+# Actions' 2000 min/month free quota for private repos.
+
+on:
+  schedule:
+    # Once daily, 03:17 UTC — off-peak, deliberately not on the hour to
+    # avoid piling onto other scheduled jobs' minute-0 traffic.
+    - cron: "17 3 * * *"
+  workflow_dispatch:  # manual trigger from the Actions UI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Hit /api/cron/auth-cleanup
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PRODUCTION_URL: ${{ vars.VERCEL_PRODUCTION_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret is not set on this repo"
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "::error::VERCEL_PRODUCTION_URL variable is not set on this repo"
+            exit 1
+          fi
+          # -f fails the step on non-2xx so a 401/500 surfaces as a red
+          # workflow run instead of silently succeeding.
+          response=$(curl -sS -f \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$PRODUCTION_URL/api/cron/auth-cleanup")
+          echo "Response: $response"
