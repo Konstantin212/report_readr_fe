@@ -45,7 +45,7 @@ importers:
         specifier: ^0.451.0
         version: 0.451.0(react@19.2.6)
       next:
-        specifier: ^15.1.0
+        specifier: '>=15.2.3 <16.0.0'
         version: 15.5.18(@playwright/test@1.60.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react:
         specifier: ^19.0.0

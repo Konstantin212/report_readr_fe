@@ -6,8 +6,10 @@ import { TourTrigger } from "@/components/onboarding/tour-host";
 
 export function Topbar({
   user,
+  isAdmin = false,
 }: {
   user: { name?: string | null; email?: string | null; image?: string | null } | null;
+  isAdmin?: boolean;
 }) {
   return (
     <header className="sticky top-0 z-20 -mx-3 sm:-mx-5 lg:-mx-7 px-3 sm:px-5 lg:px-7 mb-7 flex items-center gap-6 bg-bg/[.86] backdrop-blur-[14px] border-b border-border py-3">
@@ -21,7 +23,7 @@ export function Topbar({
       <div className="ml-auto flex items-center gap-2">
         <BrokerFilter />
         <TourTrigger />
-        <UserMenu name={user?.name} email={user?.email} />
+        <UserMenu name={user?.name} email={user?.email} isAdmin={isAdmin} />
       </div>
     </header>
   );

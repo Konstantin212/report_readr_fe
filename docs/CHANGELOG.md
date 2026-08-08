@@ -6,6 +6,126 @@ driving spec/plan (see the `documentation-standards` skill's changelog
 rules). This file is history, not the source of truth for current
 behavior — for that, follow the links into `docs/INDEX.md`.
 
+## 2026-08-08 — Role System & Admin Panel (DB-backed roles, user management, impersonation, deletion-as-erasure)
+
+**What:** Replaces the ad-hoc "is this route reachable" story for a brand
+new admin panel with a durable, per-user role and a full management UI:
+
+- **DB-backed role** (`src/lib/db/schema.ts`): new `role`, `banned`,
+  `banReason`, `banExpires` columns on `user`, plus `impersonatedBy` on
+  `session`, added via better-auth's own `admin` plugin
+  (`src/lib/auth/setup.ts`, `admin({ defaultRole: "user", adminRoles:
+  ["admin"], allowImpersonatingAdmins: false, impersonationSessionDuration:
+  1800 })`). New sign-ups get `role: "user"` explicitly written in the
+  existing `databaseHooks.user.create.before` hook, not left to the
+  plugin's own default-role behavior, so default-deny holds regardless of
+  better-auth's internal hook-merge order. `role: NULL` (every pre-existing
+  row, until the bootstrap step below runs) reads as non-admin with no
+  special-case code.
+- **New `/admin` panel** (`src/app/(app)/admin/**`,
+  `src/app/api/admin/panel/**`), gated by a single choke point,
+  `requireAdminUser()`/`requireAdminApi()` (`src/lib/auth/require-admin.ts`)
+  — called first-line in every admin page and every admin API route, not
+  just the shared layout (a layout wraps pages, not API routes). An
+  automated coverage test (`tests/admin/route-guard-coverage.test.ts`)
+  greps both route trees so a future route that forgets the guard fails CI
+  instead of shipping unguarded.
+  - **User list:** signup date, whether the user has at least one
+    successful `imports` row ("did they upload something"), paginated.
+  - **User detail / edit:** name, email, role. Editing email flips
+    `emailVerified` back to `false`, sends a fresh verification email, and
+    revokes the target's other sessions — an admin-set email is treated the
+    same as any other untrusted input, never auto-trusted-verified.
+  - **Delete:** hard-deletes the `user` row behind a type-the-email
+    confirmation step; the pre-existing `onDelete: cascade` FKs on all 13
+    owner-scoped tables (plus `session`/`account`) do the rest atomically,
+    in one statement (`src/lib/data/admin-mutations.ts`) — no new
+    application-level fan-out delete logic.
+  - **Impersonate:** uses better-auth's own cookie-swap session mechanism
+    (`auth.api.impersonateUser`/`stopImpersonating`) rather than hand-rolled
+    session forgery; 30-minute bounded duration, persistent
+    non-dismissible banner for the whole duration
+    (`src/components/admin/impersonation-banner.tsx`), explicit exit at any
+    time.
+  - **Last-admin protection** (`src/lib/data/admin-guard.ts`): demoting or
+    deleting the sole remaining admin is rejected via a single
+    atomic SQL `WHERE`/`EXISTS` predicate (this DB driver,
+    `drizzle-orm/neon-http`, has no transaction support, so the guard has
+    to be baked into the statement itself, matching the existing
+    `auth-cleanup.ts` precedent) — not a separate check-then-act call that
+    could race.
+- **New `admin_audit_log` table** (`src/lib/data/admin-audit-log.ts`):
+  append-only; one row per `ACCOUNT_DELETE`, `ACCOUNT_EDIT`,
+  `IMPERSONATION_START`, `IMPERSONATION_END`. Data-minimized by design —
+  actor and target identity (id + email snapshot) and a small structured
+  diff only, no IP address, no session token, no free-text notes field.
+- **Legacy admin gate untouched:** `src/lib/auth/admin.ts`'s
+  `isAdminEmail()`/`ADMIN_EMAILS` env-var mechanism is **not** removed or
+  replaced — it continues to separately gate the pre-existing
+  `/api/admin/allowlist*`, `/api/admin/refresh-quotes`,
+  `/api/admin/backfill-fx`, `/api/admin/backfill-history` routes and
+  Settings → Members. The new `role` column is a second, independent admin
+  concept for the new panel only; the two do not interact. The one place
+  they touch is `scripts/bootstrap-admin-roles.ts` (new, one-off), which
+  reads `ADMIN_EMAILS` once to backfill `role = 'admin'` for existing
+  admins after the migration lands.
+
+**Two product decisions made explicitly on 2026-08-08 (not defaults, not
+architect/developer assumptions):**
+
+1. **Impersonation is full session parity with the target user, by
+   design.** Not a restricted "view-only" mode — an impersonating admin can
+   do anything the target could do in their own ordinary session. The only
+   remaining limits are structural, not policy: an impersonated session can
+   never reach the admin panel itself (its `role` is the *target's* role),
+   which also makes nested impersonation impossible regardless of the
+   target's actual role; and account deletion still isn't reachable via
+   impersonation, only because no self-service deletion flow exists for
+   regular users at all.
+2. **Admin-triggered deletion is the app's GDPR Art. 17 erasure mechanism**
+   for this app — not a separate or future feature, and not "purely admin
+   housekeeping." This corrects the 2026-08-05 entry below, which stated
+   erasure was contact-based only; see that entry's superseding note and
+   the data-lifecycle doc's new §AC-28.4 for the still-open follow-on gaps
+   this designation does **not** close (no confirmation-back-to-user step,
+   third-party processor data (Resend, Vercel Analytics) not reached,
+   statutory tax-record-retention tension unresolved).
+
+**Why:** The pre-existing `ADMIN_EMAILS` allowlist could only be changed by
+a redeploy and had no user-management surface at all (no list, no edit, no
+delete, no impersonate) — unworkable once the app has more than a handful
+of hand-managed users, and blocking the promote/demote and audit-trail
+requirements this feature was actually built for.
+
+**Status: implemented and tested — not yet deployed.** Both remaining steps
+are deploy-time, not code, and have **not** been run against any database in
+this sandbox:
+
+- `drizzle/0013_amused_roughhouse.sql` (the schema migration) has not been
+  applied to any database yet.
+- `scripts/bootstrap-admin-roles.ts` (the one-off role-backfill script) has
+  not been run against any real database yet.
+
+Until both run, `role` is `NULL` for every existing row (zero admins),
+which is safe — the panel isn't reachable by anyone in that window since
+there's no admin yet to reach it — but it does mean this feature ships
+code-complete, not live.
+
+**Verification:** cleared `code-reviewer` (GO) and QA sign-off (GO). Test
+coverage includes `tests/admin/route-guard-coverage.test.ts` (AC-2.5's
+"every route independently guarded" requirement), `tests/data/admin-guard.test.ts`
+(last-admin atomic predicate), `tests/data/admin-audit-log.test.ts`,
+`tests/data/admin-users.test.ts`, `tests/data/admin-mutations.test.ts`,
+`tests/auth/admin-nav-context.test.ts`, `tests/api/admin-panel-users-id.test.ts`,
+and `tests/api/admin-panel-impersonate.test.ts`, alongside the pre-existing
+`tests/auth/admin.test.ts` for the untouched legacy gate.
+
+See [AC doc](superpowers/specs/2026-08-08-admin-panel-ac.md) and
+[design spec](superpowers/specs/2026-08-08-admin-panel-design.md). GDPR
+data-lifecycle impact folded into
+[data-lifecycle doc](superpowers/specs/2026-08-05-open-signup-data-lifecycle.md)
+(new §AC-28.4).
+
 ## 2026-08-07 — Vercel Web Analytics custom-event tracking
 
 **What:** Added lightweight, privacy-minimizing custom-event usage
@@ -209,7 +329,12 @@ suites (`allowlist.test.ts`, `admin.test.ts`, `provider-visibility.test.ts`,
 - No self-service account-deletion UI exists yet; erasure is still
   contact-based only (the `auth-cleanup` cron's abandoned-account sweep
   covers a narrow, never-verified/zero-data case, not user-initiated
-  deletion).
+  deletion). **Superseded 2026-08-08:** this line is no longer accurate —
+  the Role System & Admin Panel entry below adds admin-triggered account
+  deletion, which product has designated as the app's GDPR Art. 17 erasure
+  mechanism going forward. Kept here as the historical record of the state
+  as of 2026-08-05, not current behavior; there is still no *self-service*
+  (user-initiated) deletion flow — an admin must act.
 - No e2e coverage for the new sign-in/reset-password pages: this repo has
   no jsdom/`@testing-library/react` setup (`vitest.config.ts` runs
   `environment: "node"`) and no Playwright specs for these routes yet;

@@ -77,6 +77,35 @@ describe("auth setup (smoke)", () => {
     expect(Object.keys(hooks.user.create).sort()).toEqual(["after", "before"]);
   });
 
+  it("registers the admin plugin (admin-panel design §3.3) alongside the existing signupAttemptExchange plugin", async () => {
+    const { auth } = await import("@/lib/auth/setup");
+    const options = auth.options as unknown as { plugins?: Array<{ id: string }> };
+    const pluginIds = (options.plugins ?? []).map((p) => p.id);
+    expect(pluginIds).toContain("admin");
+    // The default-deny guarantee itself is asserted below via the
+    // explicit databaseHooks.user.create.before behavior, which does
+    // NOT rely on the plugin's own hook-merge order (see setup.ts's
+    // doc-comment for why that would be untrustworthy on its own).
+  });
+
+  it("user.create.before writes role: \"user\" explicitly when absent, never trusting hook-merge order (admin-panel design §3.3)", async () => {
+    const { auth } = await import("@/lib/auth/setup");
+    const options = auth.options as unknown as {
+      databaseHooks: { user: { create: { before: (u: Record<string, unknown>) => Promise<{ data: Record<string, unknown> }> } } };
+    };
+    const before = options.databaseHooks.user.create.before;
+
+    // No role supplied at all (the common case for every brand-new
+    // sign-up) — must default to "user", not be left undefined/null.
+    const noRole = await before({ email: "allowed@example.com" });
+    expect(noRole.data.role).toBe("user");
+
+    // If something upstream (e.g. a hypothetical future plugin ordering)
+    // already set a role, this hook must not clobber it.
+    const alreadyAdmin = await before({ email: "allowed@example.com", role: "admin" });
+    expect(alreadyAdmin.data.role).toBe("admin");
+  });
+
   it("nulls out OAuth tokens on account.create.before but leaves credential accounts alone (§24)", async () => {
     const { auth } = await import("@/lib/auth/setup");
     const options = auth.options as unknown as {

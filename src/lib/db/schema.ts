@@ -13,6 +13,13 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+export const adminActionEnum = pgEnum("admin_action", [
+  "ACCOUNT_DELETE",
+  "ACCOUNT_EDIT",
+  "IMPERSONATION_START",
+  "IMPERSONATION_END",
+]);
+
 export const brokerEnum = pgEnum("broker", [
   "INTERACTIVE_BROKERS",
   "FREEDOM_FINANCE",
@@ -75,6 +82,25 @@ export const user = pgTable("user", {
   // entry in setup.ts hides it from every sign-up response shape,
   // genuine or synthetic-duplicate).
   signupAttemptId: text("signup_attempt_id"),
+  // Admin panel role system (admin-panel design doc §3.1). NULL for every
+  // pre-existing/non-admin account by construction — default-deny (AC-1.3):
+  // the admin check (lib/auth/require-admin.ts) treats anything other than
+  // the literal string "admin" as non-admin, so NULL, "user", or an
+  // unrecognized future value are all equally safe. New sign-ups get
+  // "user" written explicitly by the databaseHooks.user.create.before hook
+  // in lib/auth/setup.ts (do not rely on the admin plugin's own
+  // default-role hook for this guarantee — see setup.ts's doc-comment).
+  role: text("role"),
+  // better-auth admin plugin ban/suspend fields. Not exposed by any UI in
+  // this feature's v1 (design doc §12.3) but required by the plugin's own
+  // session middleware once registered — left unused/unexposed otherwise.
+  // `banned` is required NOT NULL (default false) per design doc §3.1 —
+  // the plugin's session middleware reads it unconditionally on every
+  // session check, so a NULL would be a footgun even though nothing else
+  // here writes to it yet.
+  banned: boolean("banned").notNull().default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires"),
 });
 
 export const session = pgTable("session", {
@@ -88,6 +114,11 @@ export const session = pgTable("session", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  // Set by better-auth's own impersonateUser endpoint (admin plugin) to
+  // the impersonating admin's user id; null in every normal session. An
+  // impersonated session's own `user`/`role` is the *target's*, not the
+  // admin's — see lib/auth/require-admin.ts.
+  impersonatedBy: text("impersonated_by"),
 });
 
 export const account = pgTable("account", {
@@ -553,4 +584,39 @@ export const instrumentMeta = pgTable("instrument_meta", {
   lastError: text("last_error"),
   scrapedAt: timestamp("scraped_at"), // last SUCCESSFUL enrichment
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/**
+ * Admin panel audit log (admin-panel design doc §3.4). Append-only,
+ * immutable — no update/delete path is ever exposed, matching this app's
+ * existing event-sourced-ledger philosophy (transactions/lots/
+ * realizedMatches are never mutated in place either). Records the four
+ * admin-panel action types: ACCOUNT_DELETE, ACCOUNT_EDIT,
+ * IMPERSONATION_START, IMPERSONATION_END.
+ *
+ * Data minimization (gdpr-compliance skill): stores only the
+ * email/role/name diff needed to answer "who did what to whom, when" —
+ * no IP address, no session token, no free-text notes field. `detail` is
+ * a small structured diff, never a dump of the full user row.
+ */
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  action: adminActionEnum("action").notNull(),
+  adminUserId: text("admin_user_id").references(() => user.id, { onDelete: "set null" }),
+  adminEmailSnapshot: text("admin_email_snapshot").notNull(),
+  // Deliberately NOT an FK to user.id at all (not even `onDelete: "set
+  // null"`) — a `set null` FK would still lose *which* account this row
+  // is about at delete time, and this log must outlive the very account
+  // deletion it documents (AC-4.5/5.6/6.4). Matches
+  // auth-cleanup.ts's precedent of never treating audit-trail rows as
+  // owner-scoped FK targets.
+  targetUserId: text("target_user_id").notNull(),
+  targetEmailSnapshot: text("target_email_snapshot").notNull(),
+  // Action-specific payload, e.g. { before: {name,email,role}, after: {...} }
+  // for ACCOUNT_EDIT; { plannedExpiresAt } for IMPERSONATION_START;
+  // { endReason: "EXITED" | "AUTO_EXPIRED" } for IMPERSONATION_END.
+  detail: jsonb("detail"),
+  // Links an IMPERSONATION_END row back to its IMPERSONATION_START row.
+  relatedActionId: uuid("related_action_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });

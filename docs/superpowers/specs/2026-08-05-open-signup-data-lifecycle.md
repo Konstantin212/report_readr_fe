@@ -36,6 +36,21 @@ inventory"), it is added below to AC-26 and AC-28 rather than filed as a
 separate doc, since it's the same "table/column data inventory" and
 "erasure/retention analysis" concept this file already owns.
 
+**Update (2026-08-08):** the Role System & Admin Panel feature
+(`docs/superpowers/specs/2026-08-08-admin-panel-ac.md`,
+`docs/superpowers/specs/2026-08-08-admin-panel-design.md`) ships the app's
+first UI-driven account-deletion path and, per explicit product sign-off on
+2026-08-08 (design doc §15), that admin-triggered deletion **is** the app's
+GDPR Art. 17 erasure mechanism — not a separate/future feature. This
+supersedes AC-28 §3's framing (and this doc's own § below, and
+`docs/CHANGELOG.md`'s 2026-08-05 entry) that erasure is "contact-based
+only." See the new AC-28 §4 below for the mechanism and its still-open
+gaps. This does not change anything about AC-25/26/27/29 above — no new
+sign-up-flow tables or third-party processors are introduced by the admin
+panel feature itself (its own new table, `admin_audit_log`, is documented
+in the admin-panel design doc §3.4, not here, since it is not part of the
+sign-up data flow this doc inventories).
+
 ---
 
 ## AC-25: process inventory (sign-up, OAuth sign-up, email verification, password reset, admin allowlist toggle)
@@ -307,6 +322,52 @@ real financial/tax rows is excluded from auto-deletion in the first place,
 so this tension is about a currently-nonexistent manual/self-service
 erasure path for *verified* users with real data, not about the abandoned-
 account sweep.)
+
+### 4. Admin-triggered account deletion — the GDPR Art. 17 erasure path (added 2026-08-08)
+
+Per the 2026-08-08 update note above, the Role System & Admin Panel feature
+adds a `DELETE` action, reachable only by an admin at `/admin/users/[id]`,
+that hard-deletes the target's `user` row. Because the same 13 owner-scoped
+tables enumerated in §3 above (plus `session`/`account`) already carry
+`onDelete: "cascade"` FKs to `user.id`, this single deletion statement
+removes **all** of a user's data — auth records and financial/tax data
+alike, verified and never-verified accounts alike — in one atomic step (see
+admin-panel design doc §7.3). This is a materially different scope from the
+§3 sweep above: §3 only ever touches never-verified, zero-owned-data
+accounts after 6 months; this path can delete any account, including one
+with real financial/tax history, at an admin's discretion, immediately.
+
+- **Deliberately manual, not self-service.** There is still no flow for a
+  user to delete their own account or submit an in-app erasure request (AC
+  doc §2, "out of scope"); an admin must act. What changes is that when an
+  admin does act — including in response to a user's erasure request
+  received by whatever contact channel is used today — this deletion now
+  **is** the canonical, complete erasure mechanism, not a partial one
+  layered on top of a separate "contact-based" process.
+- **Logged, not silent.** Every deletion writes an `admin_audit_log` row
+  (`ACCOUNT_DELETE`: actor, target email snapshot, timestamp — see
+  admin-panel design doc §3.4) before the target's own identity is gone
+  from the `user` table, satisfying an accountability requirement this
+  app's data-lifecycle story didn't previously have for erasure events.
+- **Gaps carried forward, not resolved by this feature (design doc §12.2,
+  restated as still-open here):**
+  - **No confirmation loop back to the requesting data subject.** Nothing
+    in this feature emails the user to confirm erasure completed — that is
+    still a manual step for whoever is handling the request.
+  - **Third-party processors are not touched.** Resend's own send/delivery
+    logs and Vercel Analytics events tied to the deleted user's activity
+    are not reached by this deletion. Whether this matters in practice is
+    unverified (same open item as AC-27 above) — flagged, not
+    investigated.
+  - **The statutory tax-record-keeping tension noted just above (§3's
+    cross-reference) applies here with more force, not less:** unlike the
+    §3 sweep (which only ever targets zero-data accounts), this path lets
+    an admin delete an account that *does* have real tax/financial
+    history. Whether German tax-record retention law constrains when an
+    admin should exercise this action is a legal question this doc does
+    not resolve — it is restated here because this feature makes the
+    conflict directly reachable via a UI action for the first time, not
+    just a theoretical schema-level possibility.
 
 ---
 

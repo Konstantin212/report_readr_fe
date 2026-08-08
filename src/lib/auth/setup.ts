@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { admin } from "better-auth/plugins/admin";
 
 import { isEmailAllowedToSignIn } from "./allowlist";
 import { getSignupMode } from "./signup-mode";
@@ -146,7 +147,18 @@ export const auth = betterAuth({
             throw new Error("Email is not authorized for this private app.");
           }
 
-          return { data: user };
+          // admin-panel design doc §3.3: the admin plugin's own init()
+          // *also* contributes a databaseHooks.user.create.before that
+          // sets `role: options.defaultRole ?? "user"`. Whether
+          // better-auth threads that plugin-contributed hook's output
+          // into this app-supplied hook's input (so `user.role` would
+          // already be "user" here) is an implementation detail we
+          // shouldn't trust blind for an AC-1.3 (default-deny)
+          // guarantee. Set it explicitly, preserving any role already
+          // present (e.g. one set by the plugin hook, or by the
+          // bootstrap-admin-roles.ts script re-running against an
+          // existing row) rather than clobbering it.
+          return { data: { ...user, role: user.role ?? "user" } };
         },
         // Design doc §2.2/§9 build step 3: binds the cross-device
         // correlation id to the just-created user. Only ever fires when
@@ -181,5 +193,24 @@ export const auth = betterAuth({
   },
   // Cross-device sign-up session-grant exchange endpoint (AC-13/AC-14) —
   // see signup-attempt-plugin.ts and design doc §2.2.
-  plugins: [signupAttemptExchange()],
+  //
+  // admin-panel design doc §0/§3.3: adopts `better-auth/plugins/admin`
+  // narrowly, for its `role` column concept and its impersonation
+  // session-swap mechanism only — list/edit/delete go through hand-rolled
+  // Drizzle queries under our own guard instead of the plugin's generic
+  // REST endpoints (see lib/data/admin-users.ts, lib/auth/require-admin.ts,
+  // app/api/admin/panel/**). `allowImpersonatingAdmins: false` means the
+  // plugin itself refuses to let an admin impersonate another admin.
+  // `impersonationSessionDuration: 1800` (30 min) is deliberately shorter
+  // than this app's other 1-hour financial/tax-facing token TTLs — an
+  // impersonated session is a higher-privilege, more sensitive state.
+  plugins: [
+    signupAttemptExchange(),
+    admin({
+      defaultRole: "user",
+      adminRoles: ["admin"],
+      allowImpersonatingAdmins: false,
+      impersonationSessionDuration: 1800,
+    }),
+  ],
 });

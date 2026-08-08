@@ -7,9 +7,14 @@ import { authClient } from "@/lib/auth/client";
 export function UserMenu({
   name,
   email,
+  isAdmin = false,
 }: {
   name?: string | null;
   email?: string | null;
+  /** AC-2.4: only render the admin-panel link for admin sessions —
+   *  the actual enforcement is server-side (requireAdminUser()); this
+   *  is UI-only, hiding the entry point for everyone else. */
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -75,6 +80,17 @@ export function UserMenu({
             <span className="font-mono text-mint">◐</span>
             <span>Settings</span>
           </Link>
+          {isAdmin && (
+            <Link
+              href={"/admin" as never}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] text-ink hover:bg-panel2"
+              role="menuitem"
+            >
+              <span className="font-mono text-amber">◆</span>
+              <span>Admin panel</span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={signOut}
