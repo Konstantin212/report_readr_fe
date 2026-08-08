@@ -3,7 +3,7 @@ import type { VercelConfig } from '@vercel/config/v1';
 export const config: VercelConfig = {
   framework: 'nextjs',
   installCommand: 'npx pnpm@9.15.0 install --frozen-lockfile',
-  buildCommand: 'pnpm build',
+  buildCommand: 'sh scripts/vercel-build.sh',
   // Pin the function region to Frankfurt — closer to the user (Germany)
   // than the default iad1 (Washington DC). Cuts browser↔Vercel RTT from
   // ~200 ms each way to ~30 ms; that alone shaves ~350 ms off every
