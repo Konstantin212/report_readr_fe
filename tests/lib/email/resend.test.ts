@@ -98,3 +98,19 @@ describe("sendEmail", () => {
     ).rejects.toThrow(/network down/);
   });
 });
+
+describe("sendEmail replyTo", () => {
+  it("passes replyTo through to Resend when provided", async () => {
+    sendMock.mockResolvedValue({ data: { id: "x" }, error: null });
+    const { sendEmail } = await importFresh();
+    await sendEmail({ to: "a@b.c", subject: "s", html: "<p>h</p>", replyTo: "user@x.com" });
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ replyTo: "user@x.com" }));
+  });
+
+  it("omits replyTo when not provided", async () => {
+    sendMock.mockResolvedValue({ data: { id: "x" }, error: null });
+    const { sendEmail } = await importFresh();
+    await sendEmail({ to: "a@b.c", subject: "s", html: "<p>h</p>" });
+    expect(sendMock.mock.calls[0][0].replyTo).toBeUndefined();
+  });
+});

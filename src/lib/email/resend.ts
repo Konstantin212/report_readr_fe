@@ -33,6 +33,7 @@ export interface SendEmailInput {
   to: string;
   subject: string;
   html: string;
+  replyTo?: string;
 }
 
 /**
@@ -43,14 +44,14 @@ export interface SendEmailInput {
  * (better-auth's `sendVerificationEmail`/`sendResetPassword` hooks) need
  * to know if a transactional email failed to send.
  */
-export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<void> {
+export async function sendEmail({ to, subject, html, replyTo }: SendEmailInput): Promise<void> {
   const from = process.env.RESEND_FROM_EMAIL;
   if (!from) {
     throw new Error("RESEND_FROM_EMAIL is not set.");
   }
 
   const resend = getResendClient();
-  const { error } = await resend.emails.send({ from, to, subject, html });
+  const { error } = await resend.emails.send({ from, to, subject, html, replyTo });
 
   if (error) {
     throw new Error(`Failed to send email via Resend: ${error.message}`);
