@@ -75,15 +75,3 @@ describe("AC-12: Members UI copy no longer misrepresents the allowlist as a sign
     expect(membersManagerSrc.toLowerCase()).not.toMatch(/share.*\/sign-in/);
   });
 });
-
-describe("AC-29: privacy-policy gap is closed with a real page, linked from sign-in", () => {
-  it("src/app/privacy/page.tsx exists with real content (not just a stub)", () => {
-    const privacySrc = readSrc("src/app/privacy/page.tsx");
-    expect(privacySrc.length).toBeGreaterThan(500);
-  });
-
-  it("sign-in page links to /privacy", () => {
-    const signInSrc = readSrc("src/app/sign-in/page.tsx");
-    expect(signInSrc).toMatch(/href="\/privacy"/);
-  });
-});

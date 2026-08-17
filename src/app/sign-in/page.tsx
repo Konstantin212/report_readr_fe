@@ -102,9 +102,6 @@ export default function SignIn() {
             No data leaves your browser before you sign in. Statements are parsed locally;
             only normalized events are stored.
           </p>
-          <p className="font-mono text-[11px] text-dim">
-            <a href="/privacy" className="underline hover:text-muted">Privacy policy</a>
-          </p>
         </section>
       </div>
     </main>
