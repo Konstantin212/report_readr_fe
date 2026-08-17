@@ -22,6 +22,19 @@ export function FeedbackModal({ open, onClose }: { open: boolean; onClose: () =>
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
+  // The modal stays mounted (only the `open` prop toggles rendering), so
+  // reset the form each time it opens — otherwise a prior "sent" status
+  // sticks and every reopen shows "Thanks!" instead of a fresh form.
+  // Keyed on `open` only: keying on `onClose` (a fresh arrow each render
+  // from the trigger) would re-run on every render and wipe mid-typing.
+  useEffect(() => {
+    if (!open) return;
+    setCategory("bug");
+    setMessage("");
+    setStatus("idle");
+    setError(null);
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -102,7 +115,7 @@ export function FeedbackModal({ open, onClose }: { open: boolean; onClose: () =>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value as FeedbackCategory)}
-                className="w-full bg-bg border-border rounded-lg px-3 py-2 text-sm"
+                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm"
               >
                 {FEEDBACK_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -120,11 +133,15 @@ export function FeedbackModal({ open, onClose }: { open: boolean; onClose: () =>
                 required
                 maxLength={5000}
                 rows={5}
-                className="w-full bg-bg border-border rounded-lg px-3 py-2 text-sm resize-y"
+                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm resize-y"
               />
             </label>
 
-            {error && <p className="text-sm text-pink">{error}</p>}
+            {error && (
+              <p className="text-sm text-pink" role="alert" aria-live="polite">
+                {error}
+              </p>
+            )}
 
             <button
               type="submit"
