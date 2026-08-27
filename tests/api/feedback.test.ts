@@ -78,6 +78,41 @@ describe("POST /api/feedback", () => {
     expect(arg.subject).toBe("[Bug] Feedback from Jane");
   });
 
+  it("honours a submitted subject and contact email", async () => {
+    mockGetCurrentUser.mockResolvedValue({ id: "u1", email: "jane@x.com", name: "Jane" });
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      postRequest({
+        category: "idea",
+        subject: "Add CSV export",
+        contactEmail: "jane.work@x.com",
+        message: "please",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const arg = mockSendEmail.mock.calls[0][0];
+    expect(arg.subject).toBe("[Idea] Add CSV export");
+    expect(arg.replyTo).toBe("jane.work@x.com");
+  });
+
+  it("400 on a malformed contact email; does not send", async () => {
+    mockGetCurrentUser.mockResolvedValue({ id: "u1", email: "j@x.com" });
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(postRequest({ category: "bug", message: "hi", contactEmail: "nope" }));
+    expect(res.status).toBe(400);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("accepts blank subject/contactEmail from the form as absent", async () => {
+    mockGetCurrentUser.mockResolvedValue({ id: "u1", email: "j@x.com", name: "J" });
+    const { POST } = await import("@/app/api/feedback/route");
+    const res = await POST(
+      postRequest({ category: "bug", subject: "", contactEmail: "", message: "hi" }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockSendEmail.mock.calls[0][0].replyTo).toBe("j@x.com");
+  });
+
   it("does not pass the raw message as unescaped HTML", async () => {
     mockGetCurrentUser.mockResolvedValue({ id: "u1", email: "j@x.com", name: "J" });
     const { POST } = await import("@/app/api/feedback/route");

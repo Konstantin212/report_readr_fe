@@ -8,7 +8,7 @@ import { FeedbackModal } from "./feedback-modal";
  * Topbar button that opens the feedback modal. Own client leaf so only
  * the open/close state is client-side (the topbar stays a server component).
  */
-export function FeedbackTrigger() {
+export function FeedbackTrigger({ accountEmail }: { accountEmail?: string | null }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -19,7 +19,11 @@ export function FeedbackTrigger() {
       >
         Feedback
       </button>
-      <FeedbackModal open={open} onClose={() => setOpen(false)} />
+      <FeedbackModal
+        open={open}
+        onClose={() => setOpen(false)}
+        accountEmail={accountEmail}
+      />
     </>
   );
 }

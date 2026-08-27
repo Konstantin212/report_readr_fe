@@ -23,7 +23,7 @@ export function Topbar({
       </div>
       <div className="ml-auto flex items-center gap-2">
         <BrokerFilter />
-        <FeedbackTrigger />
+        <FeedbackTrigger accountEmail={user?.email} />
         <TourTrigger />
         <UserMenu name={user?.name} email={user?.email} isAdmin={isAdmin} />
       </div>

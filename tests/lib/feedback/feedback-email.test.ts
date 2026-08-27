@@ -21,6 +21,41 @@ describe("feedbackSchema", () => {
   it("rejects an over-length message", () => {
     expect(feedbackSchema.safeParse({ category: "bug", message: "x".repeat(5001) }).success).toBe(false);
   });
+
+  it("treats blank subject/contactEmail as absent rather than invalid", () => {
+    const parsed = feedbackSchema.safeParse({
+      category: "bug",
+      message: "hi",
+      subject: "   ",
+      contactEmail: "",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.subject).toBeUndefined();
+    expect(parsed.success && parsed.data.contactEmail).toBeUndefined();
+  });
+
+  it("rejects a malformed contact email", () => {
+    expect(
+      feedbackSchema.safeParse({ category: "bug", message: "hi", contactEmail: "nope" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an over-length subject", () => {
+    expect(
+      feedbackSchema.safeParse({ category: "bug", message: "hi", subject: "x".repeat(151) })
+        .success,
+    ).toBe(false);
+  });
+
+  it("collapses CR/LF in the subject so headers cannot be injected", () => {
+    const parsed = feedbackSchema.safeParse({
+      category: "bug",
+      message: "hi",
+      subject: "hello\r\nBcc: attacker@evil.com",
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.subject).toBe("hello Bcc: attacker@evil.com");
+  });
 });
 
 describe("composeFeedbackEmail", () => {
@@ -44,6 +79,25 @@ describe("composeFeedbackEmail", () => {
       user: { id: "u2", email: "no-name@example.com" },
     });
     expect(out.subject).toBe("[Idea] Feedback from no-name@example.com");
+  });
+
+  it("uses the submitted subject after the category prefix when one is given", () => {
+    const out = composeFeedbackEmail({
+      input: { category: "idea", subject: "Dark mode for exports", message: "hi" },
+      user,
+    });
+    expect(out.subject).toBe("[Idea] Dark mode for exports");
+  });
+
+  it("replies to the nominated contact email and records it in the body", () => {
+    const out = composeFeedbackEmail({
+      input: { category: "bug", message: "hi", contactEmail: "other@example.com" },
+      user,
+    });
+    expect(out.replyTo).toBe("other@example.com");
+    expect(out.html).toContain("other@example.com");
+    // The account address is still shown, so the sender stays unambiguous.
+    expect(out.html).toContain("jane@example.com");
   });
 
   it("HTML-escapes the message so injected markup cannot break out", () => {
