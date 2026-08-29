@@ -6,6 +6,22 @@ below and agents hand off work through files on disk (AC docs, design docs,
 diffs, test reports). **Subagents do not call other subagents** — only the
 conductor (this session) dispatches agents.
 
+**Every agent hands off through a file, including the read-only ones.** An
+agent whose deliverable is a judgment rather than a diff (`code-reviewer`,
+`tax-advisor`) still writes it to a named file — a review or findings doc
+under `docs/superpowers/specs/` — because an agent's chat report is lost if
+its session ends, and the conductor cannot act on findings it never
+received. Name the output path in the dispatch prompt.
+
+**The conductor orchestrates; it does not implement.** Every stage of a
+workflow below belongs to its named agent — the conductor reads hand-off
+files, sequences the next agent, and relays outcomes, but does not write
+source, tests, or docs itself. This holds even when the conductor already
+has the context and the edit looks trivial, and even when an agent fails
+part-way through a stage: spawn a replacement for the remaining work and
+say so, rather than absorbing the stage. Inline work by the conductor
+requires an explicit request from the user.
+
 ## 1. Project & stack
 
 German investment-tax reporting app (Freedom Finance / IBKR statement
