@@ -60,7 +60,7 @@ export function CryptoCard({ summary }: { summary: CryptoSummary }) {
         <div>
           <div className="font-mono text-[10px] text-muted uppercase tracking-widest">Realized {summary.realizedYtd.year}</div>
           <div className={`font-bold text-[28px] num tracking-tight mt-1 ${summary.realizedYtd.shortTermGainEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {summary.realizedYtd.shortTermGainEur >= 0 ? "+" : "−"}{fmtEur(Math.abs(summary.realizedYtd.shortTermGainEur))}
+            {fmtEur(summary.realizedYtd.shortTermGainEur)}
           </div>
           <div className="font-mono text-[10px] text-muted mt-1">
             §23 short-term · {summary.realizedYtd.matchCount} match{summary.realizedYtd.matchCount === 1 ? "" : "es"}

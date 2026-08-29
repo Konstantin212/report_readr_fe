@@ -66,7 +66,7 @@ export function Heatmap({ rows, hideEmpty = true }: { rows: HeatmapRow[]; hideEm
                     color: isEmpty ? "rgba(236,238,242,0.25)" : fg,
                   }}
                 >
-                  {isEmpty ? "" : (v >= 0 ? "+" : "") + (v * 100).toFixed(1)}
+                  {isEmpty ? "" : Math.abs(v * 100).toFixed(1)}
                 </div>
               );
             })}
@@ -90,5 +90,5 @@ function labelMonth(year: number, m: number) {
   return `${short} '${String(year).slice(-2)}`;
 }
 function fmt(v: number) {
-  return (v >= 0 ? "+" : "") + (v * 100).toFixed(1) + "%";
+  return Math.abs(v * 100).toFixed(1) + "%";
 }

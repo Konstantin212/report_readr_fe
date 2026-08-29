@@ -21,7 +21,7 @@ export function SectorContributionBars({ bars }: { bars: SectorBar[] }) {
                 <span className="text-dim text-[10px] ml-1">{row.topSymbols.slice(0, 3).join(", ")}</span>
               </span>
               <span className={`font-semibold ${positive ? "text-mint" : "text-bad"}`}>
-                {(positive ? "+" : "") + row.pctOfTotal.toFixed(1)}%
+                {Math.abs(row.pctOfTotal).toFixed(1)}%
               </span>
             </div>
             <div className="flex items-center h-1.5 bg-white/5 rounded-full">

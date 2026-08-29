@@ -1,7 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import { fmtEur } from "@/lib/format";
+import { fmtEur, fmtPl } from "@/lib/format";
 import type { RealizedLot } from "./realized-lots-table";
 
 const GRID_COLS = "1.2fr .7fr .8fr 1fr 1fr 1fr";
@@ -103,7 +103,7 @@ export function RealizedTradesModal({
                 {fmtEur(l.proceedsEur)}
               </span>
               <span className={`font-mono text-[14px] font-semibold text-right ${l.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {fmtEur(l.gainEur, { sign: true })}
+                {fmtPl(l.gainEur)}
               </span>
             </div>
           ))}
@@ -121,7 +121,7 @@ export function RealizedTradesModal({
             {fmtEur(totals.proceedsEur)}
           </span>
           <span className={`font-mono text-[15px] font-bold text-right ${totals.netRealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {fmtEur(totals.netRealizedEur, { sign: true })}
+            {fmtPl(totals.netRealizedEur)}
           </span>
         </div>
       </div>

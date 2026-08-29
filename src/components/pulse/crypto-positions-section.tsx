@@ -1,5 +1,5 @@
 import { DataTable, type Column } from "./data-table";
-import { fmtEur, fmtPct, fmtQty } from "@/lib/format";
+import { fmtEur, fmtPct, fmtPl, fmtQty } from "@/lib/format";
 import type { CryptoPosition, CryptoPortfolioRollup } from "@/lib/data/crypto-positions";
 
 /**
@@ -21,8 +21,6 @@ export function CryptoPositionsSection({
 }) {
   if (positions.length === 0) return null;
 
-  const fmtPnl = (v: number) => fmtEur(v, { sign: true });
-
   const columns: Column<CryptoPosition>[] = [
     { key: "coin", label: "Coin", gridCol: "0.7fr",
       cell: (p) => <span className="font-semibold">{p.symbol}</span> },
@@ -39,7 +37,7 @@ export function CryptoPositionsSection({
     { key: "pl", label: "P/L", gridCol: "0.9fr", align: "right",
       cell: (p) => (
         <span className={`font-semibold flex flex-col ${p.unrealizedPnlEur >= 0 ? "text-mint" : "text-bad"}`}>
-          <span>{fmtPnl(p.unrealizedPnlEur)}</span>
+          <span>{fmtPl(p.unrealizedPnlEur)}</span>
           <span className={`text-[10px] ${p.unrealizedPnlEur >= 0 ? "text-mint/70" : "text-bad/70"}`}>
             {fmtPct(p.unrealizedPnlPct)}
           </span>
@@ -56,11 +54,11 @@ export function CryptoPositionsSection({
           <div className="font-mono text-[10px] text-muted uppercase tracking-widest">Total value</div>
           <div className="font-bold text-[18px] num tracking-tight">{fmtEur(rollup.totalValueEur)}</div>
           <div className={`font-mono text-[11px] ${rollup.unrealizedPnlEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {fmtPnl(rollup.unrealizedPnlEur)} · {fmtPct(rollup.unrealizedPnlPct)}
+            {fmtPl(rollup.unrealizedPnlEur)} · {fmtPct(rollup.unrealizedPnlPct)}
           </div>
           {rollup.realizedPnlYtdEur !== 0 && (
             <div className={`font-mono text-[10px] mt-0.5 ${rollup.realizedPnlYtdEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {fmtPnl(rollup.realizedPnlYtdEur)} realized YTD
+              {fmtPl(rollup.realizedPnlYtdEur)} realized YTD
             </div>
           )}
         </div>
@@ -79,7 +77,7 @@ export function CryptoPositionsSection({
             <div className="text-right">
               <div className="font-mono font-semibold text-[14px]">{fmtEur(p.currentValueEur)}</div>
               <div className={`font-mono text-[11px] ${p.unrealizedPnlEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {fmtPnl(p.unrealizedPnlEur)} · {fmtPct(p.unrealizedPnlPct)}
+                {fmtPl(p.unrealizedPnlEur)} · {fmtPct(p.unrealizedPnlPct)}
               </div>
             </div>
           </div>
@@ -98,7 +96,7 @@ export function CryptoPositionsSection({
           <span key="cost" className="text-right">{fmtEur(rollup.totalCostEur)}</span>,
           <span key="val" className="text-right">{fmtEur(rollup.totalValueEur)}</span>,
           <span key="pl" className={`text-right ${rollup.unrealizedPnlEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {fmtPnl(rollup.unrealizedPnlEur)}
+            {fmtPl(rollup.unrealizedPnlEur)}
           </span>,
         ],
         mobileLabel: "Σ Crypto total",
@@ -108,7 +106,7 @@ export function CryptoPositionsSection({
               cost {fmtEur(rollup.totalCostEur)} · value {fmtEur(rollup.totalValueEur)}
             </span>
             <span className={`text-[15px] ${rollup.unrealizedPnlEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {fmtPnl(rollup.unrealizedPnlEur)}
+              {fmtPl(rollup.unrealizedPnlEur)}
             </span>
           </div>
         ),

@@ -30,7 +30,8 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
   const fmtPct = (v: number | null, dec = 1) => {
     if (v === null) return "—";
-    return `${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
+    // Magnitude only — gain/loss reads off the colour, not a sign.
+    return `${Math.abs(v).toFixed(dec)}%`;
   };
   const fmtVal = (v: number | null, dec = 2) => v === null ? "—" : v.toFixed(dec);
 
@@ -54,11 +55,11 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             <div className="flex flex-wrap gap-6 mt-3 items-baseline">
               <div>
                 <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Portfolio</div>
-                <div className="font-bold text-[36px] num leading-tight text-mint tracking-tight">{fmtPct(d.hero.portfolioReturnPct)}</div>
+                <div className={`font-bold text-[36px] num leading-tight tracking-tight ${(d.hero.portfolioReturnPct ?? 0) >= 0 ? "text-mint" : "text-bad"}`}>{fmtPct(d.hero.portfolioReturnPct)}</div>
               </div>
               <div>
                 <div className="font-mono text-[10px] text-dim uppercase tracking-widest">S&amp;P 500</div>
-                <div className="font-bold text-[28px] num leading-tight text-muted tracking-tight mt-1">{fmtPct(d.hero.benchmarkReturnPct)}</div>
+                <div className={`font-bold text-[28px] num leading-tight tracking-tight mt-1 ${(d.hero.benchmarkReturnPct ?? 0) >= 0 ? "text-mint" : "text-bad"}`}>{fmtPct(d.hero.benchmarkReturnPct)}</div>
               </div>
               <div>
                 <div className="font-mono text-[10px] text-dim uppercase tracking-widest">Alpha</div>
@@ -111,13 +112,13 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           />
           <MetricTile
             label="Unrealized P/L"
-            value={`${cryptoRollup.unrealizedPnlEur >= 0 ? "+" : "−"}€${Math.abs(cryptoRollup.unrealizedPnlEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            sublabel={cryptoRollup.unrealizedPnlPct === null ? "no cost basis" : `${cryptoRollup.unrealizedPnlPct >= 0 ? "+" : ""}${cryptoRollup.unrealizedPnlPct.toFixed(2)}%`}
+            value={`€${Math.abs(cryptoRollup.unrealizedPnlEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            sublabel={cryptoRollup.unrealizedPnlPct === null ? "no cost basis" : `${Math.abs(cryptoRollup.unrealizedPnlPct).toFixed(2)}%`}
             accent={cryptoRollup.unrealizedPnlEur >= 0 ? "mint" : "bad"}
           />
           <MetricTile
             label="Realized YTD"
-            value={`${cryptoRollup.realizedPnlYtdEur >= 0 ? "+" : "−"}€${Math.abs(cryptoRollup.realizedPnlYtdEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            value={`€${Math.abs(cryptoRollup.realizedPnlYtdEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             sublabel="§23 matches"
             accent={cryptoRollup.realizedPnlYtdEur >= 0 ? "mint" : "bad"}
           />

@@ -18,7 +18,7 @@ export function PositionsHero({ d }: { d: PositionsData }) {
         <div className="font-mono text-[11px] uppercase tracking-widest text-dim">Portfolio value</div>
         <div className="text-[44px] lg:text-[52px] font-bold tracking-tight leading-none num mt-2">{eur(s.marketEur)}</div>
         <div className={`mt-3 font-mono text-sm ${up ? "text-mint" : "text-bad"}`}>
-          {up ? "+" : "−"}{eur(s.plEur)} {s.plPct === null ? "" : `· ${up ? "+" : ""}${s.plPct.toFixed(1)}%`} all-time
+          {eur(s.plEur)} {s.plPct === null ? "" : `· ${Math.abs(s.plPct).toFixed(1)}%`} all-time
         </div>
         <div className="mt-1 font-mono text-[11px] text-dim">Cash held separately · see the Cash section below.</div>
       </div>

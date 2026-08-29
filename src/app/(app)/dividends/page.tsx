@@ -39,7 +39,7 @@ export default async function DividendsPage({ searchParams }: { searchParams: SP
           <div className="flex gap-4 mt-4 items-center relative font-mono text-xs">
             {d.hero.yoyPct !== null && (
               <div className={`px-3 py-1.5 rounded-full font-semibold ${d.hero.yoyPct >= 0 ? "bg-mint/20 text-mint" : "bg-bad/20 text-bad"}`}>
-                {d.hero.yoyPct >= 0 ? "↗" : "↘"} {(d.hero.yoyPct >= 0 ? "+" : "") + d.hero.yoyPct.toFixed(1)}% vs YTD {new Date().getFullYear() - 1}
+                {d.hero.yoyPct >= 0 ? "↗" : "↘"} {Math.abs(d.hero.yoyPct).toFixed(1)}% vs YTD {new Date().getFullYear() - 1}
               </div>
             )}
             <div className="text-muted">

@@ -10,7 +10,7 @@ import { MetricsGrid } from "@/components/pulse/metrics-grid";
 import { TaxBucketsCard } from "@/components/pulse/tax-buckets-card";
 import { RealizedTradesModal } from "@/components/pulse/realized-trades-modal";
 import { TaxExportLink } from "@/components/pulse/tax-export-link";
-import { fmtEur } from "@/lib/format";
+import { fmtEur, fmtPl } from "@/lib/format";
 import { taxResponseSchema, type TaxResponse } from "@/lib/api/contracts";
 import { fetchApi } from "@/lib/api/client";
 
@@ -86,7 +86,7 @@ export function TaxClient({ year: yearNum }: { year: number }) {
               metrics={[
                 {
                   label: "Net realized",
-                  value: fmtEur(d.hero.netRealizedEur, { sign: true }),
+                  value: fmtPl(d.hero.netRealizedEur),
                   subline: `${d.realizedLots.length} matches`,
                   accent: "auto",
                   sign: d.hero.netRealizedEur,
@@ -131,7 +131,7 @@ export function TaxClient({ year: yearNum }: { year: number }) {
             </div>
             <div>
               <div className="uppercase tracking-widest">Realised</div>
-              <div className={`text-[11px] mt-0.5 ${d.allowance.breakdown.realizedGainsEur >= 0 ? "text-muted" : "text-bad"}`}>{fmtEur(d.allowance.breakdown.realizedGainsEur, { sign: true, dec: 0 })}</div>
+              <div className={`text-[11px] mt-0.5 ${d.allowance.breakdown.realizedGainsEur >= 0 ? "text-muted" : "text-bad"}`}>{fmtPl(d.allowance.breakdown.realizedGainsEur, { dec: 0 })}</div>
             </div>
             <div>
               <div className="uppercase tracking-widest">Interest</div>
@@ -190,7 +190,7 @@ export function TaxClient({ year: yearNum }: { year: number }) {
           <div className="grid grid-cols-2 gap-2 mt-4">
             <div className="bg-panel2 rounded-md px-3 py-2.5">
               <div className="font-mono text-[10px] text-dim uppercase tracking-widest">FX adjustments</div>
-              <div className="font-bold text-lg num mt-0.5">{fmtEur(d.allowance.fxAdjustmentsEur, { sign: true })}</div>
+              <div className="font-bold text-lg num mt-0.5">{fmtEur(d.allowance.fxAdjustmentsEur)}</div>
             </div>
             <div className="bg-panel2 rounded-md px-3 py-2.5">
               <div className="font-mono text-[10px] text-dim uppercase tracking-widest">WHT paid</div>

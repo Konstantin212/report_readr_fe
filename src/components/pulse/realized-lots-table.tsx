@@ -1,5 +1,5 @@
 import { DataTable, type Column } from "./data-table";
-import { fmtEur } from "@/lib/format";
+import { fmtEur, fmtPl } from "@/lib/format";
 
 export type RealizedLot = {
   ticker: string;
@@ -45,7 +45,7 @@ export function RealizedLotsTable({
     { key: "gain",     label: "Gain/Loss", gridCol: "1fr",  align: "right",
       cell: (l) => (
         <span className={`font-semibold ${l.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-          {fmtEur(l.gainEur, { sign: true, noSymbol: true })}
+          {fmtPl(l.gainEur, { noSymbol: true })}
         </span>
       ) },
   ];
@@ -68,7 +68,7 @@ export function RealizedLotsTable({
               <span className="font-mono text-[9px] text-dim tracking-wider">{l.method}</span>
             </div>
             <span className={`font-mono font-semibold text-[14px] ${l.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {fmtEur(l.gainEur, { sign: true })}
+              {fmtPl(l.gainEur)}
             </span>
           </div>
           {/* Line 2: opened → closed · qty */}
@@ -90,7 +90,7 @@ export function RealizedLotsTable({
           <span key="cost" className="text-right">{fmtEur(totalCostEur, { noSymbol: true })}</span>,
           <span key="proc" className="text-right">{fmtEur(totalProceedsEur, { noSymbol: true })}</span>,
           <span key="gain" className={`text-right ${netRealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-            {fmtEur(netRealizedEur, { sign: true, noSymbol: true })}
+            {fmtPl(netRealizedEur, { noSymbol: true })}
           </span>,
         ],
         mobileLabel: "Σ Net realized",
@@ -100,7 +100,7 @@ export function RealizedLotsTable({
               cost {fmtEur(totalCostEur)} · proceeds {fmtEur(totalProceedsEur)}
             </span>
             <span className={`text-[15px] ${netRealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {fmtEur(netRealizedEur, { sign: true })}
+              {fmtPl(netRealizedEur)}
             </span>
           </div>
         ),

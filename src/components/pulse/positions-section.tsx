@@ -211,7 +211,7 @@ export function PositionsSection({
   // be slightly racier and would re-allocate per iteration.
   const todayIso = new Date().toISOString().slice(0, 10);
   const fmtEur = (v: number) => "€" + Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmtPct = (v: number | null) => v === null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+  const fmtPct = (v: number | null) => v === null ? "—" : Math.abs(v).toFixed(1) + "%";
   const fmtNative = (v: number | null, ccy: string | null) => {
     if (v === null || !ccy) return "—";
     const sym = CCY_SYMBOL[ccy] ?? "";
@@ -331,10 +331,10 @@ export function PositionsSection({
             {/* Line 3 (mobile only): P/L €, P/L ccy, %. */}
             <div className="flex items-center justify-between gap-3 lg:hidden font-mono">
               <span className={`font-semibold text-[16px] ${plEurColor}`}>
-                {v.plEur === null ? "—" : (v.plEur >= 0 ? "+" : "−") + fmtEur(v.plEur)}
+                {v.plEur === null ? "—" : fmtEur(v.plEur)}
               </span>
               <span className={`font-semibold text-[13px] ${plNativeColor}`}>
-                {v.plNative === null ? "—" : (v.plNative >= 0 ? "+" : "−") + fmtNative(v.plNative, r.nativeCurrency)}
+                {v.plNative === null ? "—" : fmtNative(v.plNative, r.nativeCurrency)}
               </span>
               <span className={`font-semibold text-[13px] ${plPctColor}`}>
                 {fmtPct(v.plPct)}
@@ -356,10 +356,10 @@ export function PositionsSection({
             <span className="hidden lg:block text-right font-mono text-xs text-muted">{fmtEur(v.costEur)}</span>
             <span className="hidden lg:block text-right font-mono font-semibold text-[17px]">{r.marketEur === null ? "—" : fmtEur(r.marketEur)}</span>
             <span className={`hidden lg:block text-right font-mono font-semibold text-[16px] ${plEurColor}`}>
-              {v.plEur === null ? "—" : (v.plEur >= 0 ? "+" : "−") + fmtEur(v.plEur)}
+              {v.plEur === null ? "—" : fmtEur(v.plEur)}
             </span>
             <span className={`hidden lg:block text-right font-mono font-semibold text-xs ${plNativeColor}`}>
-              {v.plNative === null ? "—" : (v.plNative >= 0 ? "+" : "−") + fmtNative(v.plNative, r.nativeCurrency)}
+              {v.plNative === null ? "—" : fmtNative(v.plNative, r.nativeCurrency)}
             </span>
             <span className={`hidden lg:block text-right font-mono font-semibold text-[13px] ${plPctColor}`}>
               {fmtPct(v.plPct)}

@@ -11,6 +11,7 @@ import { DividendMiniBars } from "@/components/pulse/dividend-mini-bars";
 import { PositionsPreview } from "@/components/pulse/positions-preview";
 import { PerfChart } from "@/components/pulse/perf-chart";
 import { CryptoCard } from "@/components/pulse/crypto-card";
+import { fmtEur, fmtPct, fmtPl } from "@/lib/format";
 
 type SP = Promise<{ broker?: string }>;
 
@@ -31,17 +32,6 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   if (isFirstRun({ importCount, hasCryptoAccounts: crypto.hasAccounts })) {
     return <FirstRunCard />;
   }
-
-  const fmtEur = (v: number, opts: { sign?: boolean; dec?: number } = {}) => {
-    const { sign = false, dec = 2 } = opts;
-    const abs = Math.abs(v).toLocaleString("de-DE", { minimumFractionDigits: dec, maximumFractionDigits: dec });
-    const pre = sign ? (v >= 0 ? "+€" : "−€") : (v < 0 ? "−€" : "€");
-    return `${pre}${abs}`;
-  };
-  const fmtPct = (v: number | null) => {
-    if (v === null) return "—";
-    return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
-  };
 
   return (
     <main className="space-y-4">
@@ -65,15 +55,15 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
                 d.hero.dayChangeEur >= 0 ? "bg-mint/20 text-mint" : "bg-bad/20 text-bad"
               }`}>
                 <span>{d.hero.dayChangeEur >= 0 ? "↗" : "↘"}</span>
-                <span className="num">{fmtEur(d.hero.dayChangeEur, { sign: true })}</span>
+                <span className="num">{fmtPl(d.hero.dayChangeEur)}</span>
                 <span className="opacity-70 num">{fmtPct(d.hero.dayChangePct)}</span>
                 <span className="text-muted ml-1">today</span>
               </div>
             )}
             <div className="flex items-center gap-2 text-muted">
               <span>All-time</span>
-              <span className="text-ink num">{fmtEur(d.hero.totalReturnEur, { sign: true })}</span>
-              <span className="text-mint num">{fmtPct(d.hero.totalReturnPct)}</span>
+              <span className={`num ${d.hero.totalReturnEur >= 0 ? "text-mint" : "text-bad"}`}>{fmtPl(d.hero.totalReturnEur)}</span>
+              <span className={`num ${(d.hero.totalReturnPct ?? 0) >= 0 ? "text-mint" : "text-bad"}`}>{fmtPct(d.hero.totalReturnPct)}</span>
             </div>
           </div>
         </Card>
@@ -81,14 +71,14 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           <Card>
             <div className="font-mono text-[11px] text-muted tracking-widest uppercase">Unrealized P/L</div>
             <div className={`font-bold text-[30px] num mt-2 tracking-tight ${d.tiles.unrealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {fmtEur(d.tiles.unrealizedEur, { sign: true })}
+              {fmtPl(d.tiles.unrealizedEur)}
             </div>
             <div className="font-mono text-[11px] text-dim mt-1">{fmtPct(d.tiles.unrealizedPct)}</div>
           </Card>
           <Card>
             <div className="font-mono text-[11px] text-muted tracking-widest uppercase">Realized YTD</div>
-            <div className="font-bold text-[30px] num mt-2 tracking-tight text-amber">
-              {fmtEur(d.tiles.realizedYtdEur, { sign: true })}
+            <div className={`font-bold text-[30px] num mt-2 tracking-tight ${d.tiles.realizedYtdEur >= 0 ? "text-mint" : "text-bad"}`}>
+              {fmtPl(d.tiles.realizedYtdEur)}
             </div>
             <div className="font-mono text-[11px] text-dim mt-1">taxable basis</div>
           </Card>

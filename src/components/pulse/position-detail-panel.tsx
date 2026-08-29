@@ -145,10 +145,10 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
                 <span className="px-1 py-0.5 rounded bg-panel2 text-mint normal-case tracking-normal text-[9px]">{mode}</span>
               </div>
               <div className={`font-bold text-[30px] num mt-1 tracking-tight ${v.unrealizedEur >= 0 ? "text-mint" : "text-bad"}`}>
-                {(v.unrealizedEur >= 0 ? "+" : "−") + fmtEur(v.unrealizedEur)}
+                {fmtEur(v.unrealizedEur)}
               </div>
               <div className="font-mono text-[12px] text-muted mt-1">
-                {v.unrealizedPct === null ? "—" : (v.unrealizedPct >= 0 ? "+" : "") + v.unrealizedPct.toFixed(1) + "%"} from {fmtEur(v.avgCostEur, 2)}
+                {v.unrealizedPct === null ? "—" : Math.abs(v.unrealizedPct).toFixed(1) + "%"} from {fmtEur(v.avgCostEur, 2)}
               </div>
               {(d.feesEur > 0 || d.dividendsTotalEur > 0) && (
                 <div className="font-mono text-[10px] text-dim mt-2 leading-relaxed">
@@ -165,7 +165,7 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
               <span className="font-mono text-[10px] text-dim uppercase tracking-widest">Price · history</span>
               {d.sparkPctChange !== null && d.sparkPctChange !== undefined && (
                 <span className={`font-mono text-[11px] font-semibold ${d.sparkPctChange >= 0 ? "text-mint" : "text-bad"}`}>
-                  {(d.sparkPctChange >= 0 ? "+" : "") + d.sparkPctChange.toFixed(1)}%
+                  {Math.abs(d.sparkPctChange).toFixed(1)}%
                 </span>
               )}
             </div>
@@ -245,7 +245,7 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
                     {t.priceNative !== null && <> @ {fmtNative(t.priceNative, t.currency, 4)}</>}
                   </span>
                   <span className={`shrink-0 ${t.side === "buy" ? "text-bad" : "text-mint"}`}>
-                    {t.side === "buy" ? "−" : "+"}{fmtNative(Math.abs(t.amountNative), t.currency)}
+                    {fmtNative(Math.abs(t.amountNative), t.currency)}
                   </span>
                 </div>
               ))}
@@ -269,7 +269,7 @@ export function PositionDetailPanel({ d, onClose }: { d: DetailData; onClose: ()
                     </div>
                     {l.gainPct !== null && (
                       <span className={`font-semibold text-right sm:text-left ${l.gainPct >= 0 ? "text-mint" : "text-bad"}`}>
-                        {(l.gainPct >= 0 ? "+" : "") + l.gainPct.toFixed(0)}%
+                        {Math.abs(l.gainPct).toFixed(0)}%
                       </span>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 import { DataTable, type Column } from "./data-table";
 import { Pagination } from "./pagination";
-import { fmtEur, fmtQty } from "@/lib/format";
+import { fmtEur, fmtPl, fmtQty } from "@/lib/format";
 import type { Section23Match } from "@/lib/tax/anlage-so";
 
 export const SECTION23_PAGE_SIZE = 25;
@@ -49,7 +49,7 @@ export function Section23Table({
     { key: "gain",     label: "Gain",     gridCol: "0.95fr", align: "right",
       cell: (m) => (
         <span className={`font-semibold ${m.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-          {fmtEur(m.gainEur, { sign: true, noSymbol: true })}
+          {fmtPl(m.gainEur, { noSymbol: true })}
         </span>
       ) },
     { key: "lt",       label: "LT?",      gridCol: "0.5fr", align: "right",
@@ -83,7 +83,7 @@ export function Section23Table({
               )}
             </div>
             <span className={`font-mono font-semibold text-[14px] ${m.gainEur >= 0 ? "text-mint" : "text-bad"}`}>
-              {fmtEur(m.gainEur, { sign: true })}
+              {fmtPl(m.gainEur)}
             </span>
           </div>
           {/* Line 2: opened → closed (days) · qty */}

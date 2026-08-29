@@ -44,16 +44,16 @@ export function PositionsPreview({ rows }: { rows: PositionPreviewRow[] }) {
           <div className="sm:hidden flex flex-col items-end gap-0.5">
             <span className="text-ink">€{p.marketEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             <span className={pctColor}>
-              {v.plPct === null ? "—" : (v.plPct >= 0 ? "+" : "") + v.plPct.toFixed(1) + "%"}
+              {v.plPct === null ? "—" : Math.abs(v.plPct).toFixed(1) + "%"}
             </span>
           </div>
           {/* Desktop-only cells. */}
           <span className="hidden sm:inline text-right text-ink">€{p.marketEur.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           <span className={`hidden sm:inline text-right ${plColor}`}>
-            {v.plEur === null ? "—" : (v.plEur >= 0 ? "+€" : "−€") + Math.abs(v.plEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {v.plEur === null ? "—" : "€" + Math.abs(v.plEur).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
           <span className={`hidden sm:inline text-right ${pctColor}`}>
-            {v.plPct === null ? "—" : (v.plPct >= 0 ? "+" : "") + v.plPct.toFixed(1) + "%"}
+            {v.plPct === null ? "—" : Math.abs(v.plPct).toFixed(1) + "%"}
           </span>
         </div>
       );})}

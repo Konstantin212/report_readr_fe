@@ -6,7 +6,7 @@ import { MetricsGrid } from "@/components/pulse/metrics-grid";
 import { Section23Table } from "@/components/pulse/section23-table";
 import { StakingPerCoinTable } from "@/components/pulse/staking-per-coin-table";
 import { TaxExportLink } from "@/components/pulse/tax-export-link";
-import { fmtEur } from "@/lib/format";
+import { fmtEur, fmtPl } from "@/lib/format";
 
 type SP = Promise<{ page?: string }>;
 
@@ -67,7 +67,7 @@ export default async function AnlageSoPage({
                 },
                 {
                   label: "§23 Short-term",
-                  value: fmtEur(s23.shortTermNetGainEur, { sign: s23.shortTermNetGainEur !== 0 }),
+                  value: fmtPl(s23.shortTermNetGainEur),
                   subline: s23.matchCount === 0
                     ? "no sales"
                     : `${s23.matchCount} match${s23.matchCount === 1 ? "" : "es"} · €${s23.freigrenzeEur} cliff`,
@@ -128,7 +128,7 @@ export default async function AnlageSoPage({
           <div className="mt-4 font-mono text-[11px] text-muted flex justify-between">
             <span>§23 private sales</span>
             <span>
-              <span className="text-ink font-semibold">{fmtEur(s23.shortTermNetGainEur, { dec: 0, sign: s23.shortTermNetGainEur !== 0 })}</span> of €{s23.freigrenzeEur}
+              <span className="text-ink font-semibold">{fmtEur(s23.shortTermNetGainEur, { dec: 0 })}</span> of €{s23.freigrenzeEur}
             </span>
           </div>
           <div className="mt-2">
