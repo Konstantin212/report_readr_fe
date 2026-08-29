@@ -1,6 +1,9 @@
 import { requireCurrentUser } from "@/lib/auth/server";
 import { getDashboardData } from "@/lib/data/dashboard";
 import { getCryptoSummary } from "@/lib/data/crypto-summary";
+import { getImportCount } from "@/lib/data/imports";
+import { isFirstRun } from "@/lib/onboarding/first-run";
+import { FirstRunCard } from "@/components/onboarding/first-run-card";
 import { Card } from "@/components/pulse/card";
 import { AllocationDonut } from "@/components/pulse/allocation-donut";
 import { CurrencyBars } from "@/components/pulse/currency-bars";
@@ -15,7 +18,19 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   const user = await requireCurrentUser();
   const params = await searchParams;
   const broker = (params.broker === "ff" || params.broker === "ibkr" ? params.broker : "all") as "all" | "ff" | "ibkr";
-  const [d, crypto] = await Promise.all([getDashboardData(user.id, broker), getCryptoSummary(user.id)]);
+  // `getImportCount` is memoized with React `cache()` and already called by
+  // the app layout in this same request, so this join costs no extra query.
+  const [d, crypto, importCount] = await Promise.all([
+    getDashboardData(user.id, broker),
+    getCryptoSummary(user.id),
+    getImportCount(user.id),
+  ]);
+
+  // AC-OC3.2 — eight zero-valued widgets read as a broken account, not an
+  // empty one. A first-run user gets one card instead of the whole dashboard.
+  if (isFirstRun({ importCount, hasCryptoAccounts: crypto.hasAccounts })) {
+    return <FirstRunCard />;
+  }
 
   const fmtEur = (v: number, opts: { sign?: boolean; dec?: number } = {}) => {
     const { sign = false, dec = 2 } = opts;
@@ -94,7 +109,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
               <PerfChart values={d.equityCurve.portfolio} benchmark={d.equityCurve.benchmark.length > 0 ? d.equityCurve.benchmark : undefined} style="area" />
             </div>
           ) : (
-            <div className="h-[230px] flex items-center justify-center text-muted text-sm">No chart yet — history backfilling.</div>
+            <div className="h-[230px] flex items-center justify-center text-muted text-sm">No performance history yet.</div>
           )}
         </Card>
         <Card>

@@ -6,6 +6,102 @@ driving spec/plan (see the `documentation-standards` skill's changelog
 rules). This file is history, not the source of truth for current
 behavior — for that, follow the links into `docs/INDEX.md`.
 
+## 2026-08-28 — First-Run Onboarding Clarity (single-sourced instruction copy, `/upload` disclosure, first-run dashboard)
+
+**What:** Four fixes to what a cold, unknown user meets before they have any
+data — sign-up has been open since 2026-08-05, but the onboarding surfaces
+still read like they were written for a handful of known users:
+
+- **One authoring site for all broker instruction prose**
+  (`src/lib/onboarding/broker-instructions.ts`, new). Plain TypeScript — copy
+  as typed `CopySpan[]` runs, no JSX, no `"use client"`, no Tailwind class
+  names. Three surfaces now render it through
+  `src/components/onboarding/instruction-copy.tsx` (`Spans` /
+  `InstructionBody`, chrome-free): the welcome tour, the new `/upload`
+  disclosure, and the Settings → Crypto empty state. Chrome stays with each
+  consumer, so wording is shared while layout is not. **This is the durable
+  rule the feature exists to establish: onboarding prose is edited in that
+  module, never in a component.**
+- **An always-reachable "How do I export a statement?" disclosure on
+  `/upload`** (`src/components/pulse/export-instructions.tsx`, new),
+  collapsed by default, native `<button>` + `aria-expanded`/`aria-controls`.
+  Mounted as a **sibling** of the dropzone's `<label>`, never inside it — any
+  click inside that label activates the hidden file input, so the trigger is
+  placed outside rather than defended with `stopPropagation`. Its open state
+  lives in the leaf, so toggling cannot re-render an in-flight upload queue.
+  It reads no `localStorage`, so it is reachable after the one-shot welcome
+  tour has been permanently dismissed.
+- **Coinbase connect instructions corrected to match the real form.** The
+  tour said "Copy the key + secret" / "Paste them", implying two fields; the
+  form is a single `CDP Key JSON` textarea that wants the whole downloaded
+  key file. The copy now names the `.json` file Coinbase downloads, says to
+  open it in a text editor and paste its entire contents into that one box —
+  and that sentence is a single function, `coinbasePasteInstruction(where)`,
+  shared by the tour and the Settings → Crypto empty state. The tour's
+  Coinbase finish path now deep-links to `/settings?section=crypto`; bare
+  `/settings` defaults to `section=brokers` and shows "No broker accounts
+  yet", the opposite of that user's task. Every other in-app pointer at the
+  connect form (`ReadyCard`, `crypto/page.tsx`, `crypto-card.tsx`,
+  `first-run-card.tsx`) uses the same deep link.
+- **First-run dashboard card** (`src/components/onboarding/first-run-card.tsx`,
+  new; predicate in `src/lib/onboarding/first-run.ts`). A user with zero
+  imports **and** no connected crypto account gets one explanatory card with
+  an "Upload a statement" CTA instead of a €0.00 hero and seven more zeroed
+  widgets. Both conditions are required: a Coinbase-only user has zero
+  imports but real positions and still gets the normal dashboard. Implemented
+  as an early return in `src/app/(app)/page.tsx`, so the returning-user path
+  is a literal no-diff. The card is a server component reading no browser
+  storage, so it sits underneath the auto-opened tour and survives every
+  dismiss path; it points at the topbar `?` as the way back to the
+  walkthrough.
+- **Two misleading strings removed.** `No chart yet — history backfilling.`
+  claimed a background job that does not exist (now `No performance history
+  yet.`), and `This is a small, friends-only portfolio + German tax tool.`
+  contradicted `AUTH_SIGNUP_MODE` defaulting to `"open"` (now `This is a
+  portfolio + German tax tool.` — the two disallowed words deleted, nothing
+  else).
+
+**Why:** The instructions did not match the screens. The Coinbase step
+described a form that does not exist, the export steps were only ever
+reachable inside a one-shot tour that any close path dismisses permanently,
+the dashboard showed a brand-new account a wall of zeros with no call to
+action, and the first sentence a public visitor read told them the tool was
+friends-only. The root cause of the Coinbase defect was duplicated prose in
+two components, which is why the fix is a single copy module rather than a
+wording patch.
+
+**Notable non-changes:** no new dependency, no DB migration, no new query
+(`getImportCount` in `src/lib/data/imports.ts` is wrapped in React `cache()`
+so the layout's call and the dashboard's collapse to one `count(*)` per
+request — the App Router's supported substitute for prop-drilling from a
+layout, which cannot inject props into `children`). No analytics change: the
+tour still emits the literal `"settings"` for the Coinbase path even though
+its destination URL gained a query string, because `tourNextAction()` and
+`tourDestination()` (`src/lib/onboarding/tour-next-action.ts`, new) are
+deliberately separate functions — after this change it is not possible to
+widen the analytics allow-list by editing a URL. Nothing under `src/lib/tax`,
+the ledger, or Anlage KAP/KAP-INV/SO was touched, and no Revolut copy was
+added, removed or reworded.
+
+**Behavioural consequence, decided rather than stumbled into:** an existing
+user who deletes all imports and disconnects Coinbase now sees the first-run
+card instead of the zeroed dashboard.
+
+**Verification:** `tests/onboarding/broker-instructions.test.ts`,
+`first-run.test.ts`, `tour-next-action.test.ts` and `copy.test.ts` (the
+cross-cutting gate: one authoring site per distinctive sentence, banned
+strings absent, disclosure mounted outside the label). Known gap, stated
+rather than hidden: Vitest runs `environment: "node"` with no jsdom, so
+nothing proves the disclosure renders, that `aria-expanded` flips at runtime,
+or that clicking the trigger does not open the file picker. The structural
+choices carry that behaviour; the tests pin the choices. Closing it needs
+jsdom + Testing Library or a Playwright e2e on `/upload`.
+
+See [AC doc](superpowers/specs/2026-08-28-onboarding-clarity-ac.md),
+[design spec](superpowers/specs/2026-08-28-onboarding-clarity-design.md), and
+the durable [onboarding surfaces doc](onboarding-surfaces.md) for the
+invariants and "where do I edit this" guidance.
+
 ## 2026-08-08 — Role System & Admin Panel (DB-backed roles, user management, impersonation, deletion-as-erasure)
 
 **What:** Replaces the ad-hoc "is this route reachable" story for a brand

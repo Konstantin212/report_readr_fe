@@ -6,6 +6,8 @@ import {
   trackSettingsCoinbaseSyncClicked,
   trackSettingsCoinbaseDisconnected,
 } from "@/lib/analytics-events";
+import { coinbasePasteInstruction } from "@/lib/onboarding/broker-instructions";
+import { Spans } from "@/components/onboarding/instruction-copy";
 
 export type CryptoAccountRow = {
   id: string;
@@ -150,8 +152,8 @@ export function CryptoAccountsManager({ initial }: { initial: CryptoAccountRow[]
           No Coinbase account connected. Create a read-only CDP key at{" "}
           <a href="https://portal.cdp.coinbase.com/" target="_blank" rel="noreferrer" className="text-mint underline">
             portal.cdp.coinbase.com
-          </a>{" "}
-          and paste the JSON blob above.
+          </a>
+          . <Spans spans={coinbasePasteInstruction("on-settings-crypto-page")} />
         </div>
       ) : (
         <div className="divide-y divide-border">

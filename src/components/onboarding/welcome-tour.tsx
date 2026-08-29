@@ -9,6 +9,9 @@ import {
   trackOnboardingTourDismissed,
   trackOnboardingTourCompleted,
 } from "@/lib/analytics-events";
+import { BROKER_INSTRUCTIONS } from "@/lib/onboarding/broker-instructions";
+import { InstructionBody } from "@/components/onboarding/instruction-copy";
+import { tourDestination, tourNextAction } from "@/lib/onboarding/tour-next-action";
 
 const DISMISS_KEY = "tour_dismissed";
 
@@ -92,17 +95,14 @@ export function WelcomeTour({
   }, [closeTourState]);
 
   const finish = useCallback(() => {
-    const nextAction: "upload" | "settings" | "explore" =
-      selected.has("ibkr") || selected.has("freedom") ? "upload"
-      : selected.has("coinbase") ? "settings"
-      : "explore";
+    // The analytics literal and the destination URL are deliberately derived
+    // separately (AC-OC0.4): the Coinbase path deep-links to
+    // `/settings?section=crypto` without widening the event's allow-list.
+    const nextAction = tourNextAction(selected);
     trackOnboardingTourCompleted(nextAction);
     closeTourState();
-    if (nextAction === "upload") {
-      router.push("/upload");
-    } else if (nextAction === "settings") {
-      router.push("/settings");
-    }
+    const to = tourDestination(nextAction);
+    if (to) router.push(to);
   }, [closeTourState, router, selected]);
 
   const toggle = useCallback((p: Platform) => {
@@ -169,7 +169,7 @@ export function WelcomeTour({
           {currentStep === "ibkr" && <IbkrCard />}
           {currentStep === "freedom" && <FreedomCard />}
           {currentStep === "coinbase" && <CoinbaseCard />}
-          {currentStep === "ready" && <ReadyCard selected={selected} />}
+          {currentStep === "ready" && <ReadyCard selected={selected} onFinish={finish} />}
         </div>
 
         {/* Footer: nav */}
@@ -228,7 +228,7 @@ function WelcomeCard({ firstName }: { firstName?: string | null }) {
         Welcome{firstName ? `, ${firstName}` : ""}.
       </h2>
       <p className="text-ink/90 leading-relaxed">
-        This is a small, friends-only portfolio + German tax tool. Upload your broker statements
+        This is a portfolio + German tax tool. Upload your broker statements
         once, and you get:
       </p>
       <ul className="space-y-2 pl-1">
@@ -317,80 +317,48 @@ function GuideCard({
 }
 
 function IbkrCard() {
+  const section = BROKER_INSTRUCTIONS.ibkr;
   return (
     <GuideCard
       accentClass="bg-brand-ibkr"
-      badge="IBKR"
+      badge={section.badge}
       badgeBgClass="bg-brand-ibkr"
-      title="Get your IBKR Activity Statement"
+      title={section.title}
     >
-      <ol className="space-y-2.5 list-decimal pl-5">
-        <li><b>Client Portal</b> → <b>Performance &amp; Reports</b> → <b>Statements</b>.</li>
-        <li><b>Activity Statement</b> → period <b>Annual</b> (one per tax year).</li>
-        <li>Format <b>CSV</b>, sections <b>all</b> (the default).</li>
-        <li>Click <b>Run</b>, then <b>Download</b>.</li>
-      </ol>
-      <p>Repeat for each year you need.</p>
-      <p className="font-mono text-[11px] text-dim leading-relaxed pt-2">
-        Heads up: don&apos;t use the <b>Flex Query</b> CSV — column names differ. Use the standard
-        Activity Statement.
-      </p>
+      <InstructionBody section={section} />
     </GuideCard>
   );
 }
 
 function FreedomCard() {
+  const section = BROKER_INSTRUCTIONS.freedom;
   return (
     <GuideCard
       accentClass="bg-brand-freedom"
-      badge="FREEDOM24"
+      badge={section.badge}
       badgeBgClass="bg-brand-freedom"
-      title="Get your Freedom24 statement"
+      title={section.title}
     >
-      <ol className="space-y-2.5 list-decimal pl-5">
-        <li>Open <b>Freedom24</b> → top right → <b>Statements</b>.</li>
-        <li>Set the period to <b>All time</b> (or the earliest year you want taxes for).</li>
-        <li>Choose <b>JSON</b> as the format.</li>
-        <li>Click <b>Download</b>.</li>
-      </ol>
-      <p>
-        You&apos;ll get a file like <code className="font-mono text-[12px] bg-panel2 px-1.5 py-0.5 rounded">2017xx_…_all.json</code>.
-        Keep it on disk — you&apos;ll drop it on the upload page.
-      </p>
-      <p className="font-mono text-[11px] text-dim leading-relaxed pt-2">
-        Why JSON? It has the full trade / dividend / WHT history with ISINs and FX. CSV exports
-        drop fields the tax draft needs.
-      </p>
+      <InstructionBody section={section} />
     </GuideCard>
   );
 }
 
 function CoinbaseCard() {
+  const section = BROKER_INSTRUCTIONS.coinbase;
   return (
     <GuideCard
       accentClass="bg-brand-coinbase"
-      badge="COINBASE"
+      badge={section.badge}
       badgeBgClass="bg-brand-coinbase"
-      title="Connect Coinbase via API key"
+      title={section.title}
     >
-      <p>
-        Crypto syncs live, not via file upload. You&apos;ll create a <b>read-only</b> CDP API key:
-      </p>
-      <ol className="space-y-2.5 list-decimal pl-5">
-        <li><b>Coinbase Developer Platform</b> → <b>Portfolios</b> → <b>API keys</b> → <b>Create</b>.</li>
-        <li>Permissions: <b>view only</b> (do not enable trade or send).</li>
-        <li>Copy the key + secret.</li>
-        <li>Paste them on the <b>Settings → Crypto</b> page here.</li>
-      </ol>
-      <p>
-        A daily sync then pulls trades, staking rewards and balances into <b>§22</b> (staking income)
-        and <b>§23</b> (private sale) automatically.
-      </p>
+      <InstructionBody section={section} />
     </GuideCard>
   );
 }
 
-function ReadyCard({ selected }: { selected: Set<Platform> }) {
+function ReadyCard({ selected, onFinish }: { selected: Set<Platform>; onFinish: () => void }) {
   const pagesForSelection = () => {
     const out: { icon: string; label: string; desc: string }[] = [];
     if (selected.has("ibkr") || selected.has("freedom")) {
@@ -418,8 +386,21 @@ function ReadyCard({ selected }: { selected: Set<Platform> }) {
           </>
         ) : selected.has("coinbase") ? (
           <>
-            Open <b>Settings → Crypto</b> to paste your Coinbase API key, then the first sync will
-            populate everything.
+            Open{" "}
+            <a
+              href="/settings?section=crypto"
+              onClick={(e) => {
+                // Route through `finish()` so the completion event fires and
+                // the tour is dismissed — a raw navigation would leave it to
+                // auto-open again on the next dashboard visit.
+                e.preventDefault();
+                onFinish();
+              }}
+              className="text-mint underline"
+            >
+              <b>Settings → Crypto</b>
+            </a>{" "}
+            to paste your Coinbase API key, then the first sync will populate everything.
           </>
         ) : (
           <>Have a look around — when you&apos;re ready to import data, the tour is always available from the <span className="text-muted">?</span> in the topbar.</>

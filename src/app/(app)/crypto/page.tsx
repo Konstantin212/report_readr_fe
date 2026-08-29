@@ -23,7 +23,7 @@ export default async function CryptoPage() {
         <Card>
           <div className="text-muted text-sm">
             No crypto positions yet. Connect a Coinbase account in{" "}
-            <a href="/settings" className="text-mint underline">Settings</a>{" "}
+            <a href="/settings?section=crypto" className="text-mint underline">Settings</a>{" "}
             and run a sync to populate this page.
           </div>
         </Card>

@@ -10,6 +10,7 @@ import {
   type FileStatus,
 } from "./upload-queue";
 import { trackUploadFilesSelected, trackUploadFileIngested, toUploadBroker, type UploadBroker } from "@/lib/analytics-events";
+import { ExportInstructions } from "./export-instructions";
 
 type ImportRow = {
   id: string;
@@ -186,6 +187,10 @@ export function UploadDropzone({ recent }: { recent: ImportRow[] }) {
           gross of withholding tax, which German tax reporting needs.
         </div>
       </label>
+
+      {/* Sibling of the label, never a child: a click anywhere inside that
+          label opens the file picker (AC-OC2.10). */}
+      <ExportInstructions />
 
       {queue.length > 0 && (
         <div className="bg-panel border border-border rounded-xl p-4 space-y-3">
