@@ -8,7 +8,7 @@ export function BottomNav() {
   const pathname = usePathname();
   const currentYear = new Date().getFullYear();
   const NAV = [
-    { href: "/", label: "Dash", Icon: LayoutDashboard, destination: "dashboard", match: (p: string) => p === "/" },
+    { href: "/dashboard", label: "Dash", Icon: LayoutDashboard, destination: "dashboard", match: (p: string) => p.startsWith("/dashboard") },
     { href: "/performance", label: "Perf", Icon: TrendingUp, destination: "performance", match: (p: string) => p.startsWith("/performance") },
     { href: "/positions", label: "Pos", Icon: Wallet, destination: "positions", match: (p: string) => p.startsWith("/positions") },
     { href: "/crypto", label: "Crypto", Icon: Bitcoin, destination: "crypto", match: (p: string) => p.startsWith("/crypto") },

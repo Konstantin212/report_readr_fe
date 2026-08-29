@@ -9,7 +9,7 @@ export function TopbarNav() {
   // hosts a year selector to switch to other years with data.
   const currentYear = new Date().getFullYear();
   const NAV = [
-    { href: "/", label: "Dashboard", destination: "dashboard", match: (p: string) => p === "/" },
+    { href: "/dashboard", label: "Dashboard", destination: "dashboard", match: (p: string) => p.startsWith("/dashboard") },
     { href: "/performance", label: "Performance", destination: "performance", match: (p: string) => p.startsWith("/performance") },
     { href: "/positions", label: "Positions", destination: "positions", match: (p: string) => p.startsWith("/positions") },
     { href: "/crypto", label: "Crypto", destination: "crypto", match: (p: string) => p.startsWith("/crypto") },

@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   BROKER_INSTRUCTIONS,
+  BROKER_SUMMARIES,
   UPLOAD_INSTRUCTION_SECTIONS,
   coinbasePasteInstruction,
   spansToText,
+  type InstructionBrokerId,
   type InstructionSection,
 } from "@/lib/onboarding/broker-instructions";
 
@@ -178,6 +180,85 @@ describe("AC-OC0.1: the Coinbase copy describes the form that actually exists", 
 
   it("calls that field 'single', consistent with there being one input", () => {
     expect(spansToText(coinbasePasteInstruction("elsewhere"))).toContain("single");
+  });
+});
+
+describe("AC-SEO6.3: the landing page's orientation summaries derive from the instructions", () => {
+  // The public landing page renders BROKER_SUMMARIES instead of retyping a
+  // broker menu path (SEO issue #2, design ss7.1). A stale summary there is a
+  // wrong instruction Google serves, so the derivation is asserted on the
+  // imported values rather than fenced by phrase: every word the summary shows
+  // has to be a word the full instructions already say.
+  it("covers exactly the brokers the instruction module owns", () => {
+    expect([...BROKER_SUMMARIES].map((s) => s.id).sort()).toEqual(
+      Object.keys(BROKER_INSTRUCTIONS).sort(),
+    );
+  });
+
+  // Leading menu segments a summary is allowed to drop, per broker, each with
+  // the reason it is safe to drop. Anything arrow-joined ahead of a summary's
+  // first segment that is NOT declared here fails the front-door test below.
+  // That is the half the "appears verbatim" case cannot cover on its own: a
+  // summary can quote real segments and still start the reader inside a
+  // product they were never told to open (review finding B1,
+  // docs/superpowers/specs/2026-08-29-public-landing-page-review.md).
+  const ELIDED_PATH_LEAD: Record<InstructionBrokerId, readonly string[]> = {
+    // Client Portal is IBKR's only web UI, so it is where a reader told
+    // "Interactive Brokers" already is. Naming it adds no orientation.
+    ibkr: ["Client Portal"],
+    // The summary's own label says Freedom24, and "top right" is a screen
+    // position rather than a destination anyone can look up.
+    freedom: ["Freedom24", "top right"],
+    // Nothing may be dropped: the Developer Platform is a separate product
+    // from the Coinbase retail app that "Coinbase" sends a reader to, so the
+    // summary has to name it (review finding B1).
+    coinbase: [],
+  };
+
+  for (const summary of BROKER_SUMMARIES) {
+    const text = sectionText(BROKER_INSTRUCTIONS[summary.id]);
+
+    it(`${summary.id}: every path segment appears verbatim in the full instructions`, () => {
+      expect(summary.path.length).toBeGreaterThan(0);
+      // Verbatim AND in the instructions' own order — scanning forward from the
+      // previous match means a reversed pair can no longer stay green (N1).
+      let cursor = 0;
+      for (const segment of summary.path) {
+        expect(text).toContain(segment);
+        const at = text.indexOf(segment, cursor);
+        expect(at, `"${segment}" does not appear after the segment before it`).toBeGreaterThanOrEqual(0);
+        cursor = at + segment.length;
+      }
+    });
+
+    it(`${summary.id}: path is the whole menu chain from the broker's front door`, () => {
+      const chain = [...ELIDED_PATH_LEAD[summary.id], ...summary.path].join(" → ");
+      const at = text.indexOf(chain);
+      // Contiguity + order: the segments are arrow-joined in the instructions
+      // in exactly this sequence, not merely present somewhere in the section.
+      expect(at, `menu chain "${chain}" is not contiguous in:\n${text}`).toBeGreaterThanOrEqual(0);
+      // Completeness: nothing arrow-joined may precede the chain. An undeclared
+      // segment ahead of it is a step the reader has to guess (finding B1).
+      expect(
+        text.slice(0, at),
+        `"${summary.path[0]}" has an undeclared menu segment ahead of it`,
+      ).not.toMatch(/→\s*$/);
+    });
+
+    it(`${summary.id}: every artifact term appears verbatim in the full instructions`, () => {
+      expect(summary.artifact.length).toBeGreaterThan(0);
+      for (const term of summary.artifact) {
+        expect(text).toContain(term);
+      }
+    });
+  }
+
+  it("stays an orientation line: no sentences, no steps, no warnings", () => {
+    for (const summary of BROKER_SUMMARIES) {
+      for (const label of [...summary.path, ...summary.artifact]) {
+        expect(label).not.toMatch(/[.!?]$/);
+      }
+    }
   });
 });
 

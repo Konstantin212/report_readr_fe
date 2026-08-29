@@ -191,7 +191,7 @@ describe("AC-OC2.9: Revolut copy is byte-identical", () => {
 });
 
 describe("AC-OC3.2–3.5: the dashboard first-run branch", () => {
-  const dashboard = readSrc("src/app/(app)/page.tsx");
+  const dashboard = readSrc("src/app/(app)/dashboard/page.tsx");
 
   it("returns the first-run card early, so no zero-valued widget renders", () => {
     expect(dashboard).toContain("isFirstRun(");
@@ -224,7 +224,7 @@ describe("AC-OC3.2–3.5: the dashboard first-run branch", () => {
 
   it("no longer claims a background backfill is running (AC-OC3.5)", () => {
     expect(filesContaining("history backfilling")).toEqual([]);
-    expect(filesContaining(/backfill/i).filter((p) => p.startsWith("src/app/(app)/page.tsx"))).toEqual([]);
+    expect(filesContaining(/backfill/i).filter((p) => p.startsWith("src/app/(app)/dashboard/page.tsx"))).toEqual([]);
     expect(dashboard).toContain("No performance history yet.");
   });
 });
@@ -359,7 +359,7 @@ describe("AC-OC3.3: the first-run card says what happened and what to do next", 
 });
 
 describe("AC-OC3.5: no surface claims a background job the app does not run", () => {
-  const dashboard = readSrc("src/app/(app)/page.tsx");
+  const dashboard = readSrc("src/app/(app)/dashboard/page.tsx");
 
   it("replaces the empty-curve copy with a neutral statement of fact", () => {
     expect(dashboard).toContain("No performance history yet.");
@@ -393,7 +393,12 @@ describe("AC-OC4.4: no onboarding surface implies restricted access", () => {
     (f) =>
       f.path.includes("/onboarding/") ||
       f.path.endsWith("export-instructions.tsx") ||
-      f.path.endsWith("src/app/sign-in/page.tsx"),
+      f.path.endsWith("src/app/sign-in/page.tsx") ||
+      // The hero, feature cards and broker list moved off `/sign-in` onto
+      // the public landing page at `/` (SEO issue #2). That page is now
+      // the first onboarding surface anyone reads, so the same
+      // restricted-access ban has to follow the copy.
+      f.path.endsWith("src/app/(marketing)/page.tsx"),
   );
 
   it("scans a non-empty set of surfaces", () => {

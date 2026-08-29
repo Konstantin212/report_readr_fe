@@ -144,6 +144,54 @@ export const BROKER_INSTRUCTIONS: Record<InstructionBrokerId, InstructionSection
 };
 
 /**
+ * One-line orientation summary per broker, for the public landing page.
+ *
+ * NOT instructions — no steps, no warnings, no walkthrough. The landing page
+ * tells a visitor which menu to look for before they have an account; the
+ * real walkthrough lives in `BROKER_INSTRUCTIONS` and is what they follow
+ * once they are in.
+ *
+ * Every string in `path` and `artifact` must also appear verbatim in that
+ * broker's own `InstructionSection`. That is asserted over these values in
+ * `tests/onboarding/broker-instructions.test.ts`, not fenced by phrase, so
+ * that a rename inside the full instructions cannot leave a wrong menu path
+ * behind on a page Google serves.
+ */
+export type BrokerSummary = {
+  id: InstructionBrokerId;
+  /** Display name, e.g. "Interactive Brokers". */
+  label: string;
+  /** Menu path, in the broker's own words, rendered joined by an arrow. */
+  path: readonly string[];
+  /** What you end up with, rendered emphasised. */
+  artifact: readonly string[];
+  /** Free qualifier, e.g. "optional". Not fenced against the section. */
+  note?: string;
+};
+
+export const BROKER_SUMMARIES: readonly BrokerSummary[] = [
+  {
+    id: "ibkr",
+    label: "Interactive Brokers",
+    path: ["Performance & Reports", "Statements"],
+    artifact: ["Activity Statement", "Annual", "CSV"],
+  },
+  {
+    id: "freedom",
+    label: "Freedom24",
+    path: ["Statements"],
+    artifact: ["All time", "JSON"],
+  },
+  {
+    id: "coinbase",
+    label: "Coinbase",
+    path: ["Coinbase Developer Platform", "Portfolios", "API keys"],
+    artifact: ["view only"],
+    note: "optional",
+  },
+];
+
+/**
  * Sections the `/upload` disclosure shows, in order. Statement-upload brokers
  * only — Coinbase is a live API sync, not a file upload. This explicit list is
  * also why the disclosure cannot grow an unintended broker section (AC-OC2.9).

@@ -65,7 +65,7 @@ function VerifyEmailCard() {
     // AC-10: the session cookie is already set in this tab
     // (autoSignInAfterVerification, design doc §1) — proceed straight
     // into the app.
-    window.location.href = "/";
+    window.location.href = "/dashboard";
   }, [invalid, attemptId]);
 
   if (invalid) {
