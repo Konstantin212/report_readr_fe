@@ -401,6 +401,37 @@ document (flagged prominently both in-page and in design doc §26) — that
 caveat is restated here rather than this gap being marked closed without
 qualification.
 
+**Update (2026-08-29): RE-OPENED, and its scope has widened.** Two facts,
+recorded together because they compound:
+
+1. **The `/privacy` page no longer exists.** It was removed along with its
+   sign-in link (`chore(privacy): remove privacy-policy page and its
+   sign-in link`); there is no `src/app/privacy/` in the tree. The
+   2026-08-06 update above is therefore superseded — this gap is open
+   again, in the same state it was in before that page shipped, plus
+   everything below.
+2. **`<Analytics />` now runs on a fully public page.** The
+   [public landing page](2026-08-29-public-landing-page-ac.md) put a
+   statically prerendered marketing page at `/`, in a `(marketing)` route
+   group that inherits `src/app/layout.tsx` — where `<Analytics />` is
+   mounted unconditionally for every route
+   ([analytics design](2026-08-07-analytics-events-design.md)). The mount
+   is **pre-existing and was not introduced by that change**; what changed
+   is who is under it. Until 2026-08-29 every route reachable by an
+   anonymous visitor was an auth screen; now the product's front door is
+   too, so anonymous visitors who have never been shown a privacy notice —
+   and who may never sign up — are in scope for it.
+
+This is recorded as a **known condition against future work, not as a
+defect to fix now**: the decision has been taken to leave the mount as it
+is for the time being. What it constrains is the shape of the eventual
+privacy notice — it must cover the **public** side (anonymous visitors to
+`/`, before any account exists) as well as the authenticated side this
+document has always described. A privacy page that only speaks to signed-up
+users would no longer be a complete Art. 13 notice for this app. Item 2 of
+the summary list below (Resend's processing region and DPA) remains open
+and folds into the same piece of work.
+
 ---
 
 ## Summary of open items this document surfaces for direct user sign-off (additive to design doc §22, not a duplicate list)

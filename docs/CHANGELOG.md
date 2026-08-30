@@ -6,6 +6,111 @@ driving spec/plan (see the `documentation-standards` skill's changelog
 rules). This file is history, not the source of truth for current
 behavior — for that, follow the links into `docs/INDEX.md`.
 
+## 2026-08-29 — Public landing page at `/`, dashboard moved to `/dashboard`, first middleware (SEO issue #2)
+
+**What:** `/` is now a public, statically prerendered marketing page and the
+dashboard has its own URL.
+
+- **A landing page in a new `(marketing)` route group**
+  (`src/app/(marketing)/page.tsx`, new). A Server Component with no
+  `"use client"`, no hooks and no dynamic API on its render path — no
+  `headers()`, `cookies()`, `getSession()`, `getCurrentUser()` or database
+  query anywhere above it. `export const dynamic = "force-static"` makes the
+  staticness a build-time guarantee rather than a convention: a dynamic read
+  added later fails `pnpm build` instead of silently demoting the app's most
+  valuable SEO surface. Verified prerendered — `┌ ○ /` in the build route
+  table, `x-nextjs-prerender: 1` and `x-nextjs-cache: HIT` on the response.
+- **The dashboard moved to `/dashboard`**
+  (`src/app/(app)/dashboard/page.tsx`). Still inside the `(app)` group, still
+  gated by `requireCurrentUser()` in `src/app/(app)/layout.tsx` — the gate's
+  location, mechanism and behaviour are unchanged. Seven in-app "go to the
+  dashboard" pointers moved with it: the topbar logo, `topbar-nav`,
+  `bottom-nav` (both including their `match` predicates), the non-admin
+  `redirect()` in `require-admin.ts`, `impersonate-button.tsx`,
+  `auth-card.tsx` (three post-auth navigations plus the OAuth `callbackURL`)
+  and `verify-email/page.tsx`. The `/sign-in` logo link still points at `/`
+  **on purpose** — that one is the route back to the marketing page, not a
+  dashboard pointer.
+- **`src/middleware.ts`, the repo's first middleware.** `matcher: "/"` and
+  nothing else. It redirects to `/dashboard` when a session cookie is
+  *present*, using better-auth's `getSessionCookie` — a cookie-header parse
+  only. It does **not** validate the token, query the database, read
+  `emailVerified` or check `role`.
+- **`/sign-in` reduced to a focused auth screen** — logo, one orienting
+  sentence, `<AuthModalTrigger />`. The hero, feature cards and broker list
+  moved to `/`; no auth code path was touched.
+- **`BROKER_SUMMARIES` in `src/lib/onboarding/broker-instructions.ts`.** The
+  landing page's "what you'll need" list derives its broker menu paths from
+  the existing copy module rather than retyping them, keeping that module the
+  single authoring site.
+
+**Why:** `https://ptfolio.net/` answered 307 → `/sign-in`, because the
+dashboard owned `/` inside the `(app)` group and that group's layout calls
+`requireCurrentUser()`. The only publicly reachable, indexable page in the
+product was a login form: thin, transactional, and ranking for nothing. The
+root URL is the page everyone links to, so it has to be the one that says what
+the product does. Signed-in users were not to pay for that, which is what the
+middleware is for.
+
+**Two decisions worth stating, because both are easy to misread later:**
+
+1. **The middleware is deliberately not an auth gate.** Cookie *presence* is
+   the whole check. `requireCurrentUser()` remains the single enforced choke
+   point, so an attacker who causes the middleware not to run at all
+   (CVE-2025-29927 class of bypass — middleware is skippable by design in a
+   way a Server Component's `await auth.api.getSession()` is not) gains
+   exactly one thing: a signed-in user sees the marketing page instead of
+   being bounced. No page renders authenticated data and no admin surface
+   opens. The accepted cost is that a **stale** cookie goes
+   `/` → `/dashboard` → `/sign-in`: two hops, terminating, with the user
+   never seeing the landing page from the root URL until they sign out. That
+   was chosen over a client-side bounce, which would flash marketing content
+   at signed-in users and fail the no-JavaScript path.
+2. **`noindex` for the `(app)` group is deferred to issue #5 (metadata), not
+   forgotten.** `/dashboard` cannot be indexed with content — an anonymous
+   request is redirected before anything renders — and a `robots` directive
+   on `(app)/layout.tsx` would apply to *every* authenticated route, setting
+   app-wide metadata policy as a side effect of a route move. Issue #5 should
+   rule on the whole group at once. Reasoning and the handoff list:
+   [design](superpowers/specs/2026-08-29-public-landing-page-design.md) §8/Q3.
+
+**Also recorded, out of scope for this change:**
+
+- **`<Analytics />` runs on the public landing page.** It is mounted
+  unconditionally in `src/app/layout.tsx`, which `(marketing)` inherits, so
+  anonymous visitors who have seen no privacy notice are now in scope. The
+  mount is **pre-existing and was not introduced here** — what changed is who
+  is under it. Decision taken to leave it as is for now; it is recorded as a
+  known condition against the planned privacy notice, which must now cover the
+  public side as well as the authenticated one. See
+  [data-lifecycle](superpowers/specs/2026-08-05-open-signup-data-lifecycle.md)
+  §AC-29, which also notes that the earlier `/privacy` page has since been
+  removed from the codebase.
+- **The crypto §22/§23 module now has a BMF citation on record.** The
+  tax-correctness review of the landing page's tax copy had to retrieve the
+  governing circular and found that `docs/` cited BMF for the KAP loss buckets
+  and the Basiszins but for nothing under `src/lib/tax/anlage-so.ts`. That
+  citation — BMF-Schreiben v. 06.03.2025, GZ IV C 1 - S 2256/00042/064/043 —
+  is now written down, together with the one thing the review could **not**
+  confirm: the effective date of the §23 600 → 1 000 uplift at
+  `anlage-so.ts:33-35`, which stays flagged rather than approved. →
+  [doc](crypto-22-23-bmf-sources.md)
+
+**Review:** `code-reviewer` returned one blocking finding (B1) — the Coinbase
+orientation summary rendered `Portfolios → API keys`, a Coinbase **Developer
+Platform** menu path that does not exist in the retail app the word "Coinbase"
+sends a reader to. The design had prescribed that shape, so the fix was not
+just the string: the derivation test gained an `ELIDED_PATH_LEAD` map, so a
+summary may drop a leading menu segment only by declaring it with a reason.
+See [onboarding surfaces](onboarding-surfaces.md) §1.1. All findings resolved
+and verified before this entry was written.
+
+→ [AC](superpowers/specs/2026-08-29-public-landing-page-ac.md) /
+[design](superpowers/specs/2026-08-29-public-landing-page-design.md) /
+[tax review](superpowers/specs/2026-08-29-public-landing-page-tax-review.md) /
+[code review](superpowers/specs/2026-08-29-public-landing-page-review.md).
+Driving issue: `Konstantin212/report_readr_fe#2`.
+
 ## 2026-08-28 — First-Run Onboarding Clarity (single-sourced instruction copy, `/upload` disclosure, first-run dashboard)
 
 **What:** Four fixes to what a cold, unknown user meets before they have any

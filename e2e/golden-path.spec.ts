@@ -18,7 +18,7 @@ test.describe.skip("golden path: upload → dashboard → tax", () => {
     });
     await expect(page.getByText(/PARSED|DUPLICATE/)).toBeVisible({ timeout: 30_000 });
 
-    await page.goto("/");
+    await page.goto("/dashboard");
     await expect(page.getByText(/positions/i)).toBeVisible();
 
     await page.goto("/tax/2025");

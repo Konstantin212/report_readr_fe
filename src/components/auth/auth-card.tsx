@@ -202,7 +202,7 @@ export function AuthCard({
     const channel = new BroadcastChannel(FOLIO_AUTH_CHANNEL_NAME);
     channel.onmessage = (event: MessageEvent) => {
       if (isEmailVerifiedBroadcastMessage(event.data) && event.data.correlationId === activeCorrelationId) {
-        window.location.href = "/";
+        window.location.href = "/dashboard";
       }
     };
     return () => channel.close();
@@ -229,7 +229,7 @@ export function AuthCard({
         });
         const body: unknown = await res.json().catch(() => null);
         if (!cancelled && parseClaimResponseStatus(body) === "granted") {
-          window.location.href = "/";
+          window.location.href = "/dashboard";
         }
       } catch {
         // Background convenience only — next tick retries; the
@@ -253,7 +253,7 @@ export function AuthCard({
 
   async function handleOAuth(provider: AuthProviderId) {
     setError(null);
-    await authClient.signIn.social({ provider, callbackURL: "/" });
+    await authClient.signIn.social({ provider, callbackURL: "/dashboard" });
   }
 
   async function handleSignIn(e: FormEvent) {
@@ -282,7 +282,7 @@ export function AuthCard({
         return;
       }
       trackSignInSucceeded();
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     } finally {
       setPending(false);
     }

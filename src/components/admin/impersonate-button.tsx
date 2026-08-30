@@ -22,7 +22,7 @@ export function ImpersonateButton({ userId, userEmail }: { userId: string; userE
       const res = await fetch(`/api/admin/panel/users/${userId}/impersonate`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-      router.push("/" as never);
+      router.push("/dashboard" as never);
       router.refresh();
     } catch (err) {
       setError((err as Error).message);

@@ -62,7 +62,7 @@ export async function getAdminSession() {
 export async function requireAdminUser(): Promise<AdminSessionUser> {
   const session = await getAdminSession();
   if (!session) {
-    redirect("/");
+    redirect("/dashboard");
   }
 
   return {
